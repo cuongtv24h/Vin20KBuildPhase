@@ -8,22 +8,29 @@
 # Exits 0 silently if no Python is found — hooks must never block the AI tool.
 set -u
 
-if command -v python3 >/dev/null 2>&1; then
-  PY=python3
-elif command -v python >/dev/null 2>&1; then
-  PY=python
-elif command -v py >/dev/null 2>&1; then
-  PY="py -3"
-else
+# `command -v` only checks PATH presence, but Windows registers no-op "App
+# Execution Alias" stubs for python/python3 (Microsoft Store redirector) that
+# exist on PATH yet fail to actually run Python. Verify each candidate really
+# executes before trusting it.
+_py_works() {
+  # shellcheck disable=SC2086
+  $1 --version >/dev/null 2>&1
+}
+
+PY=""
+for cand in python3 python "py -3"; do
+  if _py_works "$cand"; then PY="$cand"; break; fi
+done
+
+if [ -z "$PY" ]; then
   # PATH lookup failed — probe standard Windows install locations.
-  PY=""
   shopt -s nullglob 2>/dev/null || true
   for cand in \
     /c/Users/*/AppData/Local/Programs/Python/Python*/python.exe \
     "/c/Program Files/Python"*/python.exe \
     "/c/Program Files (x86)/Python"*/python.exe \
     /c/Python*/python.exe; do
-    if [ -x "$cand" ]; then PY="$cand"; break; fi
+    if [ -x "$cand" ] && _py_works "$cand"; then PY="$cand"; break; fi
   done
   shopt -u nullglob 2>/dev/null || true
   [ -n "$PY" ] || exit 0
