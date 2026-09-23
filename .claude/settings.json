@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=claude",
+            "command": "bash scripts/ai_log/_pyrun.sh scripts/ai_log/log_hook.py --tool=claude",
             "shell": "bash"
           }
         ]
