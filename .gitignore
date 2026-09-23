@@ -1,60 +1,178 @@
-# Python
+# ==============================================================================
+# ENTERPRISE 8-LAYER GITIGNORE FOR RAG & AI AGENT (PRICEPOLICY P-096)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# LAYER 1: Core Python & Virtual Environments
+# ------------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
+*$py.class
 *.so
-*.egg-info/
-dist/
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
 .eggs/
-
-# Virtual environments
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 venv/
 .venv/
 env/
+ENV/
+env.bak/
+venv.bak/
 
-# Environment variables
+# ------------------------------------------------------------------------------
+# LAYER 2: Environment Variables, Credentials & Security Secrets
+# ------------------------------------------------------------------------------
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+credentials.json
+client_secrets.json
+service_account.json
+token.json
+private_keys/
+secrets/
 
-# IDE
-.vscode/
+# ------------------------------------------------------------------------------
+# LAYER 3: Legal Policy Documents & Confidential Ingestion Data
+# (Prevent internal legal policies, raw customer contracts & data dumps from leaking)
+# ------------------------------------------------------------------------------
+data/raw/
+data/raw_policies/
+data/confidential/
+data/contracts/
+data/customer_data/
+data/uploads/
+data/temp/
+
+# Raw policy file extensions (unprocessed enterprise documents)
+*.pdf
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.csv
+*.tsv
+
+# Allow committed sample / canonical data strictly used for tests and reference
+!data/sample/
+!data/sample/**
+!data/canonical/
+!data/canonical/**
+!data/benchmark/
+!data/benchmark/**
+
+# ------------------------------------------------------------------------------
+# LAYER 4: Vector Store & Embeddings Local Persistence
+# ------------------------------------------------------------------------------
+.chroma/
+.chromadb/
+.qdrant/
+pgvector_data/
+vector_db/
+vector_indices/
+*.index
+*.hnsw
+*.faiss
+*.parquet
+*.lance
+*.lancedb/
+*.db
+*.sqlite
+*.sqlite3
+
+# ------------------------------------------------------------------------------
+# LAYER 5: LLM, Tokenizer & Embedding Model Local Caches & Weights
+# ------------------------------------------------------------------------------
+/models/
+/weights/
+/checkpoints/
+!src/models/
+!src/models/*.py
+!src/models/**/*.py
+*.bin
+*.safetensors
+*.onnx
+*.pt
+*.pth
+*.gguf
+.cache/
+huggingface/
+huggingface_cache/
+torch_cache/
+transformers_cache/
+
+# ------------------------------------------------------------------------------
+# LAYER 6: AI Logging, Tracing, Evaluation Results & Run Artifacts
+# ------------------------------------------------------------------------------
+logs/
+*.log
+.ai-log/*.jsonl
+.ai-log/archive/
+wandb/
+.langsmith/
+eval_results/
+ragas_eval_*.json
+evaluation_outputs/
+trace_*.jsonl
+*.prof
+profile/
+eval/results/rag_eval_report_*.md
+!eval/results/report.md
+
+# ------------------------------------------------------------------------------
+# LAYER 7: Operating System & IDE Configs
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Data (never commit large data)
-data/
-*.db
-*.sqlite3
-
-# Logs
-logs/
-*.log
-
-# Test coverage
-htmlcov/
+# ------------------------------------------------------------------------------
+# LAYER 8: Testing, CI/CD, Coverage & Build Artifacts
+# ------------------------------------------------------------------------------
+.tox/
+.nox/
 .coverage
+.coverage.*
+.cache
+nosetests.xml
 coverage.xml
-
-# Docker
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
 docker-compose.override.yml
-
-# Node (frontend)
-node_modules/
-.next/
-out/
-.nuxt/
-
-# Build
-*.pyc
-*.pyo
-
-# AI logs — tracked structure, ignored content
-.ai-log/*.jsonl
-.ai-log/archive/
