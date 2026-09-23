@@ -27,6 +27,14 @@ import argparse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+# Fix Windows console encoding so VN diacritics and emojis in prompts print cleanly.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 VN_TZ = timezone(timedelta(hours=7))
 
 
