@@ -23,8 +23,9 @@
 | Dev 2 (ChungVanDuy) | Task 1.2: Thiết lập module số học `arithmetic.py` (Decimal 28, round_vnd, Anti-Float Guard) | ✅ Done | `src/pricing_sidecar/arithmetic.py`, `tests/test_pricing_sidecar/test_arithmetic.py` (21/21 tests pass, ruff clean) | 1.0h |
 | Dev 2 (ChungVanDuy) | Task 1.3: Xây dựng toàn bộ Enums & ma trận nghiệp vụ trong `contracts.py` | ✅ Done | `src/pricing_sidecar/contracts.py`, `tests/test_pricing_sidecar/test_enums.py` (14/14 tests pass, ruff clean) | 0.5h |
 | Dev 2 (ChungVanDuy) | Task 1.4: Xây dựng Pydantic Input Models & 8 Invariant Validators | ✅ Done | `src/pricing_sidecar/contracts.py`, `tests/test_pricing_sidecar/test_input_contracts.py` (32/32 tests pass, ruff clean) | 1.0h |
+| Dev 2 (ChungVanDuy) | Task 1.5: Xây dựng Pydantic Output Models, hoàn tất Milestone M0 Contract Freeze | ✅ Done | `src/pricing_sidecar/contracts.py`, `tests/test_pricing_sidecar/test_output_contracts.py` (18/18 tests pass, ruff clean) | 0.8h |
 
-**Tổng kết ngày:** Hoàn thành lập WBS phân rã công việc, chuẩn hóa 15 golden cases (Task 1.1), thiết lập module số học `arithmetic.py` (Task 1.2), xây dựng hệ thống Enums (Task 1.3) và hoàn tất Pydantic Input Models với 8 Invariants cùng bộ builders kịch bản chuẩn (Task 1.4). Tổng số tests đạt 67/67 pass 100%.
+**Tổng kết ngày:** Hoàn thành xuất sắc 100% Task Lớn 1 (5/5 tasks con), đóng băng thành công Milestone M0 (Contract Freeze) bao gồm toàn bộ Hợp đồng Dữ liệu Đầu vào & Đầu ra theo FCS v2.6. Tổng cộng 85/85 unit tests pass 100% (0.17s) và ruff linter đạt chuẩn sạch.
 
 ---
 

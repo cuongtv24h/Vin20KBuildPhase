@@ -615,3 +615,209 @@ def create_canonical_scenario_config(
             deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference
         )
     raise ValueError(f"Unsupported scenario_type: {scenario_type}")
+
+
+# ---------------------------------------------------------------------------
+# Output Contracts conforming to FCS v2.6 §4.5 & §7
+# ---------------------------------------------------------------------------
+class CashflowInstallmentOutput(AntiFloatBaseModel):
+    """Output installment execution milestone conforming to FCS v2.6 §4.5."""
+
+    installment_number: int = Field(..., ge=1, le=30)
+    milestone_name: str = Field(..., min_length=1)
+    due_date: date
+    customer_equity_paid_vnd: int = Field(..., ge=0)
+    bank_disbursement_vnd: int = Field(..., ge=0)
+    maintenance_fee_paid_vnd: int = Field(..., ge=0)
+    installment_gross_obligation_vnd: int = Field(
+        ..., ge=0, description="Tổng nghĩa vụ đợt này (Equity + Bank + KPBT)"
+    )
+    installment_additional_cash_due_vnd: int = Field(
+        ..., ge=0, description="Tiền khách nộp thêm thực tế sau khi trừ cọc (Đợt 1)"
+    )
+    deposit_credited_vnd: int = Field(
+        default=0, ge=0, description="Tiền cọc kết chuyển vào đợt này"
+    )
+    is_handover_milestone: bool = Field(default=False)
+    is_reconciliation_installment: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def validate_installment_consistency(self) -> "CashflowInstallmentOutput":
+        # 1. Gross obligation must equal equity + bank + maintenance fee
+        expected_gross = (
+            self.customer_equity_paid_vnd
+            + self.bank_disbursement_vnd
+            + self.maintenance_fee_paid_vnd
+        )
+        if self.installment_gross_obligation_vnd != expected_gross:
+            raise ValueError(
+                f"Installment {self.installment_number}: installment_gross_obligation_vnd "
+                f"({self.installment_gross_obligation_vnd}) không khớp với tổng equity + bank + kpbt ({expected_gross})."
+            )
+
+        # 2. Deposit credited cannot exceed customer equity paid
+        if self.deposit_credited_vnd > self.customer_equity_paid_vnd:
+            raise ValueError(
+                f"Installment {self.installment_number}: deposit_credited_vnd ({self.deposit_credited_vnd}) "
+                f"vượt quá customer_equity_paid_vnd ({self.customer_equity_paid_vnd})."
+            )
+
+        # 3. Additional cash due must equal customer equity paid minus deposit credited + maintenance fee paid
+        expected_additional_cash = (
+            self.customer_equity_paid_vnd
+            - self.deposit_credited_vnd
+            + self.maintenance_fee_paid_vnd
+        )
+        if self.installment_additional_cash_due_vnd != expected_additional_cash:
+            raise ValueError(
+                f"Installment {self.installment_number}: installment_additional_cash_due_vnd "
+                f"({self.installment_additional_cash_due_vnd}) không khớp với số tiền thực nộp dự kiến ({expected_additional_cash})."
+            )
+
+        return self
+
+
+class ScenarioCalculationResult(AntiFloatBaseModel):
+    """Complete financial calculation result for a single commercial scenario."""
+
+    scenario_type: ScenarioType
+    scenario_name: str = Field(..., min_length=1)
+    listed_price_vnd: int = Field(..., gt=0, description="P_listed: Giá niêm yết chưa VAT")
+    fixed_discount_vnd: int = Field(
+        default=0, ge=0, description="D_fixed: Giảm trừ tiền mặt cố định"
+    )
+    base_after_fixed_vnd: int = Field(
+        ..., ge=0, description="Base_1 = P_listed - D_fixed"
+    )
+    total_discount_rate: Decimal = Field(
+        default=Decimal("0.0000"),
+        ge=0,
+        le=1,
+        description="Sum_Rate: Tổng tỷ lệ chiết khấu %",
+    )
+    percentage_discount_vnd: int = Field(
+        default=0, ge=0, description="Discount_Percent_Amount"
+    )
+    net_price_before_vat: int = Field(
+        ..., gt=0, description="P_net = Base_1 - Discount_Percent_Amount"
+    )
+    vat_rate: Decimal = Field(default=Decimal("0.1000"), ge=0, le=1)
+    vat_amount: int = Field(..., ge=0, description="A_vat = round_vnd(P_net * R_vat)")
+    maintenance_fee_rate: Decimal = Field(default=Decimal("0.0200"), ge=0, le=1)
+    maintenance_fee_amount: int = Field(
+        ..., ge=0, description="A_kpbt = round_vnd(P_net * R_kpbt)"
+    )
+    final_contract_price: int = Field(
+        ..., gt=0, description="P_contract = P_net + A_vat + A_kpbt"
+    )
+    initial_gross_obligation_vnd: int = Field(
+        ..., ge=0, description="Tổng nghĩa vụ Đợt 1 (gồm cọc và ngân hàng nếu có)"
+    )
+    initial_cash_outflow_vnd: int = Field(
+        ...,
+        ge=0,
+        description="Tổng tiền mặt thực tế khách phải bỏ ra từ cọc đến ký HĐMB (Hàm mục tiêu MIN_INITIAL_OUTFLOW)",
+    )
+    customer_cash_outflow_until_handover: int = Field(
+        ...,
+        ge=0,
+        description="Tổng vốn tự có khách nộp đến bàn giao (Hàm mục tiêu MIN_CASH_OUTFLOW_TO_HANDOVER)",
+    )
+    total_benefit_value_vnd: int = Field(
+        default=0,
+        ge=0,
+        description="Tổng giá trị ưu đãi thương mại được phê duyệt định giá",
+    )
+    cashflow_schedule: list[CashflowInstallmentOutput] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_scenario_financial_invariants(self) -> "ScenarioCalculationResult":
+        # 1. Base_1 = P_listed - D_fixed
+        if self.base_after_fixed_vnd != self.listed_price_vnd - self.fixed_discount_vnd:
+            raise ValueError(
+                f"base_after_fixed_vnd ({self.base_after_fixed_vnd}) != listed_price_vnd "
+                f"({self.listed_price_vnd}) - fixed_discount_vnd ({self.fixed_discount_vnd})."
+            )
+
+        # 2. P_net = Base_1 - percentage_discount_vnd
+        if self.net_price_before_vat != self.base_after_fixed_vnd - self.percentage_discount_vnd:
+            raise ValueError(
+                f"net_price_before_vat ({self.net_price_before_vat}) != base_after_fixed_vnd "
+                f"({self.base_after_fixed_vnd}) - percentage_discount_vnd ({self.percentage_discount_vnd})."
+            )
+
+        # 3. P_contract = P_net + A_vat + A_kpbt
+        expected_contract = self.net_price_before_vat + self.vat_amount + self.maintenance_fee_amount
+        if self.final_contract_price != expected_contract:
+            raise ValueError(
+                f"final_contract_price ({self.final_contract_price}) != net ({self.net_price_before_vat}) "
+                f"+ vat ({self.vat_amount}) + kpbt ({self.maintenance_fee_amount}) = {expected_contract}."
+            )
+
+        # 4. Cashflow schedule reconciliation (if schedule present)
+        if self.cashflow_schedule:
+            total_schedule_gross = sum(
+                inst.installment_gross_obligation_vnd for inst in self.cashflow_schedule
+            )
+            if total_schedule_gross != self.final_contract_price:
+                raise ValueError(
+                    f"Tổng nghĩa vụ dòng tiền ({total_schedule_gross}) != final_contract_price ({self.final_contract_price})."
+                )
+
+        return self
+
+
+class ValidationReport(AntiFloatBaseModel):
+    """Sanity checks verification report for financial calculation results."""
+
+    is_valid: bool = True
+    status: CalculationStatus = CalculationStatus.VALID
+    invariants_checked: list[str] = Field(default_factory=list)
+    error_message: str | None = None
+    field_errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class RecommendationResult(AntiFloatBaseModel):
+    """Scenario recommendation result under a given optimization objective."""
+
+    selected_objective: OptimizationObjective
+    recommended_scenario: ScenarioType
+    comparison_summary: list[dict[str, Any]] = Field(default_factory=list)
+    quantitative_rationale: str = Field(..., min_length=1)
+    is_tie_break_applied: bool = Field(default=False)
+    tiebreak_rule_id: str | None = None
+    tie_break_reason: str | None = None
+
+
+class PricingCalculationOutput(AntiFloatBaseModel):
+    """Top-level immutable calculation output envelope with RFC 8785 signature."""
+
+    spec_version: str = Field(default="2.6")
+    engine_version: str = Field(default="DeterministicPricingEngine_v2.6")
+    calculation_timestamp: str = Field(
+        ..., min_length=1, description="ISO-8601 UTC timestamp of calculation run"
+    )
+    unit_code: str = Field(..., min_length=1)
+    scenario_results: list[ScenarioCalculationResult]
+    recommended_result: RecommendationResult | None = None
+    validation_report: ValidationReport = Field(default_factory=ValidationReport)
+    canonical_snapshot_hash: str = Field(
+        ...,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+        description="RFC 8785 Canonical JSON SHA-256 Hash of calculation output",
+    )
+    quote_id: str | None = None
+    quote_version: int | None = None
+
+    @model_validator(mode="after")
+    def validate_recommended_scenario_exists(self) -> "PricingCalculationOutput":
+        if self.recommended_result:
+            available_types = {s.scenario_type for s in self.scenario_results}
+            if self.recommended_result.recommended_scenario not in available_types:
+                raise ValueError(
+                    f"recommended_scenario '{self.recommended_result.recommended_scenario}' "
+                    f"không nằm trong danh sách scenario_results ({available_types})."
+                )
+        return self
