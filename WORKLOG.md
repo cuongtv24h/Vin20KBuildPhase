@@ -16,6 +16,16 @@
 
 ---
 
+## 2026-09-15
+
+| Member | Task | Status | Output | Time |
+|--------|------|--------|--------|------|
+| DuyPhuong8804 | Setup repo (clone, kiểm tra cấu trúc project, tạo branch `docs`) | ✅ Done | Repo sẵn sàng để phát triển | - |
+
+**Tổng kết ngày:** Hoàn thành setup repo ban đầu, bắt đầu cập nhật tài liệu.
+
+---
+
 ## [YYYY-MM-DD]
 
 | Member | Task | Status | Output | Time |
