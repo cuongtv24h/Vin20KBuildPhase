@@ -22,8 +22,9 @@
 | Dev 2 (ChungVanDuy) | Task 1.1: Chuẩn hóa & mở rộng `golden_scenarios.json` đủ 17 cases (15 Golden Cases FCS Table 10) | ✅ Done | `dataset/fixtures/golden_scenarios.json` (17 cases pass 100% invariants) | 1.0h |
 | Dev 2 (ChungVanDuy) | Task 1.2: Thiết lập module số học `arithmetic.py` (Decimal 28, round_vnd, Anti-Float Guard) | ✅ Done | `src/pricing_sidecar/arithmetic.py`, `tests/test_pricing_sidecar/test_arithmetic.py` (21/21 tests pass, ruff clean) | 1.0h |
 | Dev 2 (ChungVanDuy) | Task 1.3: Xây dựng toàn bộ Enums & ma trận nghiệp vụ trong `contracts.py` | ✅ Done | `src/pricing_sidecar/contracts.py`, `tests/test_pricing_sidecar/test_enums.py` (14/14 tests pass, ruff clean) | 0.5h |
+| Dev 2 (ChungVanDuy) | Task 1.4: Xây dựng Pydantic Input Models & 8 Invariant Validators | ✅ Done | `src/pricing_sidecar/contracts.py`, `tests/test_pricing_sidecar/test_input_contracts.py` (32/32 tests pass, ruff clean) | 1.0h |
 
-**Tổng kết ngày:** Hoàn thành lập WBS phân rã công việc, chuẩn hóa 15 golden cases (Task 1.1), thiết lập module số học `arithmetic.py` (Task 1.2) và xây dựng toàn bộ hệ thống Enums nghiệp vụ `contracts.py` (Task 1.3) với 35/35 unit tests pass.
+**Tổng kết ngày:** Hoàn thành lập WBS phân rã công việc, chuẩn hóa 15 golden cases (Task 1.1), thiết lập module số học `arithmetic.py` (Task 1.2), xây dựng hệ thống Enums (Task 1.3) và hoàn tất Pydantic Input Models với 8 Invariants cùng bộ builders kịch bản chuẩn (Task 1.4). Tổng số tests đạt 67/67 pass 100%.
 
 ---
 

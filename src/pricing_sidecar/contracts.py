@@ -5,7 +5,14 @@ TD-4.2 Reference: Section 2 (Domain-Driven Design)
 TD-4.4 Reference: Section 4 (Tool & Governance Contracts)
 """
 
+from datetime import date
+from decimal import Decimal
 from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from src.pricing_sidecar.arithmetic import assert_no_float
 
 
 class ScenarioType(StrEnum):
@@ -118,3 +125,493 @@ VALID_BENEFIT_MAPPING: dict[BenefitCategory, set[BenefitType]] = {
     BenefitCategory.VOUCHER: {BenefitType.VOUCHER},
     BenefitCategory.SERVICE_WAIVER: {BenefitType.SERVICE_WAIVER},
 }
+
+
+# ---------------------------------------------------------------------------
+# Base Schema with Anti-Float Guard
+# ---------------------------------------------------------------------------
+class AntiFloatBaseModel(BaseModel):
+    """Base Pydantic model enforcing zero-float policy at deserialization."""
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def check_zero_float(cls, data: Any) -> Any:
+        assert_no_float(data)
+        return data
+
+
+# ---------------------------------------------------------------------------
+# Input Contracts conforming to FCS v2.6 §3 & §4
+# ---------------------------------------------------------------------------
+class StructuredPolicyReference(AntiFloatBaseModel):
+    """Immutable cryptographic coordinate linking calculations to approved legal policy."""
+
+    policy_id: str = Field(..., min_length=1, description="Policy unique identifier e.g. POL-2026-VLF-GEN")
+    policy_version: str = Field(..., min_length=1, description="Policy release version e.g. v2.6")
+    clause_id: str = Field(..., min_length=1, description="Specific clause identifier e.g. Điều 4.2 Khoản 1")
+    page_number: int = Field(default=1, ge=1, description="Page number in approved source document")
+    source_file_sha256: str = Field(
+        ...,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-fA-F]{64}$",
+        description="Immutable SHA-256 hash of legal policy PDF/Markdown file",
+    )
+    effective_from: date = Field(..., description="Start date of policy validity")
+    effective_to: date = Field(..., description="End date of policy validity")
+
+    @model_validator(mode="after")
+    def validate_effective_dates(self) -> "StructuredPolicyReference":
+        if self.effective_from > self.effective_to:
+            raise ValueError(
+                f"Policy effective_from ({self.effective_from}) cannot be after effective_to ({self.effective_to})."
+            )
+        return self
+
+
+class InstallmentRule(AntiFloatBaseModel):
+    """Configuration rule for a single milestone/installment payment in schedule."""
+
+    installment_number: int = Field(..., ge=1, le=30, description="Thứ tự đợt thanh toán (1..30)")
+    milestone_name: str = Field(..., min_length=1, description="Tên sự kiện / mốc thanh toán")
+    days_from_deposit: int = Field(..., ge=0, description="Số ngày tính từ ngày đặt cọc (deposit_date)")
+
+    customer_equity_ratio: Decimal = Field(default=Decimal("0.0000"), ge=0, le=1)
+    bank_disbursement_ratio: Decimal = Field(default=Decimal("0.0000"), ge=0, le=1)
+    maintenance_fee_ratio: Decimal = Field(default=Decimal("0.0000"), ge=0, le=1)
+
+    is_handover: bool = Field(default=False, description="Đánh dấu mốc bàn giao nhà (thu 100% KPBT)")
+    is_reconciliation: bool = Field(default=False, description="Đánh dấu mốc quyết toán cuối (triệt tiêu sai số lẻ)")
+
+    @property
+    def payment_ratio(self) -> Decimal:
+        """Tổng tỷ lệ thanh toán tiền nhà (Equity + Bank disbursement)."""
+        return self.customer_equity_ratio + self.bank_disbursement_ratio
+
+
+class PaymentScenarioConfig(AntiFloatBaseModel):
+    """Comprehensive payment scenario schedule and funding policy configuration."""
+
+    scenario_type: ScenarioType
+    scenario_name: str = Field(..., min_length=1)
+    installment_rules: list[InstallmentRule]
+    deposit_amount_vnd: int = Field(default=100_000_000, ge=0, description="Tiền cọc thực tế đã nộp")
+    bank_financing_rate: Decimal = Field(default=Decimal("0.0000"), ge=0, le=1)
+    customer_equity_rate: Decimal = Field(default=Decimal("1.0000"), ge=0, le=1)
+    interest_support_months: int | None = Field(default=None, ge=0)
+    principal_grace_months: int | None = Field(default=None, ge=0)
+    policy_reference: StructuredPolicyReference | None = None
+
+    @model_validator(mode="after")
+    def validate_scenario_configuration(self) -> "PaymentScenarioConfig":
+        # 1. Kiểm tra tổng tỷ lệ vốn
+        total_funding_rate = self.bank_financing_rate + self.customer_equity_rate
+        if total_funding_rate != Decimal("1.0000"):
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Tổng bank_financing_rate ({self.bank_financing_rate}) + "
+                f"customer_equity_rate ({self.customer_equity_rate}) phải bằng 1.0000 (hiện tại: {total_funding_rate})."
+            )
+
+        rules = self.installment_rules
+        if not rules:
+            raise ValueError(f"Scenario {self.scenario_type}: Danh sách installment_rules không được rỗng.")
+
+        # 2. Invariant Reconciliation: Đúng 1 đợt reconciliation
+        recon_rules = [r for r in rules if r.is_reconciliation]
+        if len(recon_rules) != 1:
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Bắt buộc phải có DUY NHẤT 1 đợt reconciliation (tìm thấy {len(recon_rules)})."
+            )
+
+        # 3. Invariant Handover: Đúng 1 đợt bàn giao
+        handover_rules = [r for r in rules if r.is_handover]
+        if len(handover_rules) != 1:
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Bắt buộc phải có DUY NHẤT 1 đợt bàn giao nhà (tìm thấy {len(handover_rules)})."
+            )
+
+        # 4. Invariant Installment Numbering: Tăng liên tục 1..N
+        numbers = [r.installment_number for r in rules]
+        expected_numbers = list(range(1, len(rules) + 1))
+        if numbers != expected_numbers:
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Thứ tự installment_number phải liên tục từ 1 đến {len(rules)}, hiện tại: {numbers}."
+            )
+
+        # 5. Invariant Timeline Monotonicity: Ngày đợt sau >= đợt trước
+        days_seq = [r.days_from_deposit for r in rules]
+        if days_seq != sorted(days_seq):
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Tiến độ days_from_deposit phải đơn điệu không giảm."
+            )
+
+        # 6. Invariant Maintenance Fee: Toàn bộ 100% KPBT phải được thu (thông thường tại handover)
+        total_kpbt_ratio = sum(r.maintenance_fee_ratio for r in rules)
+        if total_kpbt_ratio != Decimal("1.0000"):
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Tổng maintenance_fee_ratio phải bằng 1.0000 (hiện tại: {total_kpbt_ratio})."
+            )
+
+        # 7. Invariant Equity Allocation: Tổng vốn tự có các đợt không reconciliation phải <= customer_equity_rate
+        non_recon_equity = sum(r.customer_equity_ratio for r in rules if not r.is_reconciliation)
+        if non_recon_equity > self.customer_equity_rate:
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Tổng vốn tự có các đợt trước ({non_recon_equity}) vượt quá trần cấu hình ({self.customer_equity_rate})."
+            )
+
+        # 8. Invariant Bank Allocation: Tổng ngân hàng giải ngân các đợt không reconciliation phải <= bank_financing_rate
+        non_recon_bank = sum(r.bank_disbursement_ratio for r in rules if not r.is_reconciliation)
+        if non_recon_bank > self.bank_financing_rate:
+            raise ValueError(
+                f"Scenario {self.scenario_type}: Tổng giải ngân ngân hàng ({non_recon_bank}) vượt quá trần cấu hình ({self.bank_financing_rate})."
+            )
+
+        return self
+
+
+class BenefitApplicationRule(AntiFloatBaseModel):
+    """Commercial policy incentive rule to apply into price deduction and accounting."""
+
+    benefit_id: str = Field(..., min_length=1)
+    benefit_type: BenefitType
+    category: BenefitCategory
+    fixed_deduction_vnd: int = Field(default=0, ge=0)
+    discount_rate: Decimal = Field(default=Decimal("0.0000"), ge=0, le=1)
+    calculation_base: CalculationBase = CalculationBase.PRICE_AFTER_FIXED
+    application_order: int = Field(default=1, ge=1, description="Thứ tự ưu tiên áp dụng hạn mức và kiểm toán")
+    valuation_status: ValuationStatus
+    price_deduction_authorized: bool  # CHỈ ĐƯỢC PHÉP TRỪ GIÁ KHI ĐƯỢC CHÍNH SÁCH ỦY QUYỀN
+    source_policy_clause: StructuredPolicyReference
+
+    @model_validator(mode="after")
+    def validate_benefit_fields(self) -> "BenefitApplicationRule":
+        # 1. Ma trận tương thích Category - Type
+        allowed_types = VALID_BENEFIT_MAPPING.get(self.category, set())
+        if self.benefit_type not in allowed_types:
+            raise ValueError(
+                f"Benefit {self.benefit_id}: category '{self.category}' "
+                f"không tương thích với benefit_type '{self.benefit_type}'. "
+                f"Các type hợp lệ: {allowed_types}"
+            )
+
+        # 2. Nếu không được ủy quyền trừ giá thì cấm có số tiền trừ hoặc tỷ lệ chiết khấu
+        if not self.price_deduction_authorized:
+            if self.fixed_deduction_vnd > 0 or self.discount_rate > Decimal("0.0000"):
+                raise ValueError(
+                    f"Benefit {self.benefit_id}: price_deduction_authorized=False "
+                    f"nhưng lại có fixed_deduction_vnd={self.fixed_deduction_vnd} hoặc discount_rate={self.discount_rate}."
+                )
+
+        # 3. FIXED_CASH bắt buộc số tiền > 0
+        if self.benefit_type == BenefitType.FIXED_CASH and self.fixed_deduction_vnd <= 0:
+            raise ValueError(f"Benefit {self.benefit_id}: FIXED_CASH yêu cầu fixed_deduction_vnd > 0.")
+
+        # 4. PERCENTAGE bắt buộc discount_rate > 0
+        if self.benefit_type == BenefitType.PERCENTAGE and self.discount_rate <= Decimal("0.0000"):
+            raise ValueError(f"Benefit {self.benefit_id}: PERCENTAGE yêu cầu discount_rate > 0.")
+
+        # 5. Quà tặng hiện vật chỉ được trừ giá khi có ValuationStatus.APPROVED
+        if self.benefit_type == BenefitType.IN_KIND and self.price_deduction_authorized:
+            if self.valuation_status != ValuationStatus.APPROVED:
+                raise ValueError(
+                    f"Benefit {self.benefit_id}: Quà hiện vật chỉ được trừ giá khi có ValuationStatus.APPROVED."
+                )
+
+        return self
+
+
+class PricingCalculationInput(AntiFloatBaseModel):
+    """Complete calculation input payload for Deterministic Pricing Engine."""
+
+    unit_code: str = Field(..., min_length=1, description="Mã căn hộ e.g. A-12-05")
+    deposit_date: date = Field(..., description="Ngày ký thỏa thuận đặt cọc")
+    contract_signing_date: date = Field(..., description="Ngày ký Hợp đồng Mua bán chính thức")
+    listed_price_vnd: int = Field(..., gt=0, description="Giá niêm yết chưa thuế VAT (P_listed)")
+    deposit_amount_vnd: int = Field(default=100_000_000, ge=0, description="Tiền cọc thực tế đã nộp")
+    resolved_policy_snapshot_id: str = Field(..., min_length=1)
+    source_policy_hash: str = Field(..., min_length=1)
+    approved_benefits: list[BenefitApplicationRule] = Field(default_factory=list)
+    scenario_configs: list[PaymentScenarioConfig] = Field(default_factory=list)
+    tax_vat_rate: Decimal = Field(default=Decimal("0.1000"), ge=0, le=1)
+    maintenance_fee_rate: Decimal = Field(default=Decimal("0.0200"), ge=0, le=1)
+    max_discount_rate: Decimal = Field(default=Decimal("0.3500"), ge=0, le=1)
+    max_total_discount_cap_rate: Decimal = Field(default=Decimal("0.4000"), ge=0, le=1)
+    calculation_spec_version: str = Field(default="2.6")
+    quote_id: str | None = None
+    quote_version: int | None = None
+    selected_scenarios: list[str] = Field(
+        default_factory=lambda: ["PA-CHUDONG", "PA-NHANH", "PA-VAY"]
+    )
+    tiebreak_rule_id: str = Field(default="TB-RULE-2026-CHUDONG-V1")
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "PricingCalculationInput":
+        if self.contract_signing_date < self.deposit_date:
+            raise ValueError(
+                f"Ngày ký HĐMB ({self.contract_signing_date}) không được sớm hơn ngày đặt cọc ({self.deposit_date})."
+            )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Canonical Scenario Builders (FCS v2.6 §3 / TD-4.2 §3.4)
+# ---------------------------------------------------------------------------
+def create_pa_chudong_config(
+    deposit_amount_vnd: int = 100_000_000,
+    policy_reference: StructuredPolicyReference | None = None,
+) -> PaymentScenarioConfig:
+    """Tạo cấu hình kịch bản PA-CHUDONG (Tiến độ chuẩn 9 đợt thanh toán)."""
+    rules = [
+        InstallmentRule(
+            installment_number=1,
+            milestone_name="Đợt 1: Ký HĐMB (đã kết chuyển cọc)",
+            days_from_deposit=15,
+            customer_equity_ratio=Decimal("0.1500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=2,
+            milestone_name="Đợt 2: Xây thô tầng 5",
+            days_from_deposit=60,
+            customer_equity_ratio=Decimal("0.1000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=3,
+            milestone_name="Đợt 3: Xây thô tầng 10",
+            days_from_deposit=120,
+            customer_equity_ratio=Decimal("0.1000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=4,
+            milestone_name="Đợt 4: Xây thô tầng 15",
+            days_from_deposit=180,
+            customer_equity_ratio=Decimal("0.1000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=5,
+            milestone_name="Đợt 5: Xây thô tầng 20",
+            days_from_deposit=240,
+            customer_equity_ratio=Decimal("0.1000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=6,
+            milestone_name="Đợt 6: Cất nóc công trình",
+            days_from_deposit=300,
+            customer_equity_ratio=Decimal("0.1000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=7,
+            milestone_name="Đợt 7: Hoàn thiện mặt ngoài",
+            days_from_deposit=360,
+            customer_equity_ratio=Decimal("0.1000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=8,
+            milestone_name="Đợt 8: Thông báo bàn giao nhà",
+            days_from_deposit=450,
+            customer_equity_ratio=Decimal("0.2000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("1.0000"),
+            is_handover=True,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=9,
+            milestone_name="Đợt 9: Nhận Giấy chứng nhận quyền sở hữu (Sổ hồng)",
+            days_from_deposit=540,
+            customer_equity_ratio=Decimal("0.0500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=True,
+        ),
+    ]
+    return PaymentScenarioConfig(
+        scenario_type=ScenarioType.STANDARD_PROGRESS,
+        scenario_name="Phương án Tiến độ Chuẩn (9 Đợt)",
+        installment_rules=rules,
+        deposit_amount_vnd=deposit_amount_vnd,
+        bank_financing_rate=Decimal("0.0000"),
+        customer_equity_rate=Decimal("1.0000"),
+        policy_reference=policy_reference,
+    )
+
+
+def create_pa_nhanh_config(
+    deposit_amount_vnd: int = 100_000_000,
+    policy_reference: StructuredPolicyReference | None = None,
+) -> PaymentScenarioConfig:
+    """Tạo cấu hình kịch bản PA-NHANH (Thanh toán sớm 95%)."""
+    rules = [
+        InstallmentRule(
+            installment_number=1,
+            milestone_name="Đợt 1: Ký HĐMB và thanh toán sớm 95% (đã kết chuyển cọc)",
+            days_from_deposit=15,
+            customer_equity_ratio=Decimal("0.9500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=2,
+            milestone_name="Đợt 2: Thông báo bàn giao nhà (thu 100% KPBT)",
+            days_from_deposit=180,
+            customer_equity_ratio=Decimal("0.0000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("1.0000"),
+            is_handover=True,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=3,
+            milestone_name="Đợt 3: Nhận Giấy chứng nhận quyền sở hữu (Sổ hồng)",
+            days_from_deposit=240,
+            customer_equity_ratio=Decimal("0.0500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=True,
+        ),
+    ]
+    return PaymentScenarioConfig(
+        scenario_type=ScenarioType.EARLY_95,
+        scenario_name="Phương án Thanh toán Sớm 95%",
+        installment_rules=rules,
+        deposit_amount_vnd=deposit_amount_vnd,
+        bank_financing_rate=Decimal("0.0000"),
+        customer_equity_rate=Decimal("1.0000"),
+        policy_reference=policy_reference,
+    )
+
+
+def create_pa_vay_config(
+    deposit_amount_vnd: int = 100_000_000,
+    interest_support_months: int = 24,
+    principal_grace_months: int = 24,
+    policy_reference: StructuredPolicyReference | None = None,
+) -> PaymentScenarioConfig:
+    """Tạo cấu hình kịch bản PA-VAY (Hỗ trợ lãi suất ngân hàng 70%)."""
+    rules = [
+        InstallmentRule(
+            installment_number=1,
+            milestone_name="Đợt 1: Ký HĐMB - Khách nộp 15% vốn tự có (đã kết chuyển cọc)",
+            days_from_deposit=15,
+            customer_equity_ratio=Decimal("0.1500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=2,
+            milestone_name="Đợt 2: Ngân hàng giải ngân 70% giá trị hợp đồng (HTLS 0%)",
+            days_from_deposit=30,
+            customer_equity_ratio=Decimal("0.0000"),
+            bank_disbursement_ratio=Decimal("0.7000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=3,
+            milestone_name="Đợt 3: Khách nộp 5% vốn tự có đợt 2",
+            days_from_deposit=60,
+            customer_equity_ratio=Decimal("0.0500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=4,
+            milestone_name="Đợt 4: Khách nộp 5% vốn tự có đợt 3",
+            days_from_deposit=90,
+            customer_equity_ratio=Decimal("0.0500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=5,
+            milestone_name="Đợt 5: Thông báo bàn giao nhà (thu 100% KPBT)",
+            days_from_deposit=180,
+            customer_equity_ratio=Decimal("0.0000"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("1.0000"),
+            is_handover=True,
+            is_reconciliation=False,
+        ),
+        InstallmentRule(
+            installment_number=6,
+            milestone_name="Đợt 6: Nhận Giấy chứng nhận quyền sở hữu (Sổ hồng)",
+            days_from_deposit=240,
+            customer_equity_ratio=Decimal("0.0500"),
+            bank_disbursement_ratio=Decimal("0.0000"),
+            maintenance_fee_ratio=Decimal("0.0000"),
+            is_handover=False,
+            is_reconciliation=True,
+        ),
+    ]
+    return PaymentScenarioConfig(
+        scenario_type=ScenarioType.BANK_LOAN_HTLS,
+        scenario_name="Phương án Hỗ trợ Lãi suất Ngân hàng (HTLS 70%)",
+        installment_rules=rules,
+        deposit_amount_vnd=deposit_amount_vnd,
+        bank_financing_rate=Decimal("0.7000"),
+        customer_equity_rate=Decimal("0.3000"),
+        interest_support_months=interest_support_months,
+        principal_grace_months=principal_grace_months,
+        policy_reference=policy_reference,
+    )
+
+
+def create_canonical_scenario_config(
+    scenario_type: ScenarioType,
+    deposit_amount_vnd: int = 100_000_000,
+    policy_reference: StructuredPolicyReference | None = None,
+) -> PaymentScenarioConfig:
+    """Factory dispatch tạo PaymentScenarioConfig chuẩn tắc cho bất kỳ ScenarioType nào."""
+    if scenario_type == ScenarioType.STANDARD_PROGRESS:
+        return create_pa_chudong_config(
+            deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference
+        )
+    if scenario_type == ScenarioType.EARLY_95:
+        return create_pa_nhanh_config(
+            deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference
+        )
+    if scenario_type == ScenarioType.BANK_LOAN_HTLS:
+        return create_pa_vay_config(
+            deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference
+        )
+    raise ValueError(f"Unsupported scenario_type: {scenario_type}")
