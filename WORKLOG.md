@@ -4,15 +4,15 @@
 
 ---
 
-## [YYYY-MM-DD]
+## 2026-09-23
 
 | Member | Task | Status | Output | Time |
 |--------|------|--------|--------|------|
-| [Tên] | [mô tả task] | ✅ Done | [link/kết quả] | 2h |
-| [Tên] | [mô tả task] | 🔄 WIP | [mô tả tiến độ] | 1.5h |
-| [Tên] | [mô tả task] | ❌ Blocked | [lý do block] | - |
+| Trần Chí Vĩ | Thiết kế & triển khai Core Policy RAG Engine (Hierarchical Parser, Time-Travel Retriever, 3-Tier Mutual Exclusion Pruner, Cryptographic Evidence Binder) | ✅ Done | `src/rag/`, `src/models/rag_schemas.py` | 6h |
+| Trần Chí Vĩ | Viết bộ Unit & Integration Test Suite cho toàn bộ các module RAG (12/12 tests passing) | ✅ Done | `tests/test_rag/` | 2h |
+| Trần Chí Vĩ | Xây dựng Framework Đánh giá RAG Benchmark & tích hợp runner (Leakage 0.0%, Recall@k 100%, Integrity 100%, p95 < 6ms) | ✅ Done | `eval/rag/`, `eval/results/report.md`, `Makefile` | 3h |
 
-**Tổng kết ngày:** [1-2 câu về tiến độ chung]
+**Tổng kết ngày:** Hoàn thành 100% nền tảng Core RAG Engine và Evaluation Framework chuẩn Enterprise cho PricePolicy P-096.
 
 ---
 
