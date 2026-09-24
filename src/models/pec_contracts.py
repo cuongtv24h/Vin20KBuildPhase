@@ -29,13 +29,26 @@ class PolicyAtom(BaseModel):
     atom_type: PolicyAtomType
     content_hash: str
     canonical_text: str
+    parent: Optional[str] = None
+    page: Optional[int] = None
+    section: Optional[str] = None
+    table_coordinates: Optional[str] = None
 
 class PolicyEdge(BaseModel):
     edge_id: str
     source_atom_id: str
     edge_type: PolicyEdgeType
     target_atom_id: str
+    source_authority: str
     validation_status: str
+    reviewed_by: Optional[str] = None
+    edge_version: str
+
+class EvidenceItem(BaseModel):
+    atom_id: str
+    canonical_text: str
+    similarity_score: Optional[float] = None
+    applied_via_edge: Optional[str] = None
 
 class PolicyQuery(BaseModel):
     query_text: str
@@ -61,9 +74,9 @@ class EvidenceBundle(BaseModel):
     transaction_context_hash: str
     policy_snapshot_hash: str
     active_policy_versions: List[str] = Field(default_factory=list)
-    applied_rules: List[Any] = Field(default_factory=list)
-    excluded_rules: List[Any] = Field(default_factory=list)
-    uncertain_rules: List[Any] = Field(default_factory=list)
+    applied_rules: List[EvidenceItem] = Field(default_factory=list)
+    excluded_rules: List[EvidenceItem] = Field(default_factory=list)
+    uncertain_rules: List[EvidenceItem] = Field(default_factory=list)
     conflict_report: ConflictReport
     missing_facts: List[str] = Field(default_factory=list)
     retrieval_trace: RetrievalTrace
