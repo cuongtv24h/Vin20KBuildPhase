@@ -63,6 +63,17 @@ from src.pricing_sidecar.engine import (
     resolve_scenario_type,
     validate_dual_discount_cap,
 )
+from src.pricing_sidecar.ranking import (
+    OBJECTIVE_LABELS,
+    OBJECTIVE_METRIC_NAMES,
+    TIEBREAK_RULE_CANONICAL_ORDER,
+    TIEBREAK_RULE_CONTRACT_PRICE,
+    NoFeasibleScenarioError,
+    generate_quantitative_rationale,
+    get_objective_metric_value,
+    rank_scenarios_by_objective,
+    recommend_best_scenario,
+)
 from src.pricing_sidecar.validation import (
     FINANCIAL_SANITY_FAILED_CODE,
     INV_FIN_01,
@@ -147,5 +158,14 @@ __all__ = [
     "check_scenario_sanity",
     "validate_pricing_results",
     "validate_scenario_calculation",
+    "NoFeasibleScenarioError",
+    "OBJECTIVE_LABELS",
+    "OBJECTIVE_METRIC_NAMES",
+    "TIEBREAK_RULE_CANONICAL_ORDER",
+    "TIEBREAK_RULE_CONTRACT_PRICE",
+    "generate_quantitative_rationale",
+    "get_objective_metric_value",
+    "rank_scenarios_by_objective",
+    "recommend_best_scenario",
 ]
 
