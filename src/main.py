@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router
+from src.api.pricing_mock import router as pricing_router
 from src.config import get_settings
 
 
@@ -32,6 +33,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(pricing_router, prefix="/api/v1/pricing", tags=["Pricing Engine Mock"])
 
 
 @app.get("/health")
