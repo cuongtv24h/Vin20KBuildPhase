@@ -19,7 +19,13 @@ from src.pricing_sidecar.contracts import (
     AntiFloatBaseModel,
     BenefitApplicationRule,
     BenefitType,
+    PaymentScenarioConfig,
+    ScenarioCalculationResult,
+    ScenarioType,
     ValuationStatus,
+    create_pa_chudong_config,
+    create_pa_nhanh_config,
+    create_pa_vay_config,
 )
 
 
@@ -477,3 +483,357 @@ def calculate_total_benefit_value(
             if b.fixed_deduction_vnd > 0:
                 total_val += b.fixed_deduction_vnd
     return total_val
+
+
+# ===========================================================================
+# Canonical Scenario Calculations (FCS v2.6 §5, §6, §10)
+# ===========================================================================
+@forbid_float
+def _calculate_scenario_core(
+    scenario_config: PaymentScenarioConfig,
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    scenario_discount_rate: Decimal = Decimal("0.0000"),
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+) -> ScenarioCalculationResult:
+    """Động cơ tính toán cốt lõi cho một cấu hình kịch bản PaymentScenarioConfig bất kỳ."""
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        scenario_discount_rate,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+    )
+    if deposit_amount_vnd < 0:
+        raise ValueError(
+            f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm."
+        )
+
+    # 1. Bước 1 & Bước 2: Additive Discount Model & Dual Discount Cap
+    additive_result = calculate_additive_discount(
+        listed_price_vnd=listed_price_vnd,
+        benefits=approved_benefits,
+        scenario_discount_rate=scenario_discount_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+        enforce_caps=True,
+    )
+
+    # 2. Bước 3 & Bước 4: Thuế VAT, Phí bảo trì KPBT và Tổng giá trị HĐMB
+    contract_summary = calculate_contract_pricing(
+        net_price_before_vat=additive_result.net_price_before_vat,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+    )
+
+    # 3. Tổng giá trị các ưu đãi được phê duyệt định giá
+    total_benefit_val = calculate_total_benefit_value(approved_benefits)
+
+    # 4. Trích xuất các chỉ tiêu dòng tiền cốt lõi từ installment_rules
+    rules = scenario_config.installment_rules
+    if not rules:
+        raise ValueError("SANITY_FAIL: scenario_config.installment_rules không được rỗng.")
+
+    base_with_vat = (
+        contract_summary.net_price_before_vat + contract_summary.vat_amount
+    )
+    kpbt_total = contract_summary.maintenance_fee_amount
+
+    # Nghĩa vụ Đợt 1 (Installment 1) & Kết chuyển cọc (FCS §6.1)
+    rule_1 = rules[0]
+    eq_1 = round_vnd(to_decimal(base_with_vat) * rule_1.customer_equity_ratio)
+    bank_1 = round_vnd(to_decimal(base_with_vat) * rule_1.bank_disbursement_ratio)
+    kpbt_1 = round_vnd(to_decimal(kpbt_total) * rule_1.maintenance_fee_ratio)
+    initial_gross = eq_1 + bank_1 + kpbt_1
+
+    deposit_credited = min(deposit_amount_vnd, eq_1)
+    initial_add_cash = eq_1 - deposit_credited + kpbt_1
+    initial_outflow = deposit_amount_vnd + initial_add_cash
+
+    # Dòng tiền mặt khách nộp đến mốc bàn giao nhà (FCS §7.1)
+    handover_rule = next((r for r in rules if r.is_handover), None)
+    handover_idx = (
+        handover_rule.installment_number if handover_rule else len(rules)
+    )
+    equity_ratio_to_handover = sum(
+        r.customer_equity_ratio
+        for r in rules
+        if r.installment_number <= handover_idx
+    )
+    kpbt_ratio_to_handover = sum(
+        r.maintenance_fee_ratio
+        for r in rules
+        if r.installment_number <= handover_idx
+    )
+    equity_to_handover = round_vnd(
+        to_decimal(base_with_vat) * equity_ratio_to_handover
+    )
+    kpbt_to_handover = round_vnd(
+        to_decimal(kpbt_total) * kpbt_ratio_to_handover
+    )
+    cash_to_handover = equity_to_handover + kpbt_to_handover
+
+    return ScenarioCalculationResult(
+        scenario_type=scenario_config.scenario_type,
+        scenario_name=scenario_config.scenario_name,
+        listed_price_vnd=additive_result.listed_price_vnd,
+        fixed_discount_vnd=additive_result.fixed_discount_vnd,
+        base_after_fixed_vnd=additive_result.base_after_fixed_vnd,
+        total_discount_rate=additive_result.total_discount_rate,
+        percentage_discount_vnd=additive_result.percentage_discount_vnd,
+        net_price_before_vat=contract_summary.net_price_before_vat,
+        vat_rate=contract_summary.vat_rate,
+        vat_amount=contract_summary.vat_amount,
+        maintenance_fee_rate=contract_summary.maintenance_fee_rate,
+        maintenance_fee_amount=contract_summary.maintenance_fee_amount,
+        final_contract_price=contract_summary.final_contract_price,
+        initial_gross_obligation_vnd=initial_gross,
+        initial_cash_outflow_vnd=initial_outflow,
+        customer_cash_outflow_until_handover=cash_to_handover,
+        total_benefit_value_vnd=total_benefit_val,
+        cashflow_schedule=[],
+    )
+
+
+@forbid_float
+def calculate_pa_chudong(
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Tính toán tài chính trọn gói cho Phương án Tiến độ Chuẩn PA-CHUDONG (FCS v2.6 §5, §10 TC-01).
+
+    - Tiến độ: 9 đợt thanh toán chuẩn theo tiến độ thi công.
+    - Cơ cấu vốn: 100% vốn tự có, 0% ngân hàng giải ngân.
+    - Chiết khấu kịch bản: 0.00%.
+    - Đợt 1: Khách nộp 15% vốn tự có (đã kết chuyển cọc).
+    """
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+    )
+    cfg = scenario_config or create_pa_chudong_config(
+        deposit_amount_vnd=deposit_amount_vnd
+    )
+    return _calculate_scenario_core(
+        scenario_config=cfg,
+        listed_price_vnd=listed_price_vnd,
+        approved_benefits=approved_benefits,
+        scenario_discount_rate=Decimal("0.0000"),
+        deposit_amount_vnd=deposit_amount_vnd,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+    )
+
+
+@forbid_float
+def calculate_pa_nhanh(
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    early_discount_rate: Decimal = Decimal("0.0800"),
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Tính toán tài chính trọn gói cho Phương án Thanh toán Sớm 95% PA-NHANH (FCS v2.6 §5, §10 TC-02).
+
+    - Tiến độ: 3 đợt (Đợt 1 nộp 95% vốn tự có, Đợt 2 nhận bàn giao 100% KPBT, Đợt 3 nhận sổ 5%).
+    - Cơ cấu vốn: 100% vốn tự có, 0% ngân hàng giải ngân.
+    - Chiết khấu kịch bản: early_discount_rate (mặc định 8% cho v1, hoặc 6% theo time-travel v2).
+    - Áp dụng mô hình chiết khấu cộng dồn Additive và kiểm duyệt trần Dual Cap.
+    """
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        early_discount_rate,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+    )
+    cfg = scenario_config or create_pa_nhanh_config(
+        deposit_amount_vnd=deposit_amount_vnd
+    )
+    return _calculate_scenario_core(
+        scenario_config=cfg,
+        listed_price_vnd=listed_price_vnd,
+        approved_benefits=approved_benefits,
+        scenario_discount_rate=early_discount_rate,
+        deposit_amount_vnd=deposit_amount_vnd,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+    )
+
+
+@forbid_float
+def calculate_pa_vay(
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    interest_support_months: int = 24,
+    principal_grace_months: int = 24,
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Tính toán tài chính trọn gói cho Phương án Vay Ngân hàng HTLS PA-VAY (FCS v2.6 §5, §10 TC-03).
+
+    - Tiến độ: 6 đợt (Vốn tự có 30%, Ngân hàng giải ngân 70% HTLS 0%).
+    - Chiết khấu kịch bản: 0.00% (Gói hỗ trợ lãi suất thay thế chiết khấu tiền mặt).
+    - Đợt 1: Khách nộp 15% vốn tự có (đã kết chuyển cọc).
+    """
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+        interest_support_months,
+        principal_grace_months,
+    )
+    cfg = scenario_config or create_pa_vay_config(
+        deposit_amount_vnd=deposit_amount_vnd,
+        interest_support_months=interest_support_months,
+        principal_grace_months=principal_grace_months,
+    )
+    return _calculate_scenario_core(
+        scenario_config=cfg,
+        listed_price_vnd=listed_price_vnd,
+        approved_benefits=approved_benefits,
+        scenario_discount_rate=Decimal("0.0000"),
+        deposit_amount_vnd=deposit_amount_vnd,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+    )
+
+
+def resolve_scenario_type(code_or_type: ScenarioType | str) -> ScenarioType:
+    """Chuẩn hóa chuỗi hoặc enum thành ScenarioType chuẩn."""
+    if isinstance(code_or_type, ScenarioType):
+        return code_or_type
+    if not isinstance(code_or_type, str):
+        raise TypeError(
+            f"FLOAT_PROHIBITED: Kiểu dữ liệu không hợp lệ: {type(code_or_type)}"
+        )
+
+    code_upper = code_or_type.strip().upper()
+    if code_upper in ("STANDARD_PROGRESS", "PA-CHUDONG", "CHUDONG", "PROGRESS"):
+        return ScenarioType.STANDARD_PROGRESS
+    if code_upper in (
+        "EARLY_95",
+        "PA-NHANH",
+        "NHANH",
+        "EARLY",
+        "EARLY_PAYMENT_95",
+    ):
+        return ScenarioType.EARLY_95
+    if code_upper in (
+        "BANK_LOAN_HTLS",
+        "PA-VAY",
+        "VAY",
+        "LOAN",
+        "HTLS",
+        "BANK_LOAN_SUPPORT",
+    ):
+        return ScenarioType.BANK_LOAN_HTLS
+    raise ValueError(
+        f"UNSUPPORTED_SCENARIO: Kịch bản '{code_or_type}' không hợp lệ hoặc chưa được hỗ trợ."
+    )
+
+
+@forbid_float
+def calculate_canonical_scenario(
+    scenario_type_or_code: ScenarioType | str,
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    early_discount_rate: Decimal = Decimal("0.0800"),
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Hàm điều phối tính toán kịch bản chuẩn tắc cho bất kỳ ScenarioType hoặc alias nào."""
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+        early_discount_rate,
+    )
+    resolved_type = resolve_scenario_type(scenario_type_or_code)
+
+    if resolved_type == ScenarioType.STANDARD_PROGRESS:
+        return calculate_pa_chudong(
+            listed_price_vnd=listed_price_vnd,
+            approved_benefits=approved_benefits,
+            deposit_amount_vnd=deposit_amount_vnd,
+            vat_rate=vat_rate,
+            maintenance_fee_rate=maintenance_fee_rate,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+            scenario_config=scenario_config,
+        )
+    if resolved_type == ScenarioType.EARLY_95:
+        return calculate_pa_nhanh(
+            listed_price_vnd=listed_price_vnd,
+            approved_benefits=approved_benefits,
+            early_discount_rate=early_discount_rate,
+            deposit_amount_vnd=deposit_amount_vnd,
+            vat_rate=vat_rate,
+            maintenance_fee_rate=maintenance_fee_rate,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+            scenario_config=scenario_config,
+        )
+    if resolved_type == ScenarioType.BANK_LOAN_HTLS:
+        return calculate_pa_vay(
+            listed_price_vnd=listed_price_vnd,
+            approved_benefits=approved_benefits,
+            deposit_amount_vnd=deposit_amount_vnd,
+            vat_rate=vat_rate,
+            maintenance_fee_rate=maintenance_fee_rate,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+            scenario_config=scenario_config,
+        )
+
+    raise ValueError(
+        f"UNSUPPORTED_SCENARIO: Kịch bản '{scenario_type_or_code}' không hợp lệ."
+    )
+

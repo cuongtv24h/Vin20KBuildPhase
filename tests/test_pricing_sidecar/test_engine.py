@@ -14,6 +14,7 @@ from src.pricing_sidecar.contracts import (
     BenefitCategory,
     BenefitType,
     CalculationBase,
+    ScenarioType,
     StructuredPolicyReference,
     ValuationStatus,
 )
@@ -21,13 +22,18 @@ from src.pricing_sidecar.engine import (
     AdditiveDiscountResult,
     ContractPricingSummary,
     calculate_additive_discount,
+    calculate_canonical_scenario,
     calculate_contract_pricing,
     calculate_final_contract_price,
     calculate_fixed_discount,
     calculate_maintenance_fee_amount,
+    calculate_pa_chudong,
+    calculate_pa_nhanh,
+    calculate_pa_vay,
     calculate_percentage_discount,
     calculate_total_benefit_value,
     calculate_vat_amount,
+    resolve_scenario_type,
     validate_dual_discount_cap,
 )
 
@@ -649,5 +655,255 @@ class TestAntiFloatGuardInEngine:
                 net_price_before_vat=3_220_000_000,
                 total_discount_amount_vnd=280_000_000,
             )
+
+    def test_canonical_scenarios_reject_float(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_pa_chudong(3500000000.0)
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_pa_nhanh(3_500_000_000, early_discount_rate=0.08)
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_pa_vay(3_500_000_000, deposit_amount_vnd=100000000.0)
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_canonical_scenario("PA-CHUDONG", 3500000000.0)
+
+
+# ===========================================================================
+# 8. Canonical Scenarios Tests (Task 2.4 / FCS §5, §6, §10)
+# ===========================================================================
+class TestCanonicalScenarios:
+    """Test PA-CHUDONG, PA-NHANH, PA-VAY, and canonical dispatcher."""
+
+    def test_pa_chudong_tc01_baseline(self) -> None:
+        """TC-01: PA-CHUDONG baseline for A-12-05."""
+        res = calculate_pa_chudong(3_500_000_000)
+        assert res.scenario_type == ScenarioType.STANDARD_PROGRESS
+        assert res.scenario_name == "Phương án Tiến độ Chuẩn (9 Đợt)"
+        assert res.listed_price_vnd == 3_500_000_000
+        assert res.fixed_discount_vnd == 0
+        assert res.base_after_fixed_vnd == 3_500_000_000
+        assert res.total_discount_rate == Decimal("0.0000")
+        assert res.percentage_discount_vnd == 0
+        assert res.net_price_before_vat == 3_500_000_000
+        assert res.vat_rate == Decimal("0.1000")
+        assert res.vat_amount == 350_000_000
+        assert res.maintenance_fee_rate == Decimal("0.0200")
+        assert res.maintenance_fee_amount == 70_000_000
+        assert res.final_contract_price == 3_920_000_000
+        assert res.initial_gross_obligation_vnd == 577_500_000
+        assert res.initial_cash_outflow_vnd == 577_500_000
+        assert res.customer_cash_outflow_until_handover == 3_727_500_000
+        assert res.total_benefit_value_vnd == 0
+
+    def test_pa_nhanh_tc02_baseline(self) -> None:
+        """TC-02 / TC-10: PA-NHANH with early discount 8%."""
+        res = calculate_pa_nhanh(
+            3_500_000_000, early_discount_rate=Decimal("0.0800")
+        )
+        assert res.scenario_type == ScenarioType.EARLY_95
+        assert res.scenario_name == "Phương án Thanh toán Sớm 95%"
+        assert res.listed_price_vnd == 3_500_000_000
+        assert res.fixed_discount_vnd == 0
+        assert res.base_after_fixed_vnd == 3_500_000_000
+        assert res.total_discount_rate == Decimal("0.0800")
+        assert res.percentage_discount_vnd == 280_000_000
+        assert res.net_price_before_vat == 3_220_000_000
+        assert res.vat_amount == 322_000_000
+        assert res.maintenance_fee_amount == 64_400_000
+        assert res.final_contract_price == 3_606_400_000
+        assert res.initial_gross_obligation_vnd == 3_364_900_000
+        assert res.initial_cash_outflow_vnd == 3_364_900_000
+        assert res.customer_cash_outflow_until_handover == 3_429_300_000
+        assert res.total_benefit_value_vnd == 0
+
+    def test_pa_vay_tc03_baseline(self) -> None:
+        """TC-03: PA-VAY with HTLS 0% 24 months, customer equity 30%."""
+        res = calculate_pa_vay(3_500_000_000)
+        assert res.scenario_type == ScenarioType.BANK_LOAN_HTLS
+        assert (
+            res.scenario_name
+            == "Phương án Hỗ trợ Lãi suất Ngân hàng (HTLS 70%)"
+        )
+        assert res.listed_price_vnd == 3_500_000_000
+        assert res.fixed_discount_vnd == 0
+        assert res.base_after_fixed_vnd == 3_500_000_000
+        assert res.total_discount_rate == Decimal("0.0000")
+        assert res.percentage_discount_vnd == 0
+        assert res.net_price_before_vat == 3_500_000_000
+        assert res.vat_amount == 350_000_000
+        assert res.maintenance_fee_amount == 70_000_000
+        assert res.final_contract_price == 3_920_000_000
+        assert res.initial_gross_obligation_vnd == 577_500_000
+        assert res.initial_cash_outflow_vnd == 577_500_000
+        assert res.customer_cash_outflow_until_handover == 1_032_500_000
+        assert res.total_benefit_value_vnd == 0
+
+    def test_pa_nhanh_resident_additive_tc04(
+        self, resident_1pct_rule: BenefitApplicationRule
+    ) -> None:
+        """TC-04: PA-NHANH + VIP resident discount 1% -> 9% total discount."""
+        res = calculate_pa_nhanh(
+            3_500_000_000,
+            approved_benefits=[resident_1pct_rule],
+            early_discount_rate=Decimal("0.0800"),
+        )
+        assert res.total_discount_rate == Decimal("0.0900")
+        assert res.percentage_discount_vnd == 315_000_000
+        assert res.net_price_before_vat == 3_185_000_000
+        assert res.vat_amount == 318_500_000
+        assert res.maintenance_fee_amount == 63_700_000
+        assert res.final_contract_price == 3_567_200_000
+        assert res.initial_gross_obligation_vnd == 3_328_325_000
+        assert res.initial_cash_outflow_vnd == 3_328_325_000
+
+    def test_pa_nhanh_interior_voucher_tc05(
+        self, voucher_50m_rule: BenefitApplicationRule
+    ) -> None:
+        """TC-05: PA-NHANH + 50M furniture voucher fixed deduction."""
+        res = calculate_pa_nhanh(
+            3_500_000_000,
+            approved_benefits=[voucher_50m_rule],
+            early_discount_rate=Decimal("0.0800"),
+        )
+        assert res.fixed_discount_vnd == 50_000_000
+        assert res.base_after_fixed_vnd == 3_450_000_000
+        assert res.percentage_discount_vnd == 276_000_000
+        assert res.net_price_before_vat == 3_174_000_000
+        assert res.vat_amount == 317_400_000
+        assert res.maintenance_fee_amount == 63_480_000
+        assert res.final_contract_price == 3_554_880_000
+        assert res.initial_gross_obligation_vnd == 3_316_830_000
+        assert res.initial_cash_outflow_vnd == 3_316_830_000
+        assert res.total_benefit_value_vnd == 50_000_000
+
+    def test_pa_nhanh_gold_sjc_tc06(
+        self, gold_160m_rule: BenefitApplicationRule
+    ) -> None:
+        """TC-06: PA-NHANH + 160M gold SJC fixed deduction + 6% early discount."""
+        res = calculate_pa_nhanh(
+            3_500_000_000,
+            approved_benefits=[gold_160m_rule],
+            early_discount_rate=Decimal("0.0600"),
+        )
+        assert res.fixed_discount_vnd == 160_000_000
+        assert res.base_after_fixed_vnd == 3_340_000_000
+        assert res.percentage_discount_vnd == 200_400_000
+        assert res.net_price_before_vat == 3_139_600_000
+        assert res.vat_amount == 313_960_000
+        assert res.maintenance_fee_amount == 62_792_000
+        assert res.final_contract_price == 3_516_352_000
+        assert res.initial_gross_obligation_vnd == 3_280_882_000
+        assert res.initial_cash_outflow_vnd == 3_280_882_000
+        assert res.total_benefit_value_vnd == 160_000_000
+
+    def test_pa_nhanh_time_travel_v2_tc11(self) -> None:
+        """TC-11: PA-NHANH in July 2026 with 6% early discount."""
+        res = calculate_pa_nhanh(
+            3_500_000_000, early_discount_rate=Decimal("0.0600")
+        )
+        assert res.total_discount_rate == Decimal("0.0600")
+        assert res.net_price_before_vat == 3_290_000_000
+        assert res.vat_amount == 329_000_000
+        assert res.maintenance_fee_amount == 65_800_000
+        assert res.final_contract_price == 3_684_800_000
+        assert res.initial_gross_obligation_vnd == 3_438_050_000
+        assert res.initial_cash_outflow_vnd == 3_438_050_000
+
+    def test_resolve_scenario_type(self) -> None:
+        """Verify scenario alias and enum normalization."""
+        assert (
+            resolve_scenario_type(ScenarioType.STANDARD_PROGRESS)
+            == ScenarioType.STANDARD_PROGRESS
+        )
+        assert (
+            resolve_scenario_type("PA-CHUDONG")
+            == ScenarioType.STANDARD_PROGRESS
+        )
+        assert (
+            resolve_scenario_type("STANDARD_PROGRESS")
+            == ScenarioType.STANDARD_PROGRESS
+        )
+        assert (
+            resolve_scenario_type("chudong")
+            == ScenarioType.STANDARD_PROGRESS
+        )
+
+        assert (
+            resolve_scenario_type(ScenarioType.EARLY_95)
+            == ScenarioType.EARLY_95
+        )
+        assert resolve_scenario_type("PA-NHANH") == ScenarioType.EARLY_95
+        assert resolve_scenario_type("EARLY_95") == ScenarioType.EARLY_95
+        assert resolve_scenario_type("nhanh") == ScenarioType.EARLY_95
+
+        assert (
+            resolve_scenario_type(ScenarioType.BANK_LOAN_HTLS)
+            == ScenarioType.BANK_LOAN_HTLS
+        )
+        assert (
+            resolve_scenario_type("PA-VAY") == ScenarioType.BANK_LOAN_HTLS
+        )
+        assert (
+            resolve_scenario_type("BANK_LOAN_HTLS")
+            == ScenarioType.BANK_LOAN_HTLS
+        )
+        assert resolve_scenario_type("vay") == ScenarioType.BANK_LOAN_HTLS
+
+        with pytest.raises(ValueError, match="UNSUPPORTED_SCENARIO"):
+            resolve_scenario_type("UNKNOWN_SCENARIO")
+
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            resolve_scenario_type(123.45)  # type: ignore[arg-type]
+
+    def test_calculate_canonical_scenario_dispatcher(self) -> None:
+        """Verify calculate_canonical_scenario dispatches correctly to all 3 scenarios."""
+        res_chudong = calculate_canonical_scenario(
+            "PA-CHUDONG", 3_500_000_000
+        )
+        assert res_chudong.scenario_type == ScenarioType.STANDARD_PROGRESS
+        assert res_chudong.final_contract_price == 3_920_000_000
+
+        res_nhanh = calculate_canonical_scenario("PA-NHANH", 3_500_000_000)
+        assert res_nhanh.scenario_type == ScenarioType.EARLY_95
+        assert res_nhanh.final_contract_price == 3_606_400_000
+
+        res_vay = calculate_canonical_scenario("PA-VAY", 3_500_000_000)
+        assert res_vay.scenario_type == ScenarioType.BANK_LOAN_HTLS
+        assert res_vay.final_contract_price == 3_920_000_000
+
+    def test_deposit_greater_than_initial_gross_edge_case(self) -> None:
+        """If deposit > initial gross, deposit_credited is clamped to eq_1."""
+        res = calculate_pa_chudong(
+            3_500_000_000, deposit_amount_vnd=600_000_000
+        )
+        assert res.initial_gross_obligation_vnd == 577_500_000
+        assert res.initial_cash_outflow_vnd == 600_000_000
+
+    def test_negative_deposit_raises_error(self) -> None:
+        with pytest.raises(ValueError, match=r"không được âm|greater_than_equal"):
+            calculate_pa_chudong(3_500_000_000, deposit_amount_vnd=-100_000)
+
+    def test_dual_cap_violation_in_scenario_raises_error(
+        self, sample_policy_ref: StructuredPolicyReference
+    ) -> None:
+        """Exceeding 35% discount in scenario raises DUAL_CAP_EXCEEDED."""
+        huge_benefit = BenefitApplicationRule(
+            benefit_id="HUGE-01",
+            benefit_type=BenefitType.PERCENTAGE,
+            category=BenefitCategory.CASH_DISCOUNT,
+            discount_rate=Decimal("0.3000"),
+            calculation_base=CalculationBase.PRICE_AFTER_FIXED,
+            application_order=1,
+            valuation_status=ValuationStatus.APPROVED,
+            price_deduction_authorized=True,
+            source_policy_clause=sample_policy_ref,
+        )
+        # 30% + 8% early = 38% > 35% cap
+        with pytest.raises(ValueError, match="DUAL_CAP_EXCEEDED"):
+            calculate_pa_nhanh(
+                3_500_000_000,
+                approved_benefits=[huge_benefit],
+                early_discount_rate=Decimal("0.0800"),
+            )
+
 
 
