@@ -58,6 +58,7 @@ from src.pricing_sidecar.engine import (
     calculate_percentage_discount,
     calculate_total_benefit_value,
     calculate_vat_amount,
+    generate_cashflow_schedule,
     resolve_scenario_type,
     validate_dual_discount_cap,
 )
@@ -109,6 +110,7 @@ __all__ = [
     "create_pa_vay_config",
     "forbid_float",
     "format_vnd",
+    "generate_cashflow_schedule",
     "resolve_scenario_type",
     "round_vnd",
     "safe_rate_amount",

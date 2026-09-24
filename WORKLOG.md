@@ -37,8 +37,9 @@
 | Dev 2 (ChungVanDuy) | Task 2.2: Cưỡng chế cơ chế Dual Discount Cap (trần tỷ lệ 35% & trần tổng tiền 40%) | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (40/40 tests pass, ruff clean, nâng tổng tests lên 125/125) | 0.8h |
 | Dev 2 (ChungVanDuy) | Task 2.3: Triển khai Bước 3 & Bước 4 tính thuế VAT, phí KPBT và tổng giá HĐMB | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (54/54 tests pass, ruff clean, nâng tổng tests lên 139/139) | 0.8h |
 | Dev 2 (ChungVanDuy) | Task 2.4: Hiện thực hàm tính 3 kịch bản canonical (PA-CHUDONG, PA-NHANH, PA-VAY) và hàm điều phối canonical | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (67/67 tests pass, ruff clean, nâng tổng tests sidecar lên 152/152, toàn repo lên 161/161) | 1.0h |
+| Dev 2 (ChungVanDuy) | Task 2.5: Xây dựng giải thuật Lập lịch Dòng tiền Generic (`generate_cashflow_schedule`) | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (74/74 tests pass, ruff clean, nâng tổng tests sidecar lên 159/159, toàn repo lên 168/168) | 1.0h |
 
-**Tổng kết ngày:** Hoàn thành xuất sắc Task 2.1, Task 2.2, Task 2.3 và Task 2.4 thuộc Task Lớn 2: hiện thực hóa trọn vẹn 4 bước định giá tài chính và 3 kịch bản canonical (PA-CHUDONG, PA-NHANH, PA-VAY) cùng hàm điều phối chuẩn tắc theo chuẩn FCS v2.6 §5, §6 & §10. Toàn bộ 161/161 unit tests đạt tỷ lệ pass 100% (1.53s) và linter ruff đạt chuẩn sạch tuyệt đối.
+**Tổng kết ngày:** Hoàn thành xuất sắc Task 2.1, 2.2, 2.3, 2.4 và 2.5 thuộc Task Lớn 2: hiện thực hóa trọn vẹn 4 bước định giá tài chính, 3 kịch bản canonical và thuật toán lập lịch dòng tiền generic (`generate_cashflow_schedule`) theo chuẩn FCS v2.6 §5, §6 & §10. Toàn bộ 168/168 unit tests đạt tỷ lệ pass 100% (1.75s) và linter ruff đạt chuẩn sạch tuyệt đối.
 
 ---
 

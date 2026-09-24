@@ -4,7 +4,7 @@ FCS v2.6 Reference: Section 5 (Additive Discount Model & Formula)
 Golden Scenario Reference: TC-01, TC-02, TC-04, TC-05, TC-06
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -14,9 +14,13 @@ from src.pricing_sidecar.contracts import (
     BenefitCategory,
     BenefitType,
     CalculationBase,
+    InstallmentRule,
     ScenarioType,
     StructuredPolicyReference,
     ValuationStatus,
+    create_pa_chudong_config,
+    create_pa_nhanh_config,
+    create_pa_vay_config,
 )
 from src.pricing_sidecar.engine import (
     AdditiveDiscountResult,
@@ -33,6 +37,7 @@ from src.pricing_sidecar.engine import (
     calculate_percentage_discount,
     calculate_total_benefit_value,
     calculate_vat_amount,
+    generate_cashflow_schedule,
     resolve_scenario_type,
     validate_dual_discount_cap,
 )
@@ -903,6 +908,294 @@ class TestCanonicalScenarios:
                 3_500_000_000,
                 approved_benefits=[huge_benefit],
                 early_discount_rate=Decimal("0.0800"),
+            )
+
+
+# ===========================================================================
+# 9. Generic Cashflow Schedule Generator Tests (Task 2.5 / FCS v2.6 §6.2)
+# ===========================================================================
+class TestCashflowScheduleGenerator:
+    """Test generic cashflow schedule generation, date calculations, and reconciliation."""
+
+    def test_schedule_pa_chudong_9_installments(self) -> None:
+        """PA-CHUDONG 9 installments cashflow schedule for A-12-05."""
+        cfg = create_pa_chudong_config(deposit_amount_vnd=100_000_000)
+        dep_date = date(2026, 3, 8)
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_500_000_000,
+            vat_amount=350_000_000,
+            kpbt_amount=70_000_000,
+            deposit_amount_vnd=100_000_000,
+            deposit_date=dep_date,
+        )
+        assert len(schedule) == 9
+
+        # Milestone 1: 15% equity, dep_credited 100M, add_cash 477.5M
+        inst1 = schedule[0]
+        assert inst1.installment_number == 1
+        assert inst1.due_date == dep_date + timedelta(days=15)
+        assert inst1.customer_equity_paid_vnd == 577_500_000
+        assert inst1.bank_disbursement_vnd == 0
+        assert inst1.maintenance_fee_paid_vnd == 0
+        assert inst1.installment_gross_obligation_vnd == 577_500_000
+        assert inst1.deposit_credited_vnd == 100_000_000
+        assert inst1.installment_additional_cash_due_vnd == 477_500_000
+        assert not inst1.is_handover_milestone
+        assert not inst1.is_reconciliation_installment
+
+        # Milestone 2..7: each 10% equity (385M)
+        for i in range(1, 7):
+            inst = schedule[i]
+            assert inst.installment_number == i + 1
+            assert inst.customer_equity_paid_vnd == 385_000_000
+            assert inst.bank_disbursement_vnd == 0
+            assert inst.maintenance_fee_paid_vnd == 0
+            assert inst.deposit_credited_vnd == 0
+            assert inst.installment_additional_cash_due_vnd == 385_000_000
+
+        # Milestone 8: Handover (20% equity = 770M + 100% KPBT = 70M -> 840M)
+        inst8 = schedule[7]
+        assert inst8.installment_number == 8
+        assert inst8.due_date == dep_date + timedelta(days=450)
+        assert inst8.customer_equity_paid_vnd == 770_000_000
+        assert inst8.bank_disbursement_vnd == 0
+        assert inst8.maintenance_fee_paid_vnd == 70_000_000
+        assert inst8.installment_gross_obligation_vnd == 840_000_000
+        assert inst8.installment_additional_cash_due_vnd == 840_000_000
+        assert inst8.is_handover_milestone
+        assert not inst8.is_reconciliation_installment
+
+        # Milestone 9: Reconciliation (5% equity = 192.5M)
+        inst9 = schedule[8]
+        assert inst9.installment_number == 9
+        assert inst9.due_date == dep_date + timedelta(days=540)
+        assert inst9.customer_equity_paid_vnd == 192_500_000
+        assert inst9.bank_disbursement_vnd == 0
+        assert inst9.maintenance_fee_paid_vnd == 0
+        assert inst9.installment_gross_obligation_vnd == 192_500_000
+        assert inst9.installment_additional_cash_due_vnd == 192_500_000
+        assert not inst9.is_handover_milestone
+        assert inst9.is_reconciliation_installment
+
+        # Total reconciliation check
+        total_gross = sum(
+            item.installment_gross_obligation_vnd for item in schedule
+        )
+        assert total_gross == 3_920_000_000
+        total_equity = sum(
+            item.customer_equity_paid_vnd for item in schedule
+        )
+        assert total_equity == 3_850_000_000
+        total_kpbt = sum(
+            item.maintenance_fee_paid_vnd for item in schedule
+        )
+        assert total_kpbt == 70_000_000
+
+    def test_schedule_pa_nhanh_3_installments(self) -> None:
+        """PA-NHANH 3 installments cashflow schedule for TC-02."""
+        cfg = create_pa_nhanh_config(deposit_amount_vnd=100_000_000)
+        dep_date = date(2026, 3, 8)
+        # Net 3.22B, VAT 322M (Base w/ VAT = 3.542B), KPBT 64.4M, Contract 3.6064B
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_220_000_000,
+            vat_amount=322_000_000,
+            kpbt_amount=64_400_000,
+            deposit_amount_vnd=100_000_000,
+            deposit_date=dep_date,
+        )
+        assert len(schedule) == 3
+
+        # Milestone 1: 95% equity = 3,364,900,000
+        inst1 = schedule[0]
+        assert inst1.installment_number == 1
+        assert inst1.customer_equity_paid_vnd == 3_364_900_000
+        assert inst1.bank_disbursement_vnd == 0
+        assert inst1.maintenance_fee_paid_vnd == 0
+        assert inst1.deposit_credited_vnd == 100_000_000
+        assert inst1.installment_additional_cash_due_vnd == 3_264_900_000
+
+        # Milestone 2: Handover 100% KPBT = 64,400,000
+        inst2 = schedule[1]
+        assert inst2.installment_number == 2
+        assert inst2.customer_equity_paid_vnd == 0
+        assert inst2.maintenance_fee_paid_vnd == 64_400_000
+        assert inst2.installment_gross_obligation_vnd == 64_400_000
+        assert inst2.is_handover_milestone
+
+        # Milestone 3: Reconciliation 5% equity = 177,100,000
+        inst3 = schedule[2]
+        assert inst3.installment_number == 3
+        assert inst3.customer_equity_paid_vnd == 177_100_000
+        assert inst3.maintenance_fee_paid_vnd == 0
+        assert inst3.installment_gross_obligation_vnd == 177_100_000
+        assert inst3.is_reconciliation_installment
+
+        total_gross = sum(
+            item.installment_gross_obligation_vnd for item in schedule
+        )
+        assert total_gross == 3_606_400_000
+
+    def test_schedule_pa_vay_6_installments(self) -> None:
+        """PA-VAY 6 installments cashflow schedule for TC-03."""
+        cfg = create_pa_vay_config(deposit_amount_vnd=100_000_000)
+        dep_date = date(2026, 3, 8)
+        # Net 3.5B, VAT 350M, KPBT 70M, Contract 3.92B
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_500_000_000,
+            vat_amount=350_000_000,
+            kpbt_amount=70_000_000,
+            deposit_amount_vnd=100_000_000,
+            deposit_date=dep_date,
+        )
+        assert len(schedule) == 6
+
+        # Milestone 1: 15% customer equity = 577,500,000
+        assert schedule[0].customer_equity_paid_vnd == 577_500_000
+        assert schedule[0].bank_disbursement_vnd == 0
+        assert schedule[0].deposit_credited_vnd == 100_000_000
+        assert schedule[0].installment_additional_cash_due_vnd == 477_500_000
+
+        # Milestone 2: 70% bank disbursement = 2,695,000,000
+        assert schedule[1].customer_equity_paid_vnd == 0
+        assert schedule[1].bank_disbursement_vnd == 2_695_000_000
+        assert schedule[1].installment_gross_obligation_vnd == 2_695_000_000
+        assert schedule[1].installment_additional_cash_due_vnd == 0
+
+        # Milestone 3 & 4: 5% equity each = 192,500,000
+        assert schedule[2].customer_equity_paid_vnd == 192_500_000
+        assert schedule[3].customer_equity_paid_vnd == 192_500_000
+
+        # Milestone 5: Handover 100% KPBT = 70,000,000
+        assert schedule[4].customer_equity_paid_vnd == 0
+        assert schedule[4].maintenance_fee_paid_vnd == 70_000_000
+        assert schedule[4].installment_gross_obligation_vnd == 70_000_000
+        assert schedule[4].is_handover_milestone
+
+        # Milestone 6: Reconciliation 5% equity = 192,500,000
+        assert schedule[5].customer_equity_paid_vnd == 192_500_000
+        assert schedule[5].is_reconciliation_installment
+
+        total_gross = sum(
+            item.installment_gross_obligation_vnd for item in schedule
+        )
+        assert total_gross == 3_920_000_000
+        total_bank = sum(item.bank_disbursement_vnd for item in schedule)
+        assert total_bank == 2_695_000_000
+
+    def test_schedule_reconciliation_zero_delta_on_odd_amounts(self) -> None:
+        """Odd net price balances exactly 100% at reconciliation milestone."""
+        cfg = create_pa_chudong_config(deposit_amount_vnd=50_000_000)
+        net_price = 3_123_456_789
+        vat = calculate_vat_amount(net_price)
+        kpbt = calculate_maintenance_fee_amount(net_price)
+        expected_contract = calculate_final_contract_price(
+            net_price, vat, kpbt
+        )
+
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=net_price,
+            vat_amount=vat,
+            kpbt_amount=kpbt,
+            deposit_amount_vnd=50_000_000,
+        )
+        total_gross = sum(
+            item.installment_gross_obligation_vnd for item in schedule
+        )
+        assert total_gross == expected_contract
+
+    def test_schedule_reconciliation_negative_residual_raises_error(
+        self,
+    ) -> None:
+        """If previous installments exceed targets, reconciliation raises CASHFLOW_RESIDUAL_ERROR."""
+        invalid_rules = [
+            InstallmentRule(
+                installment_number=1,
+                milestone_name="Đợt 1",
+                days_from_deposit=15,
+                customer_equity_ratio=Decimal("0.6000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=2,
+                milestone_name="Đợt 2",
+                days_from_deposit=60,
+                customer_equity_ratio=Decimal(
+                    "0.5000"
+                ),  # 60% + 50% = 110% > 100%
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("1.0000"),
+                is_handover=True,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=3,
+                milestone_name="Đợt 3",
+                days_from_deposit=90,
+                customer_equity_ratio=Decimal("0.0000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=True,
+            ),
+        ]
+        cfg = create_pa_chudong_config()
+        object.__setattr__(cfg, "installment_rules", invalid_rules)
+
+        with pytest.raises(ValueError, match="CASHFLOW_RESIDUAL_ERROR"):
+            generate_cashflow_schedule(
+                scenario_config=cfg,
+                net_price_before_vat=3_500_000_000,
+                vat_amount=350_000_000,
+                kpbt_amount=70_000_000,
+            )
+
+    def test_schedule_generator_input_validation(self) -> None:
+        """Negative amounts and empty rules raise ValueError."""
+        cfg = create_pa_chudong_config()
+        with pytest.raises(ValueError, match="net_price_before_vat"):
+            generate_cashflow_schedule(cfg, -1, 350_000_000, 70_000_000)
+        with pytest.raises(ValueError, match="vat_amount"):
+            generate_cashflow_schedule(cfg, 3_500_000_000, -1, 70_000_000)
+        with pytest.raises(ValueError, match="kpbt_amount"):
+            generate_cashflow_schedule(cfg, 3_500_000_000, 350_000_000, -1)
+        with pytest.raises(ValueError, match="deposit_amount_vnd"):
+            generate_cashflow_schedule(
+                cfg,
+                3_500_000_000,
+                350_000_000,
+                70_000_000,
+                deposit_amount_vnd=-1,
+            )
+
+    def test_schedule_generator_anti_float_guard(self) -> None:
+        """Float arguments to generate_cashflow_schedule raise TypeError."""
+        cfg = create_pa_chudong_config()
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            generate_cashflow_schedule(
+                cfg, 3500000000.0, 350_000_000, 70_000_000
+            )
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            generate_cashflow_schedule(
+                cfg, 3_500_000_000, 350000000.0, 70_000_000
+            )
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            generate_cashflow_schedule(
+                cfg, 3_500_000_000, 350_000_000, 70000000.0
+            )
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            generate_cashflow_schedule(
+                cfg,
+                3_500_000_000,
+                350_000_000,
+                70_000_000,
+                deposit_amount_vnd=100000000.0,
             )
 
 

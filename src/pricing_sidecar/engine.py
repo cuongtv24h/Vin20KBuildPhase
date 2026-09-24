@@ -5,6 +5,7 @@ Step 2: Khấu trừ chiết khấu tỷ lệ % cộng dồn: Sum_Rate = ∑ r_i
 """
 
 from collections.abc import Sequence
+from datetime import date, timedelta
 from decimal import Decimal
 
 from pydantic import Field
@@ -19,6 +20,7 @@ from src.pricing_sidecar.contracts import (
     AntiFloatBaseModel,
     BenefitApplicationRule,
     BenefitType,
+    CashflowInstallmentOutput,
     PaymentScenarioConfig,
     ScenarioCalculationResult,
     ScenarioType,
@@ -486,6 +488,152 @@ def calculate_total_benefit_value(
 
 
 # ===========================================================================
+# Cashflow Schedule Generator (FCS v2.6 §6.2)
+# ===========================================================================
+@forbid_float
+def generate_cashflow_schedule(
+    scenario_config: PaymentScenarioConfig,
+    net_price_before_vat: int,
+    vat_amount: int,
+    kpbt_amount: int,
+    deposit_amount_vnd: int = 100_000_000,
+    deposit_date: date | None = None,
+) -> list[CashflowInstallmentOutput]:
+    """Giải thuật Lập lịch Dòng tiền Generic (FCS v2.6 §6.2).
+
+    Duyệt động theo danh sách installment_rules của scenario_config, tính ngày đến hạn từ deposit_date,
+    thực hiện phân bổ vốn tự có, ngân hàng giải ngân, kinh phí bảo trì KPBT, cấn trừ cọc Đợt 1
+    và cơ chế bù số dư tại đợt reconciliation.
+
+    Args:
+        scenario_config: Cấu hình kịch bản tiến độ thanh toán.
+        net_price_before_vat: P_net: Giá Net trước thuế (VNĐ, >= 0).
+        vat_amount: A_vat: Tiền thuế GTGT (VNĐ, >= 0).
+        kpbt_amount: A_kpbt: Kinh phí bảo trì (VNĐ, >= 0).
+        deposit_amount_vnd: Tiền cọc thực tế đã nộp (VNĐ, >= 0).
+        deposit_date: Ngày ký thỏa thuận đặt cọc (mặc định 2026-03-08 nếu None).
+
+    Returns:
+        list[CashflowInstallmentOutput]: Danh sách các mốc dòng tiền đã lập lịch.
+
+    Raises:
+        ValueError: Nếu có giá trị số tiền âm hoặc đợt reconciliation sinh số dư âm.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(
+        scenario_config,
+        net_price_before_vat,
+        vat_amount,
+        kpbt_amount,
+        deposit_amount_vnd,
+        deposit_date,
+    )
+    if net_price_before_vat < 0:
+        raise ValueError(
+            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
+        )
+    if vat_amount < 0:
+        raise ValueError(
+            f"SANITY_FAIL: vat_amount ({vat_amount:,}đ) không được âm."
+        )
+    if kpbt_amount < 0:
+        raise ValueError(
+            f"SANITY_FAIL: kpbt_amount ({kpbt_amount:,}đ) không được âm."
+        )
+    if deposit_amount_vnd < 0:
+        raise ValueError(
+            f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm."
+        )
+    rules = scenario_config.installment_rules
+    if not rules:
+        raise ValueError(
+            "SANITY_FAIL: scenario_config.installment_rules không được rỗng."
+        )
+
+    base_date = deposit_date or date(2026, 3, 8)
+    base_with_vat = net_price_before_vat + vat_amount
+    contract_price = base_with_vat + kpbt_amount
+
+    # Dual Reconciliation Target (FCS v2.6 §6.2)
+    total_equity_target = round_vnd(
+        to_decimal(base_with_vat) * scenario_config.customer_equity_rate
+    )
+    total_bank_target = base_with_vat - total_equity_target
+
+    schedule: list[CashflowInstallmentOutput] = []
+    sum_equity_so_far = 0
+    sum_bank_so_far = 0
+    sum_kpbt_so_far = 0
+
+    for rule in rules:
+        due_date = base_date + timedelta(days=rule.days_from_deposit)
+
+        if not rule.is_reconciliation:
+            eq_amt = round_vnd(
+                to_decimal(base_with_vat) * rule.customer_equity_ratio
+            )
+            bank_amt = round_vnd(
+                to_decimal(base_with_vat) * rule.bank_disbursement_ratio
+            )
+            kpbt_amt = round_vnd(
+                to_decimal(kpbt_amount) * rule.maintenance_fee_ratio
+            )
+        else:
+            # Reconciliation Gate Tường minh: Bù triệt tiêu sai số lẻ, đảm bảo không âm
+            eq_amt = total_equity_target - sum_equity_so_far
+            bank_amt = total_bank_target - sum_bank_so_far
+            kpbt_amt = kpbt_amount - sum_kpbt_so_far
+
+            if eq_amt < 0 or bank_amt < 0 or kpbt_amt < 0:
+                raise ValueError(
+                    f"CASHFLOW_RESIDUAL_ERROR: Đợt reconciliation sinh số dư âm: "
+                    f"equity={eq_amt:,}đ, bank={bank_amt:,}đ, kpbt={kpbt_amt:,}đ."
+                )
+
+        sum_equity_so_far += eq_amt
+        sum_bank_so_far += bank_amt
+        sum_kpbt_so_far += kpbt_amt
+
+        gross_milestone = eq_amt + bank_amt + kpbt_amt
+
+        # Xử lý kết chuyển tiền cọc tại Đợt 1 (FCS §6.1)
+        if rule.installment_number == 1:
+            dep_credited = min(deposit_amount_vnd, eq_amt)
+            add_cash_due = eq_amt - dep_credited + kpbt_amt
+        else:
+            dep_credited = 0
+            add_cash_due = eq_amt + kpbt_amt
+
+        schedule.append(
+            CashflowInstallmentOutput(
+                installment_number=rule.installment_number,
+                milestone_name=rule.milestone_name,
+                due_date=due_date,
+                customer_equity_paid_vnd=eq_amt,
+                bank_disbursement_vnd=bank_amt,
+                maintenance_fee_paid_vnd=kpbt_amt,
+                installment_gross_obligation_vnd=gross_milestone,
+                installment_additional_cash_due_vnd=add_cash_due,
+                deposit_credited_vnd=dep_credited,
+                is_handover_milestone=rule.is_handover,
+                is_reconciliation_installment=rule.is_reconciliation,
+            )
+        )
+
+    # Invariant: Tổng nghĩa vụ các đợt phải khớp chính xác 100% P_contract
+    total_schedule_gross = sum(
+        inst.installment_gross_obligation_vnd for inst in schedule
+    )
+    if total_schedule_gross != contract_price:
+        raise ValueError(
+            f"SANITY_FAIL: Tổng nghĩa vụ dòng tiền ({total_schedule_gross:,}đ) "
+            f"lệch với Tổng giá HĐMB ({contract_price:,}đ)."
+        )
+
+    return schedule
+
+
+# ===========================================================================
 # Canonical Scenario Calculations (FCS v2.6 §5, §6, §10)
 # ===========================================================================
 @forbid_float
@@ -499,6 +647,7 @@ def _calculate_scenario_core(
     maintenance_fee_rate: Decimal = Decimal("0.0200"),
     max_discount_rate: Decimal = Decimal("0.3500"),
     max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    deposit_date: date | None = None,
 ) -> ScenarioCalculationResult:
     """Động cơ tính toán cốt lõi cho một cấu hình kịch bản PaymentScenarioConfig bất kỳ."""
     assert_no_float(
@@ -510,6 +659,7 @@ def _calculate_scenario_core(
         maintenance_fee_rate,
         max_discount_rate,
         max_total_discount_cap_rate,
+        deposit_date,
     )
     if deposit_amount_vnd < 0:
         raise ValueError(
@@ -536,49 +686,36 @@ def _calculate_scenario_core(
     # 3. Tổng giá trị các ưu đãi được phê duyệt định giá
     total_benefit_val = calculate_total_benefit_value(approved_benefits)
 
-    # 4. Trích xuất các chỉ tiêu dòng tiền cốt lõi từ installment_rules
-    rules = scenario_config.installment_rules
-    if not rules:
-        raise ValueError("SANITY_FAIL: scenario_config.installment_rules không được rỗng.")
-
-    base_with_vat = (
-        contract_summary.net_price_before_vat + contract_summary.vat_amount
+    # 4. Lập lịch dòng tiền chi tiết theo generic schedule generator
+    schedule = generate_cashflow_schedule(
+        scenario_config=scenario_config,
+        net_price_before_vat=contract_summary.net_price_before_vat,
+        vat_amount=contract_summary.vat_amount,
+        kpbt_amount=contract_summary.maintenance_fee_amount,
+        deposit_amount_vnd=deposit_amount_vnd,
+        deposit_date=deposit_date,
     )
-    kpbt_total = contract_summary.maintenance_fee_amount
 
-    # Nghĩa vụ Đợt 1 (Installment 1) & Kết chuyển cọc (FCS §6.1)
-    rule_1 = rules[0]
-    eq_1 = round_vnd(to_decimal(base_with_vat) * rule_1.customer_equity_ratio)
-    bank_1 = round_vnd(to_decimal(base_with_vat) * rule_1.bank_disbursement_ratio)
-    kpbt_1 = round_vnd(to_decimal(kpbt_total) * rule_1.maintenance_fee_ratio)
-    initial_gross = eq_1 + bank_1 + kpbt_1
-
-    deposit_credited = min(deposit_amount_vnd, eq_1)
-    initial_add_cash = eq_1 - deposit_credited + kpbt_1
-    initial_outflow = deposit_amount_vnd + initial_add_cash
+    inst_1 = schedule[0]
+    initial_gross = inst_1.installment_gross_obligation_vnd
+    initial_outflow = (
+        deposit_amount_vnd + inst_1.installment_additional_cash_due_vnd
+    )
 
     # Dòng tiền mặt khách nộp đến mốc bàn giao nhà (FCS §7.1)
-    handover_rule = next((r for r in rules if r.is_handover), None)
+    handover_rule = next(
+        (r for r in scenario_config.installment_rules if r.is_handover), None
+    )
     handover_idx = (
-        handover_rule.installment_number if handover_rule else len(rules)
+        handover_rule.installment_number
+        if handover_rule
+        else len(scenario_config.installment_rules)
     )
-    equity_ratio_to_handover = sum(
-        r.customer_equity_ratio
-        for r in rules
-        if r.installment_number <= handover_idx
+    cash_to_handover = sum(
+        inst.customer_equity_paid_vnd + inst.maintenance_fee_paid_vnd
+        for inst in schedule
+        if inst.installment_number <= handover_idx
     )
-    kpbt_ratio_to_handover = sum(
-        r.maintenance_fee_ratio
-        for r in rules
-        if r.installment_number <= handover_idx
-    )
-    equity_to_handover = round_vnd(
-        to_decimal(base_with_vat) * equity_ratio_to_handover
-    )
-    kpbt_to_handover = round_vnd(
-        to_decimal(kpbt_total) * kpbt_ratio_to_handover
-    )
-    cash_to_handover = equity_to_handover + kpbt_to_handover
 
     return ScenarioCalculationResult(
         scenario_type=scenario_config.scenario_type,
@@ -598,7 +735,7 @@ def _calculate_scenario_core(
         initial_cash_outflow_vnd=initial_outflow,
         customer_cash_outflow_until_handover=cash_to_handover,
         total_benefit_value_vnd=total_benefit_val,
-        cashflow_schedule=[],
+        cashflow_schedule=schedule,
     )
 
 
@@ -611,6 +748,7 @@ def calculate_pa_chudong(
     maintenance_fee_rate: Decimal = Decimal("0.0200"),
     max_discount_rate: Decimal = Decimal("0.3500"),
     max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    deposit_date: date | None = None,
     scenario_config: PaymentScenarioConfig | None = None,
 ) -> ScenarioCalculationResult:
     """Tính toán tài chính trọn gói cho Phương án Tiến độ Chuẩn PA-CHUDONG (FCS v2.6 §5, §10 TC-01).
@@ -628,6 +766,7 @@ def calculate_pa_chudong(
         maintenance_fee_rate,
         max_discount_rate,
         max_total_discount_cap_rate,
+        deposit_date,
     )
     cfg = scenario_config or create_pa_chudong_config(
         deposit_amount_vnd=deposit_amount_vnd
@@ -642,6 +781,7 @@ def calculate_pa_chudong(
         maintenance_fee_rate=maintenance_fee_rate,
         max_discount_rate=max_discount_rate,
         max_total_discount_cap_rate=max_total_discount_cap_rate,
+        deposit_date=deposit_date,
     )
 
 
@@ -655,6 +795,7 @@ def calculate_pa_nhanh(
     maintenance_fee_rate: Decimal = Decimal("0.0200"),
     max_discount_rate: Decimal = Decimal("0.3500"),
     max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    deposit_date: date | None = None,
     scenario_config: PaymentScenarioConfig | None = None,
 ) -> ScenarioCalculationResult:
     """Tính toán tài chính trọn gói cho Phương án Thanh toán Sớm 95% PA-NHANH (FCS v2.6 §5, §10 TC-02).
@@ -673,6 +814,7 @@ def calculate_pa_nhanh(
         maintenance_fee_rate,
         max_discount_rate,
         max_total_discount_cap_rate,
+        deposit_date,
     )
     cfg = scenario_config or create_pa_nhanh_config(
         deposit_amount_vnd=deposit_amount_vnd
@@ -687,6 +829,7 @@ def calculate_pa_nhanh(
         maintenance_fee_rate=maintenance_fee_rate,
         max_discount_rate=max_discount_rate,
         max_total_discount_cap_rate=max_total_discount_cap_rate,
+        deposit_date=deposit_date,
     )
 
 
@@ -701,6 +844,7 @@ def calculate_pa_vay(
     max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
     interest_support_months: int = 24,
     principal_grace_months: int = 24,
+    deposit_date: date | None = None,
     scenario_config: PaymentScenarioConfig | None = None,
 ) -> ScenarioCalculationResult:
     """Tính toán tài chính trọn gói cho Phương án Vay Ngân hàng HTLS PA-VAY (FCS v2.6 §5, §10 TC-03).
@@ -719,6 +863,7 @@ def calculate_pa_vay(
         max_total_discount_cap_rate,
         interest_support_months,
         principal_grace_months,
+        deposit_date,
     )
     cfg = scenario_config or create_pa_vay_config(
         deposit_amount_vnd=deposit_amount_vnd,
@@ -735,6 +880,7 @@ def calculate_pa_vay(
         maintenance_fee_rate=maintenance_fee_rate,
         max_discount_rate=max_discount_rate,
         max_total_discount_cap_rate=max_total_discount_cap_rate,
+        deposit_date=deposit_date,
     )
 
 
@@ -783,6 +929,7 @@ def calculate_canonical_scenario(
     max_discount_rate: Decimal = Decimal("0.3500"),
     max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
     early_discount_rate: Decimal = Decimal("0.0800"),
+    deposit_date: date | None = None,
     scenario_config: PaymentScenarioConfig | None = None,
 ) -> ScenarioCalculationResult:
     """Hàm điều phối tính toán kịch bản chuẩn tắc cho bất kỳ ScenarioType hoặc alias nào."""
@@ -795,6 +942,7 @@ def calculate_canonical_scenario(
         max_discount_rate,
         max_total_discount_cap_rate,
         early_discount_rate,
+        deposit_date,
     )
     resolved_type = resolve_scenario_type(scenario_type_or_code)
 
@@ -807,6 +955,7 @@ def calculate_canonical_scenario(
             maintenance_fee_rate=maintenance_fee_rate,
             max_discount_rate=max_discount_rate,
             max_total_discount_cap_rate=max_total_discount_cap_rate,
+            deposit_date=deposit_date,
             scenario_config=scenario_config,
         )
     if resolved_type == ScenarioType.EARLY_95:
@@ -819,6 +968,7 @@ def calculate_canonical_scenario(
             maintenance_fee_rate=maintenance_fee_rate,
             max_discount_rate=max_discount_rate,
             max_total_discount_cap_rate=max_total_discount_cap_rate,
+            deposit_date=deposit_date,
             scenario_config=scenario_config,
         )
     if resolved_type == ScenarioType.BANK_LOAN_HTLS:
@@ -830,6 +980,7 @@ def calculate_canonical_scenario(
             maintenance_fee_rate=maintenance_fee_rate,
             max_discount_rate=max_discount_rate,
             max_total_discount_cap_rate=max_total_discount_cap_rate,
+            deposit_date=deposit_date,
             scenario_config=scenario_config,
         )
 
