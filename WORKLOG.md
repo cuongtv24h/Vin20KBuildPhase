@@ -41,8 +41,10 @@
 | Dev 2 (ChungVanDuy) | Task 2.6: Xử lý kết chuyển tiền cọc Đợt 1 và tính tiền nộp thêm thực tế | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (Suite TestInstallmentDepositCredit 5/5 tests pass) | 0.5h |
 | Dev 2 (ChungVanDuy) | Task 2.7: Xử lý phân bổ 100% KPBT tại đợt nhận bàn giao nhà (is_handover) | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (Suite TestHandoverMaintenanceFeeAllocation 5/5 tests pass) | 0.5h |
 | Dev 2 (ChungVanDuy) | Task 2.8: Triển khai bù triệt tiêu sai số lẻ và chặn số dư âm CashflowResidualError | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (Suite TestReconciliationResidualGate 5/5 tests pass, nâng tổng tests sidecar lên 174/174, toàn repo lên 183/183) | 0.5h |
+| Dev 2 (ChungVanDuy) | Task 3.1: Xây dựng Cổng Kiểm duyệt Tài chính 6 Sanity Checks | ✅ Done | `src/pricing_sidecar/validation.py`, `tests/test_pricing_sidecar/test_validation.py` (6 nhóm Sanity Checks, positive & negative tests pass) | 0.8h |
+| Dev 2 (ChungVanDuy) | Task 3.2: Cấu trúc lỗi cấp trường (field-level envelope) & ngoại lệ FINANCIAL_SANITY_FAILED | ✅ Done | `src/pricing_sidecar/validation.py`, `src/pricing_sidecar/__init__.py` (25/25 tests pass, nâng tổng tests sidecar lên 199/199, toàn repo lên 208/208) | 0.8h |
 
-**Tổng kết ngày:** Hoàn thành xuất sắc 100% Task Lớn 2 (8/8 tasks nhỏ từ 2.1 đến 2.8): hiện thực hóa trọn vẹn 4 bước định giá tài chính, cơ chế Dual Discount Cap, 3 kịch bản canonical, giải thuật lập lịch dòng tiền generic, kết chuyển cọc Đợt 1, phân bổ KPBT bàn giao và chốt chặn reconciliation gate triệt tiêu sai số lẻ $\Delta = 0$ VNĐ theo chuẩn FCS v2.6. Toàn bộ 183/183 unit tests đạt tỷ lệ pass 100% (1.64s) và linter ruff đạt chuẩn sạch tuyệt đối.
+**Tổng kết ngày:** Hoàn thành xuất sắc 100% Task Lớn 2 (Tasks 2.1 - 2.8) và 40% Task Lớn 3 (Tasks 3.1 - 3.2): hiện thực hóa trọn vẹn 4 bước định giá tài chính, cơ chế Dual Discount Cap, 3 kịch bản canonical, lập lịch dòng tiền generic, kết chuyển cọc, phân bổ KPBT và cổng kiểm duyệt 6 Sanity Checks kèm field-level error envelope theo chuẩn FCS v2.6 và TD-4.4. Toàn bộ 208/208 tests đạt tỷ lệ pass 100% (1.85s) và linter ruff đạt chuẩn sạch tuyệt đối.
 
 ---
 

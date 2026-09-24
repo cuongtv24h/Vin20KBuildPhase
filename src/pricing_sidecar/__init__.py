@@ -63,6 +63,21 @@ from src.pricing_sidecar.engine import (
     resolve_scenario_type,
     validate_dual_discount_cap,
 )
+from src.pricing_sidecar.validation import (
+    FINANCIAL_SANITY_FAILED_CODE,
+    INV_FIN_01,
+    INV_FIN_02,
+    INV_FIN_03,
+    INV_FIN_04,
+    INV_FIN_05,
+    INV_FIN_06,
+    STANDARD_SANITY_INVARIANTS,
+    FinancialSanityError,
+    SanityFieldErrorDetail,
+    check_scenario_sanity,
+    validate_pricing_results,
+    validate_scenario_calculation,
+)
 
 __all__ = [
     "AdditiveDiscountResult",
@@ -119,5 +134,18 @@ __all__ = [
     "sum_rates",
     "to_decimal",
     "validate_dual_discount_cap",
+    "FINANCIAL_SANITY_FAILED_CODE",
+    "FinancialSanityError",
+    "INV_FIN_01",
+    "INV_FIN_02",
+    "INV_FIN_03",
+    "INV_FIN_04",
+    "INV_FIN_05",
+    "INV_FIN_06",
+    "STANDARD_SANITY_INVARIANTS",
+    "SanityFieldErrorDetail",
+    "check_scenario_sanity",
+    "validate_pricing_results",
+    "validate_scenario_calculation",
 ]
 
