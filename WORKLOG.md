@@ -29,6 +29,16 @@
 
 ---
 
+## 2026-09-24
+
+| Member | Task | Status | Output | Time |
+|--------|------|--------|--------|------|
+| Dev 2 (ChungVanDuy) | Task 2.1: Triển khai Bước 1 & Bước 2 mô hình Additive Discount | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (27/27 tests pass, ruff clean, nâng tổng tests lên 112/112) | 1.0h |
+
+**Tổng kết ngày:** Hoàn thành Task 2.1 của Task Lớn 2, hiện thực hóa Bước 1 (khấu trừ tiền mặt cố định Base_1) và Bước 2 (chiết khấu tỷ lệ % cộng dồn) theo chuẩn FCS v2.6 §5, đạt 112/112 unit tests pass 100% (0.28s).
+
+---
+
 ## [YYYY-MM-DD]
 
 | Member | Task | Status | Output | Time |

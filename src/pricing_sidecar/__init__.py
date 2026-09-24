@@ -43,8 +43,16 @@ from src.pricing_sidecar.contracts import (
     create_pa_nhanh_config,
     create_pa_vay_config,
 )
+from src.pricing_sidecar.engine import (
+    AdditiveDiscountResult,
+    calculate_additive_discount,
+    calculate_fixed_discount,
+    calculate_percentage_discount,
+    calculate_total_benefit_value,
+)
 
 __all__ = [
+    "AdditiveDiscountResult",
     "CANONICAL_SCENARIO_ORDER",
     "PRECISION",
     "ROUNDING_RULE",
@@ -71,6 +79,10 @@ __all__ = [
     "ValidationReport",
     "ValuationStatus",
     "assert_no_float",
+    "calculate_additive_discount",
+    "calculate_fixed_discount",
+    "calculate_percentage_discount",
+    "calculate_total_benefit_value",
     "create_canonical_scenario_config",
     "create_pa_chudong_config",
     "create_pa_nhanh_config",
@@ -82,3 +94,4 @@ __all__ = [
     "sum_rates",
     "to_decimal",
 ]
+
