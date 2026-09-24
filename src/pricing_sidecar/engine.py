@@ -33,11 +33,22 @@ class AdditiveDiscountResult(AntiFloatBaseModel):
     percentage_discount_vnd: int = Field(default=0, ge=0)
     net_price_before_vat: int = Field(..., ge=0)
     total_discount_amount_vnd: int = Field(default=0, ge=0)
+    max_discount_rate: Decimal = Field(default=Decimal("0.3500"), ge=0, le=1)
+    max_total_discount_cap_rate: Decimal = Field(default=Decimal("0.4000"), ge=0, le=1)
+    max_total_discount_vnd: int = Field(default=0, ge=0)
 
     @property
     def total_discount_vnd(self) -> int:
         """Alias for total_discount_amount_vnd."""
         return self.total_discount_amount_vnd
+
+    @property
+    def is_within_caps(self) -> bool:
+        """Kiểm tra kết quả có nằm trong trần Dual Discount Cap hay không."""
+        return (
+            self.total_discount_rate <= self.max_discount_rate
+            and self.total_discount_amount_vnd <= self.max_total_discount_vnd
+        )
 
     def __iter__(self):
         """Cho phép unpack: fixed, base, rate, pct_vnd, net = result."""
@@ -46,6 +57,7 @@ class AdditiveDiscountResult(AntiFloatBaseModel):
         yield self.total_discount_rate
         yield self.percentage_discount_vnd
         yield self.net_price_before_vat
+
 
 
 @forbid_float
@@ -169,17 +181,86 @@ def calculate_percentage_discount(
 
 
 @forbid_float
+def validate_dual_discount_cap(
+    listed_price_vnd: int,
+    total_discount_rate: Decimal,
+    total_discount_amount_vnd: int,
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+) -> None:
+    """Cưỡng chế cơ chế Dual Discount Cap (FCS v2.6 §5 & §9).
+
+    1. Trần tỷ lệ phần trăm: Sum_Rate <= max_discount_rate (0.3500)
+    2. Trần tổng giá trị tài chính: D_total <= round_vnd(P_listed * max_total_discount_cap_rate) (0.4000)
+
+    Args:
+        listed_price_vnd: Giá niêm yết gốc (> 0).
+        total_discount_rate: Tổng tỷ lệ chiết khấu (Decimal).
+        total_discount_amount_vnd: Tổng số tiền chiết khấu (D_fixed + Discount_Percent_Amount).
+        max_discount_rate: Trần tỷ lệ chiết khấu tối đa (mặc định 0.3500).
+        max_total_discount_cap_rate: Trần tỷ lệ tổng giá trị tài chính tối đa (mặc định 0.4000).
+
+    Raises:
+        ValueError: Nếu vi phạm trần tỷ lệ hoặc trần tổng tiền.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(
+        listed_price_vnd,
+        total_discount_rate,
+        total_discount_amount_vnd,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+    )
+
+    if listed_price_vnd <= 0:
+        raise ValueError(
+            f"SANITY_FAIL: listed_price_vnd ({listed_price_vnd:,}đ) phải là số nguyên dương > 0."
+        )
+
+    rate = to_decimal(total_discount_rate)
+    max_rate = to_decimal(max_discount_rate)
+    max_total_cap_rate = to_decimal(max_total_discount_cap_rate)
+
+    # 1. Trần tỷ lệ phần trăm (Percentage Cap)
+    if rate > max_rate:
+        raise ValueError(
+            f"DUAL_CAP_EXCEEDED: Tỷ lệ chiết khấu ({rate}) "
+            f"vượt trần tỷ lệ cho phép ({max_rate})."
+        )
+
+    # 2. Trần tổng giá trị tài chính (Total Value Cap)
+    max_total_allowed_vnd = round_vnd(to_decimal(listed_price_vnd) * max_total_cap_rate)
+    if total_discount_amount_vnd > max_total_allowed_vnd:
+        raise ValueError(
+            f"DUAL_CAP_EXCEEDED: Tổng chiết khấu ({total_discount_amount_vnd:,}đ) "
+            f"vượt trần tổng tiền cho phép ({max_total_allowed_vnd:,}đ)."
+        )
+
+
+@forbid_float
 def calculate_additive_discount(
     listed_price_vnd: int,
     benefits: Sequence[BenefitApplicationRule] | None = None,
     scenario_discount_rate: Decimal = Decimal("0.0000"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    enforce_caps: bool = True,
 ) -> AdditiveDiscountResult:
-    """Tích hợp hoàn chỉnh Bước 1 & Bước 2 mô hình Additive Discount (FCS v2.6 §5).
+    """Tích hợp hoàn chỉnh Bước 1 & Bước 2 mô hình Additive Discount và Dual Discount Cap (FCS v2.6 §5).
 
     Returns:
-        AdditiveDiscountResult: Đóng gói đầy đủ kết quả Bước 1 & Bước 2.
+        AdditiveDiscountResult: Đóng gói đầy đủ kết quả Bước 1 & Bước 2 và thông tin trần chiết khấu.
+
+    Raises:
+        ValueError: Nếu vi phạm Dual Cap khi enforce_caps=True.
     """
-    assert_no_float(listed_price_vnd, benefits, scenario_discount_rate)
+    assert_no_float(
+        listed_price_vnd,
+        benefits,
+        scenario_discount_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+    )
 
     fixed_vnd, base_after_fixed_vnd = calculate_fixed_discount(
         listed_price_vnd=listed_price_vnd,
@@ -193,6 +274,18 @@ def calculate_additive_discount(
     )
 
     total_discount_vnd = fixed_vnd + percentage_vnd
+    max_total_discount_vnd = round_vnd(
+        to_decimal(listed_price_vnd) * to_decimal(max_total_discount_cap_rate)
+    )
+
+    if enforce_caps:
+        validate_dual_discount_cap(
+            listed_price_vnd=listed_price_vnd,
+            total_discount_rate=total_rate,
+            total_discount_amount_vnd=total_discount_vnd,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+        )
 
     return AdditiveDiscountResult(
         listed_price_vnd=listed_price_vnd,
@@ -202,7 +295,11 @@ def calculate_additive_discount(
         percentage_discount_vnd=percentage_vnd,
         net_price_before_vat=net_price_vnd,
         total_discount_amount_vnd=total_discount_vnd,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+        max_total_discount_vnd=max_total_discount_vnd,
     )
+
 
 
 @forbid_float

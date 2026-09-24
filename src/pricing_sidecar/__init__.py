@@ -49,6 +49,7 @@ from src.pricing_sidecar.engine import (
     calculate_fixed_discount,
     calculate_percentage_discount,
     calculate_total_benefit_value,
+    validate_dual_discount_cap,
 )
 
 __all__ = [
@@ -93,5 +94,6 @@ __all__ = [
     "safe_rate_amount",
     "sum_rates",
     "to_decimal",
+    "validate_dual_discount_cap",
 ]
 

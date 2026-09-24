@@ -23,6 +23,7 @@ from src.pricing_sidecar.engine import (
     calculate_fixed_discount,
     calculate_percentage_discount,
     calculate_total_benefit_value,
+    validate_dual_discount_cap,
 )
 
 
@@ -361,7 +362,119 @@ class TestCalculateTotalBenefitValue:
 
 
 # ===========================================================================
-# 5. Anti-Float Guard Enforcement Tests
+# 5. Dual Discount Cap Enforcement Tests (FCS v2.6 §5 & §9)
+# ===========================================================================
+class TestDualDiscountCap:
+    """Test Percentage Cap (<= 35%) and Total Amount Cap (<= 40%)."""
+
+    def test_within_caps_tc01_baseline(self) -> None:
+        """TC-01: 0% and 0 VND discount is strictly within caps."""
+        validate_dual_discount_cap(
+            listed_price_vnd=3_500_000_000,
+            total_discount_rate=Decimal("0.0000"),
+            total_discount_amount_vnd=0,
+        )
+
+    def test_within_caps_tc05_and_tc06(self) -> None:
+        """TC-05 (~9.3%) and TC-06 (~10.3%) are strictly within caps."""
+        validate_dual_discount_cap(
+            listed_price_vnd=3_500_000_000,
+            total_discount_rate=Decimal("0.0800"),
+            total_discount_amount_vnd=326_000_000,
+        )
+        validate_dual_discount_cap(
+            listed_price_vnd=3_500_000_000,
+            total_discount_rate=Decimal("0.0600"),
+            total_discount_amount_vnd=360_400_000,
+        )
+
+    def test_exact_percentage_cap_boundary_passes(self) -> None:
+        """Exactly 35.00% discount rate must pass (Sum_Rate <= max_discount_rate)."""
+        validate_dual_discount_cap(
+            listed_price_vnd=3_500_000_000,
+            total_discount_rate=Decimal("0.3500"),
+            total_discount_amount_vnd=1_225_000_000,
+        )
+
+    def test_exact_total_amount_cap_boundary_passes(self) -> None:
+        """Exactly 40.00% total amount (1,400,000,000 VND) must pass."""
+        validate_dual_discount_cap(
+            listed_price_vnd=3_500_000_000,
+            total_discount_rate=Decimal("0.2000"),
+            total_discount_amount_vnd=1_400_000_000,
+        )
+
+    def test_percentage_cap_exceeded_raises_error(self) -> None:
+        """Rate 35.01% > 35.00% must raise ValueError with DUAL_CAP_EXCEEDED."""
+        with pytest.raises(ValueError, match="DUAL_CAP_EXCEEDED.*Tỷ lệ chiết khấu"):
+            validate_dual_discount_cap(
+                listed_price_vnd=3_500_000_000,
+                total_discount_rate=Decimal("0.3501"),
+                total_discount_amount_vnd=1_225_350_000,
+            )
+
+    def test_percentage_cap_exceeded_36pct_raises_error(self) -> None:
+        """Rate 36.00% > 35.00% must raise ValueError."""
+        with pytest.raises(ValueError, match="DUAL_CAP_EXCEEDED.*Tỷ lệ chiết khấu"):
+            validate_dual_discount_cap(
+                listed_price_vnd=3_500_000_000,
+                total_discount_rate=Decimal("0.3600"),
+                total_discount_amount_vnd=1_260_000_000,
+            )
+
+    def test_total_amount_cap_exceeded_raises_error(self) -> None:
+        """Total 1,400,000,001 VND > 1,400,000,000 VND (40%) must raise ValueError."""
+        with pytest.raises(ValueError, match="DUAL_CAP_EXCEEDED.*Tổng chiết khấu"):
+            validate_dual_discount_cap(
+                listed_price_vnd=3_500_000_000,
+                total_discount_rate=Decimal("0.2000"),
+                total_discount_amount_vnd=1_400_000_001,
+            )
+
+    def test_custom_dynamic_caps(self) -> None:
+        """Custom caps configured from policy (e.g. VIP max 20% rate, 25% total amount)."""
+        # Within custom caps: 15% and 700M (< 875M = 25% of 3.5B)
+        validate_dual_discount_cap(
+            listed_price_vnd=3_500_000_000,
+            total_discount_rate=Decimal("0.1500"),
+            total_discount_amount_vnd=700_000_000,
+            max_discount_rate=Decimal("0.2000"),
+            max_total_discount_cap_rate=Decimal("0.2500"),
+        )
+        # Exceeds custom rate cap (22% > 20%)
+        with pytest.raises(ValueError, match="DUAL_CAP_EXCEEDED.*Tỷ lệ chiết khấu"):
+            validate_dual_discount_cap(
+                listed_price_vnd=3_500_000_000,
+                total_discount_rate=Decimal("0.2200"),
+                total_discount_amount_vnd=700_000_000,
+                max_discount_rate=Decimal("0.2000"),
+                max_total_discount_cap_rate=Decimal("0.2500"),
+            )
+
+    def test_calculate_additive_discount_enforces_caps_by_default(self) -> None:
+        """calculate_additive_discount automatically blocks scenarios exceeding Dual Cap."""
+        with pytest.raises(ValueError, match="DUAL_CAP_EXCEEDED.*Tỷ lệ chiết khấu"):
+            calculate_additive_discount(
+                listed_price_vnd=3_500_000_000,
+                benefits=[],
+                scenario_discount_rate=Decimal("0.4000"),  # 40% > 35% cap
+            )
+
+    def test_calculate_additive_discount_bypass_when_enforce_false(self) -> None:
+        """calculate_additive_discount allows inspection when enforce_caps=False."""
+        res = calculate_additive_discount(
+            listed_price_vnd=3_500_000_000,
+            benefits=[],
+            scenario_discount_rate=Decimal("0.4000"),
+            enforce_caps=False,
+        )
+        assert res.total_discount_rate == Decimal("0.4000")
+        assert not res.is_within_caps
+        assert res.max_total_discount_vnd == 1_400_000_000
+
+
+# ===========================================================================
+# 6. Anti-Float Guard Enforcement Tests
 # ===========================================================================
 class TestAntiFloatGuardInEngine:
     """Ensure engine functions immediately reject float arguments."""
@@ -384,6 +497,29 @@ class TestAntiFloatGuardInEngine:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             calculate_additive_discount(3500000000.0)
 
+    def test_calculate_additive_discount_rejects_float_cap(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_additive_discount(
+                3_500_000_000, max_discount_rate=0.35  # float cap!
+            )
+
+    def test_validate_dual_discount_cap_rejects_float_rate(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            validate_dual_discount_cap(
+                listed_price_vnd=3_500_000_000,
+                total_discount_rate=0.08,  # float!
+                total_discount_amount_vnd=280_000_000,
+            )
+
+    def test_validate_dual_discount_cap_rejects_float_cap(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            validate_dual_discount_cap(
+                listed_price_vnd=3_500_000_000,
+                total_discount_rate=Decimal("0.0800"),
+                total_discount_amount_vnd=280_000_000,
+                max_discount_rate=0.35,  # float!
+            )
+
     def test_additive_discount_result_rejects_float(self) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             AdditiveDiscountResult(
@@ -395,3 +531,4 @@ class TestAntiFloatGuardInEngine:
                 net_price_before_vat=3_220_000_000,
                 total_discount_amount_vnd=280_000_000,
             )
+
