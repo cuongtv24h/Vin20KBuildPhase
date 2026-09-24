@@ -84,6 +84,12 @@ class ContractPricingSummary(AntiFloatBaseModel):
         yield self.final_contract_price
 
 
+class CashflowResidualError(ValueError):
+    """Ngoại lệ phát sinh khi đợt reconciliation dòng tiền sinh số dư âm (CASHFLOW_RESIDUAL_ERROR)."""
+
+    pass
+
+
 @forbid_float
 def calculate_fixed_discount(
     listed_price_vnd: int,
@@ -579,13 +585,13 @@ def generate_cashflow_schedule(
                 to_decimal(kpbt_amount) * rule.maintenance_fee_ratio
             )
         else:
-            # Reconciliation Gate Tường minh: Bù triệt tiêu sai số lẻ, đảm bảo không âm
+            # Task 2.8 (FCS §6.2): Reconciliation Gate Tường minh - Bù triệt tiêu sai số lẻ, đảm bảo không âm
             eq_amt = total_equity_target - sum_equity_so_far
             bank_amt = total_bank_target - sum_bank_so_far
             kpbt_amt = kpbt_amount - sum_kpbt_so_far
 
             if eq_amt < 0 or bank_amt < 0 or kpbt_amt < 0:
-                raise ValueError(
+                raise CashflowResidualError(
                     f"CASHFLOW_RESIDUAL_ERROR: Đợt reconciliation sinh số dư âm: "
                     f"equity={eq_amt:,}đ, bank={bank_amt:,}đ, kpbt={kpbt_amt:,}đ."
                 )
@@ -596,7 +602,7 @@ def generate_cashflow_schedule(
 
         gross_milestone = eq_amt + bank_amt + kpbt_amt
 
-        # Xử lý kết chuyển tiền cọc tại Đợt 1 (FCS §6.1)
+        # Task 2.6 (FCS §6.1): Xử lý kết chuyển tiền cọc tại Đợt 1 và tính tiền nộp thêm thực tế
         if rule.installment_number == 1:
             dep_credited = min(deposit_amount_vnd, eq_amt)
             add_cash_due = eq_amt - dep_credited + kpbt_amt

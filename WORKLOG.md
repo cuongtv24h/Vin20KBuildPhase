@@ -38,8 +38,11 @@
 | Dev 2 (ChungVanDuy) | Task 2.3: Triển khai Bước 3 & Bước 4 tính thuế VAT, phí KPBT và tổng giá HĐMB | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (54/54 tests pass, ruff clean, nâng tổng tests lên 139/139) | 0.8h |
 | Dev 2 (ChungVanDuy) | Task 2.4: Hiện thực hàm tính 3 kịch bản canonical (PA-CHUDONG, PA-NHANH, PA-VAY) và hàm điều phối canonical | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (67/67 tests pass, ruff clean, nâng tổng tests sidecar lên 152/152, toàn repo lên 161/161) | 1.0h |
 | Dev 2 (ChungVanDuy) | Task 2.5: Xây dựng giải thuật Lập lịch Dòng tiền Generic (`generate_cashflow_schedule`) | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (74/74 tests pass, ruff clean, nâng tổng tests sidecar lên 159/159, toàn repo lên 168/168) | 1.0h |
+| Dev 2 (ChungVanDuy) | Task 2.6: Xử lý kết chuyển tiền cọc Đợt 1 và tính tiền nộp thêm thực tế | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (Suite TestInstallmentDepositCredit 5/5 tests pass) | 0.5h |
+| Dev 2 (ChungVanDuy) | Task 2.7: Xử lý phân bổ 100% KPBT tại đợt nhận bàn giao nhà (is_handover) | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (Suite TestHandoverMaintenanceFeeAllocation 5/5 tests pass) | 0.5h |
+| Dev 2 (ChungVanDuy) | Task 2.8: Triển khai bù triệt tiêu sai số lẻ và chặn số dư âm CashflowResidualError | ✅ Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` (Suite TestReconciliationResidualGate 5/5 tests pass, nâng tổng tests sidecar lên 174/174, toàn repo lên 183/183) | 0.5h |
 
-**Tổng kết ngày:** Hoàn thành xuất sắc Task 2.1, 2.2, 2.3, 2.4 và 2.5 thuộc Task Lớn 2: hiện thực hóa trọn vẹn 4 bước định giá tài chính, 3 kịch bản canonical và thuật toán lập lịch dòng tiền generic (`generate_cashflow_schedule`) theo chuẩn FCS v2.6 §5, §6 & §10. Toàn bộ 168/168 unit tests đạt tỷ lệ pass 100% (1.75s) và linter ruff đạt chuẩn sạch tuyệt đối.
+**Tổng kết ngày:** Hoàn thành xuất sắc 100% Task Lớn 2 (8/8 tasks nhỏ từ 2.1 đến 2.8): hiện thực hóa trọn vẹn 4 bước định giá tài chính, cơ chế Dual Discount Cap, 3 kịch bản canonical, giải thuật lập lịch dòng tiền generic, kết chuyển cọc Đợt 1, phân bổ KPBT bàn giao và chốt chặn reconciliation gate triệt tiêu sai số lẻ $\Delta = 0$ VNĐ theo chuẩn FCS v2.6. Toàn bộ 183/183 unit tests đạt tỷ lệ pass 100% (1.64s) và linter ruff đạt chuẩn sạch tuyệt đối.
 
 ---
 

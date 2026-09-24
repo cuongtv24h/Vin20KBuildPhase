@@ -45,6 +45,7 @@ from src.pricing_sidecar.contracts import (
 )
 from src.pricing_sidecar.engine import (
     AdditiveDiscountResult,
+    CashflowResidualError,
     ContractPricingSummary,
     calculate_additive_discount,
     calculate_canonical_scenario,
@@ -66,6 +67,7 @@ from src.pricing_sidecar.engine import (
 __all__ = [
     "AdditiveDiscountResult",
     "CANONICAL_SCENARIO_ORDER",
+    "CashflowResidualError",
     "ContractPricingSummary",
     "PRECISION",
     "ROUNDING_RULE",

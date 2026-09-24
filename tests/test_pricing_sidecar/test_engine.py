@@ -24,6 +24,7 @@ from src.pricing_sidecar.contracts import (
 )
 from src.pricing_sidecar.engine import (
     AdditiveDiscountResult,
+    CashflowResidualError,
     ContractPricingSummary,
     calculate_additive_discount,
     calculate_canonical_scenario,
@@ -1197,6 +1198,454 @@ class TestCashflowScheduleGenerator:
                 70_000_000,
                 deposit_amount_vnd=100000000.0,
             )
+
+
+# ===========================================================================
+# Task 2.6 Test Suite: Deposit Crediting at Installment 1 (FCS §6.1)
+# ===========================================================================
+class TestInstallmentDepositCredit:
+    """Kiểm thử chuyên sâu xử lý kết chuyển tiền cọc Đợt 1 và tiền nộp thêm thực tế."""
+
+    def test_deposit_standard_credit_milestone_1(self) -> None:
+        """Cọc chuẩn 100M: khấu trừ đúng 100M tại Đợt 1, nộp thêm 477.5M, các đợt sau cọc = 0."""
+        cfg = create_pa_chudong_config(deposit_amount_vnd=100_000_000)
+        net_price = 3_500_000_000
+        vat = calculate_vat_amount(net_price)
+        kpbt = calculate_maintenance_fee_amount(net_price)
+
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=net_price,
+            vat_amount=vat,
+            kpbt_amount=kpbt,
+            deposit_amount_vnd=100_000_000,
+        )
+
+        inst_1 = schedule[0]
+        assert inst_1.installment_number == 1
+        assert inst_1.customer_equity_paid_vnd == 577_500_000
+        assert inst_1.deposit_credited_vnd == 100_000_000
+        assert inst_1.installment_additional_cash_due_vnd == 477_500_000
+        assert inst_1.installment_gross_obligation_vnd == 577_500_000
+
+        # Mọi đợt sau (2..9) đều không được kết chuyển cọc nữa
+        for inst in schedule[1:]:
+            assert inst.deposit_credited_vnd == 0
+            assert (
+                inst.installment_additional_cash_due_vnd
+                == inst.customer_equity_paid_vnd + inst.maintenance_fee_paid_vnd
+            )
+
+    def test_deposit_zero_credit(self) -> None:
+        """Trường hợp cọc 0 VNĐ: tiền nộp thêm bằng 100% nghĩa vụ Đợt 1."""
+        cfg = create_pa_chudong_config(deposit_amount_vnd=0)
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_500_000_000,
+            vat_amount=350_000_000,
+            kpbt_amount=70_000_000,
+            deposit_amount_vnd=0,
+        )
+
+        inst_1 = schedule[0]
+        assert inst_1.deposit_credited_vnd == 0
+        assert inst_1.installment_additional_cash_due_vnd == 577_500_000
+        assert (
+            inst_1.installment_additional_cash_due_vnd
+            == inst_1.installment_gross_obligation_vnd
+        )
+
+    def test_deposit_exact_match_equity(self) -> None:
+        """Trường hợp cọc đúng bằng nghĩa vụ Đợt 1: tiền nộp thêm bằng 0 VNĐ."""
+        deposit = 577_500_000
+        cfg = create_pa_chudong_config(deposit_amount_vnd=deposit)
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_500_000_000,
+            vat_amount=350_000_000,
+            kpbt_amount=70_000_000,
+            deposit_amount_vnd=deposit,
+        )
+
+        inst_1 = schedule[0]
+        assert inst_1.deposit_credited_vnd == 577_500_000
+        assert inst_1.installment_additional_cash_due_vnd == 0
+        assert inst_1.installment_gross_obligation_vnd == 577_500_000
+
+    def test_deposit_exceeds_installment_equity(self) -> None:
+        """Trường hợp cọc vượt quá nghĩa vụ Đợt 1 (700M > 577.5M): khấu trừ trần đúng eq_amt."""
+        deposit = 700_000_000
+        cfg = create_pa_chudong_config(deposit_amount_vnd=deposit)
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_500_000_000,
+            vat_amount=350_000_000,
+            kpbt_amount=70_000_000,
+            deposit_amount_vnd=deposit,
+        )
+
+        inst_1 = schedule[0]
+        # min(700M, 577.5M) = 577.5M
+        assert inst_1.deposit_credited_vnd == 577_500_000
+        assert inst_1.installment_additional_cash_due_vnd == 0
+        assert inst_1.installment_gross_obligation_vnd == 577_500_000
+
+    def test_initial_cash_outflow_identity(self) -> None:
+        """Bảo chứng định danh toán học FCS §6.1: INITIAL_CASH_OUTFLOW = deposit + additional_due."""
+        net_price = 3_500_000_000
+        # Thử nghiệm với các mức cọc khác nhau
+        for dep in [0, 50_000_000, 100_000_000, 577_500_000, 600_000_000]:
+            res = calculate_pa_chudong(
+                listed_price_vnd=net_price,
+                deposit_amount_vnd=dep,
+            )
+            inst_1 = res.cashflow_schedule[0]
+            expected_initial_outflow = (
+                dep + inst_1.installment_additional_cash_due_vnd
+            )
+            assert res.initial_cash_outflow_vnd == expected_initial_outflow
+            if dep <= 577_500_000:
+                # Khi cọc <= gross_1, tổng tiền mặt khách bỏ ra đúng bằng gross_1
+                assert res.initial_cash_outflow_vnd == 577_500_000
+
+
+# ===========================================================================
+# Task 2.7 Test Suite: Maintenance Fee (KPBT) Allocation at Handover (FCS §5, §6.2)
+# ===========================================================================
+class TestHandoverMaintenanceFeeAllocation:
+    """Kiểm thử chuyên sâu phân bổ 100% KPBT tại đợt nhận bàn giao nhà."""
+
+    def test_handover_kpbt_allocation_pa_chudong(self) -> None:
+        """PA-CHUDONG: Milestone 8 là handover, thu đủ 100% KPBT (70M)."""
+        res = calculate_pa_chudong(listed_price_vnd=3_500_000_000)
+        handover_milestones = [
+            inst for inst in res.cashflow_schedule if inst.is_handover_milestone
+        ]
+        assert len(handover_milestones) == 1
+        handover = handover_milestones[0]
+        assert handover.installment_number == 8
+        assert handover.maintenance_fee_paid_vnd == 70_000_000
+
+        non_handover_kpbt = [
+            inst.maintenance_fee_paid_vnd
+            for inst in res.cashflow_schedule
+            if not inst.is_handover_milestone
+        ]
+        assert all(kpbt == 0 for kpbt in non_handover_kpbt)
+
+    def test_handover_kpbt_allocation_pa_nhanh(self) -> None:
+        """PA-NHANH: Milestone 2 là handover, thu đủ 100% KPBT (64.4M trên giá Net 3.22B)."""
+        res = calculate_pa_nhanh(listed_price_vnd=3_500_000_000)
+        handover_milestones = [
+            inst for inst in res.cashflow_schedule if inst.is_handover_milestone
+        ]
+        assert len(handover_milestones) == 1
+        handover = handover_milestones[0]
+        assert handover.installment_number == 2
+        assert handover.maintenance_fee_paid_vnd == 64_400_000
+
+        non_handover_kpbt = [
+            inst.maintenance_fee_paid_vnd
+            for inst in res.cashflow_schedule
+            if not inst.is_handover_milestone
+        ]
+        assert all(kpbt == 0 for kpbt in non_handover_kpbt)
+
+    def test_handover_kpbt_allocation_pa_vay(self) -> None:
+        """PA-VAY: Milestone 5 là handover, thu đủ 100% KPBT (70M)."""
+        res = calculate_pa_vay(listed_price_vnd=3_500_000_000)
+        handover_milestones = [
+            inst for inst in res.cashflow_schedule if inst.is_handover_milestone
+        ]
+        assert len(handover_milestones) == 1
+        handover = handover_milestones[0]
+        assert handover.installment_number == 5
+        assert handover.maintenance_fee_paid_vnd == 70_000_000
+
+        non_handover_kpbt = [
+            inst.maintenance_fee_paid_vnd
+            for inst in res.cashflow_schedule
+            if not inst.is_handover_milestone
+        ]
+        assert all(kpbt == 0 for kpbt in non_handover_kpbt)
+
+    def test_customer_cash_outflow_until_handover_includes_kpbt(self) -> None:
+        """FCS §7.1: customer_cash_outflow_until_handover bắt buộc phải cộng dồn 100% KPBT."""
+        res_chudong = calculate_pa_chudong(listed_price_vnd=3_500_000_000)
+        # PA-CHUDONG: 8 đợt đầu gồm 95% vốn tự có (3,657,500,000) + 70,000,000 KPBT = 3,727,500,000đ
+        assert (
+            res_chudong.customer_cash_outflow_until_handover == 3_727_500_000
+        )
+
+        res_nhanh = calculate_pa_nhanh(listed_price_vnd=3_500_000_000)
+        # PA-NHANH: 95% vốn tự có (3,364,900,000) + 64,400,000 KPBT = 3,429,300,000đ
+        assert res_nhanh.customer_cash_outflow_until_handover == 3_429_300_000
+
+        res_vay = calculate_pa_vay(listed_price_vnd=3_500_000_000)
+        # PA-VAY: Đến Đợt 5 khách nộp 25% vốn tự có (962,500,000) + 70,000,000 KPBT = 1,032,500,000đ
+        assert res_vay.customer_cash_outflow_until_handover == 1_032_500_000
+
+    def test_custom_split_kpbt_policy(self) -> None:
+        """Hỗ trợ cấu hình chính sách phân bổ KPBT ở 2 mốc (50% handover + 50% reconciliation)."""
+        rules = [
+            InstallmentRule(
+                installment_number=1,
+                milestone_name="Đợt 1",
+                days_from_deposit=15,
+                customer_equity_ratio=Decimal("0.5000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=2,
+                milestone_name="Bàn giao",
+                days_from_deposit=90,
+                customer_equity_ratio=Decimal("0.4000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.5000"),  # 50% KPBT
+                is_handover=True,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=3,
+                milestone_name="Nhận sổ hồng",
+                days_from_deposit=180,
+                customer_equity_ratio=Decimal("0.0000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=True,  # 50% KPBT còn lại được bù ở đây
+            ),
+        ]
+        cfg = create_pa_chudong_config()
+        object.__setattr__(cfg, "installment_rules", rules)
+
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_500_000_000,
+            vat_amount=350_000_000,
+            kpbt_amount=70_000_000,
+        )
+
+        assert schedule[1].maintenance_fee_paid_vnd == 35_000_000
+        assert schedule[2].maintenance_fee_paid_vnd == 35_000_000
+        total_kpbt = sum(inst.maintenance_fee_paid_vnd for inst in schedule)
+        assert total_kpbt == 70_000_000
+
+
+# ===========================================================================
+# Task 2.8 Test Suite: Reconciliation Residual Gate (FCS §6.2)
+# ===========================================================================
+class TestReconciliationResidualGate:
+    """Kiểm thử chuyên sâu chốt chặn bù sai số lẻ và chống số dư âm tại đợt reconciliation."""
+
+    def test_reconciliation_zero_residual_allowed(self) -> None:
+        """Nếu các đợt trước vừa đủ 100% mục tiêu, đợt reconciliation còn lại 0đ (hợp lệ)."""
+        rules = [
+            InstallmentRule(
+                installment_number=1,
+                milestone_name="Đợt 1",
+                days_from_deposit=15,
+                customer_equity_ratio=Decimal("1.0000"),  # 100% vốn tự có
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("1.0000"),  # 100% KPBT
+                is_handover=True,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=2,
+                milestone_name="Nhận sổ hồng",
+                days_from_deposit=90,
+                customer_equity_ratio=Decimal("0.0000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=True,  # Còn lại 0đ
+            ),
+        ]
+        cfg = create_pa_chudong_config()
+        object.__setattr__(cfg, "installment_rules", rules)
+
+        schedule = generate_cashflow_schedule(
+            scenario_config=cfg,
+            net_price_before_vat=3_500_000_000,
+            vat_amount=350_000_000,
+            kpbt_amount=70_000_000,
+        )
+
+        recon_inst = schedule[1]
+        assert recon_inst.customer_equity_paid_vnd == 0
+        assert recon_inst.bank_disbursement_vnd == 0
+        assert recon_inst.maintenance_fee_paid_vnd == 0
+        assert recon_inst.installment_gross_obligation_vnd == 0
+
+    def test_reconciliation_negative_equity_raises_cashflow_residual_error(
+        self,
+    ) -> None:
+        """Đợt trước vượt quá tổng vốn tự có -> ném CashflowResidualError."""
+        rules = [
+            InstallmentRule(
+                installment_number=1,
+                milestone_name="Đợt 1",
+                days_from_deposit=15,
+                customer_equity_ratio=Decimal("0.6000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("1.0000"),
+                is_handover=True,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=2,
+                milestone_name="Đợt 2",
+                days_from_deposit=60,
+                customer_equity_ratio=Decimal("0.5000"),  # 60% + 50% = 110% > 100%
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=3,
+                milestone_name="Quyết toán",
+                days_from_deposit=90,
+                customer_equity_ratio=Decimal("0.0000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=True,
+            ),
+        ]
+        cfg = create_pa_chudong_config()
+        object.__setattr__(cfg, "installment_rules", rules)
+
+        with pytest.raises(CashflowResidualError, match="equity="):
+            generate_cashflow_schedule(
+                scenario_config=cfg,
+                net_price_before_vat=3_500_000_000,
+                vat_amount=350_000_000,
+                kpbt_amount=70_000_000,
+            )
+
+    def test_reconciliation_negative_bank_raises_cashflow_residual_error(
+        self,
+    ) -> None:
+        """Đợt trước vượt quá trần giải ngân ngân hàng -> ném CashflowResidualError."""
+        rules = [
+            InstallmentRule(
+                installment_number=1,
+                milestone_name="Đợt 1",
+                days_from_deposit=15,
+                customer_equity_ratio=Decimal("0.3000"),
+                bank_disbursement_ratio=Decimal(
+                    "0.7500"
+                ),  # 75% > 70% ngân hàng
+                maintenance_fee_ratio=Decimal("1.0000"),
+                is_handover=True,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=2,
+                milestone_name="Quyết toán",
+                days_from_deposit=90,
+                customer_equity_ratio=Decimal("0.0000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=True,
+            ),
+        ]
+        cfg = create_pa_vay_config()
+        object.__setattr__(cfg, "installment_rules", rules)
+
+        with pytest.raises(CashflowResidualError, match="bank="):
+            generate_cashflow_schedule(
+                scenario_config=cfg,
+                net_price_before_vat=3_500_000_000,
+                vat_amount=350_000_000,
+                kpbt_amount=70_000_000,
+            )
+
+    def test_reconciliation_negative_kpbt_raises_cashflow_residual_error(
+        self,
+    ) -> None:
+        """Đợt trước vượt quá 100% KPBT -> ném CashflowResidualError."""
+        rules = [
+            InstallmentRule(
+                installment_number=1,
+                milestone_name="Đợt 1",
+                days_from_deposit=15,
+                customer_equity_ratio=Decimal("0.5000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.6000"),
+                is_handover=False,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=2,
+                milestone_name="Bàn giao",
+                days_from_deposit=60,
+                customer_equity_ratio=Decimal("0.4000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.5000"),  # 60% + 50% = 110% > 100%
+                is_handover=True,
+                is_reconciliation=False,
+            ),
+            InstallmentRule(
+                installment_number=3,
+                milestone_name="Quyết toán",
+                days_from_deposit=90,
+                customer_equity_ratio=Decimal("0.0000"),
+                bank_disbursement_ratio=Decimal("0.0000"),
+                maintenance_fee_ratio=Decimal("0.0000"),
+                is_handover=False,
+                is_reconciliation=True,
+            ),
+        ]
+        cfg = create_pa_chudong_config()
+        object.__setattr__(cfg, "installment_rules", rules)
+
+        with pytest.raises(CashflowResidualError, match="kpbt="):
+            generate_cashflow_schedule(
+                scenario_config=cfg,
+                net_price_before_vat=3_500_000_000,
+                vat_amount=350_000_000,
+                kpbt_amount=70_000_000,
+            )
+
+    def test_reconciliation_exact_zero_delta_across_multiple_odd_prices(
+        self,
+    ) -> None:
+        """Kiểm chứng bất biến số học Delta = 0 VNĐ trên nhiều mức giá Net số lẻ bất thường."""
+        odd_prices = [
+            2_123_456_789,
+            3_141_592_653,
+            4_777_777_777,
+            5_111_222_333,
+            6_888_999_111,
+            9_999_999_999,
+        ]
+        cfg = create_pa_chudong_config(deposit_amount_vnd=100_000_000)
+
+        for price in odd_prices:
+            vat = calculate_vat_amount(price)
+            kpbt = calculate_maintenance_fee_amount(price)
+            contract_price = calculate_final_contract_price(price, vat, kpbt)
+
+            schedule = generate_cashflow_schedule(
+                scenario_config=cfg,
+                net_price_before_vat=price,
+                vat_amount=vat,
+                kpbt_amount=kpbt,
+                deposit_amount_vnd=100_000_000,
+            )
+
+            total_gross = sum(
+                inst.installment_gross_obligation_vnd for inst in schedule
+            )
+            # Khớp 100% từng đồng, không lệch 1 xu
+            assert total_gross == contract_price
 
 
 
