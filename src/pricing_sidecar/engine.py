@@ -59,6 +59,22 @@ class AdditiveDiscountResult(AntiFloatBaseModel):
         yield self.net_price_before_vat
 
 
+class ContractPricingSummary(AntiFloatBaseModel):
+    """Tổng hợp thuế VAT, phí KPBT và giá trị hợp đồng chính thức (Bước 3 & Bước 4 FCS §5)."""
+
+    net_price_before_vat: int = Field(..., ge=0, description="P_net: Giá Net trước thuế")
+    vat_rate: Decimal = Field(default=Decimal("0.1000"), ge=0, le=1)
+    vat_amount: int = Field(..., ge=0, description="A_vat: Tiền thuế GTGT")
+    maintenance_fee_rate: Decimal = Field(default=Decimal("0.0200"), ge=0, le=1)
+    maintenance_fee_amount: int = Field(..., ge=0, description="A_kpbt: Kinh phí bảo trì 2%")
+    final_contract_price: int = Field(..., ge=0, description="P_contract: Tổng giá trị HĐMB")
+
+    def __iter__(self):
+        """Cho phép unpack tuple: vat_amount, kpbt_amount, contract_price = summary."""
+        yield self.vat_amount
+        yield self.maintenance_fee_amount
+        yield self.final_contract_price
+
 
 @forbid_float
 def calculate_fixed_discount(
@@ -300,6 +316,147 @@ def calculate_additive_discount(
         max_total_discount_vnd=max_total_discount_vnd,
     )
 
+
+@forbid_float
+def calculate_vat_amount(
+    net_price_before_vat: int,
+    vat_rate: Decimal = Decimal("0.1000"),
+) -> int:
+    """Bước 3 FCS §5: Tính thuế GTGT trên giá Net trước thuế.
+
+    A_vat = round_vnd(P_net * vat_rate)
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        vat_rate: Thuế suất GTGT (mặc định 0.1000 = 10%).
+
+    Returns:
+        int: Số tiền thuế GTGT làm tròn kế toán ROUND_HALF_UP.
+
+    Raises:
+        ValueError: Nếu net_price_before_vat < 0 hoặc vat_rate < 0.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(net_price_before_vat, vat_rate)
+
+    if net_price_before_vat < 0:
+        raise ValueError(
+            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
+        )
+
+    rate = to_decimal(vat_rate)
+    if rate < Decimal("0.0000"):
+        raise ValueError(f"SANITY_FAIL: vat_rate ({rate}) không được âm.")
+
+    return round_vnd(to_decimal(net_price_before_vat) * rate)
+
+
+@forbid_float
+def calculate_maintenance_fee_amount(
+    net_price_before_vat: int,
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+) -> int:
+    """Bước 3 FCS §5: Tính kinh phí bảo trì (KPBT) trên giá Net trước thuế.
+
+    A_kpbt = round_vnd(P_net * maintenance_fee_rate)
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        maintenance_fee_rate: Tỷ lệ phí bảo trì (mặc định 0.0200 = 2%).
+
+    Returns:
+        int: Số tiền phí bảo trì làm tròn kế toán ROUND_HALF_UP.
+
+    Raises:
+        ValueError: Nếu net_price_before_vat < 0 hoặc maintenance_fee_rate < 0.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(net_price_before_vat, maintenance_fee_rate)
+
+    if net_price_before_vat < 0:
+        raise ValueError(
+            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
+        )
+
+    rate = to_decimal(maintenance_fee_rate)
+    if rate < Decimal("0.0000"):
+        raise ValueError(f"SANITY_FAIL: maintenance_fee_rate ({rate}) không được âm.")
+
+    return round_vnd(to_decimal(net_price_before_vat) * rate)
+
+
+@forbid_float
+def calculate_final_contract_price(
+    net_price_before_vat: int,
+    vat_amount: int,
+    maintenance_fee_amount: int,
+) -> int:
+    """Bước 4 FCS §5: Tổng hợp giá trị hợp đồng mua bán chính thức.
+
+    P_contract = P_net + A_vat + A_kpbt
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        vat_amount: Thuế GTGT (VNĐ, >= 0).
+        maintenance_fee_amount: Kinh phí bảo trì (VNĐ, >= 0).
+
+    Returns:
+        int: Tổng giá trị HĐMB cuối cùng.
+
+    Raises:
+        ValueError: Nếu có bất kỳ thành phần nào mang giá trị âm.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(net_price_before_vat, vat_amount, maintenance_fee_amount)
+
+    if net_price_before_vat < 0:
+        raise ValueError(
+            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
+        )
+    if vat_amount < 0:
+        raise ValueError(f"SANITY_FAIL: vat_amount ({vat_amount:,}đ) không được âm.")
+    if maintenance_fee_amount < 0:
+        raise ValueError(
+            f"SANITY_FAIL: maintenance_fee_amount ({maintenance_fee_amount:,}đ) không được âm."
+        )
+
+    return net_price_before_vat + vat_amount + maintenance_fee_amount
+
+
+@forbid_float
+def calculate_contract_pricing(
+    net_price_before_vat: int,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+) -> ContractPricingSummary:
+    """Đóng gói trọn vẹn Bước 3 & Bước 4 thành đối tượng ContractPricingSummary.
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        vat_rate: Thuế suất GTGT (mặc định 0.1000 = 10%).
+        maintenance_fee_rate: Tỷ lệ phí bảo trì (mặc định 0.0200 = 2%).
+
+    Returns:
+        ContractPricingSummary: Chứa P_net, vat_amount, maintenance_fee_amount, final_contract_price.
+    """
+    assert_no_float(net_price_before_vat, vat_rate, maintenance_fee_rate)
+
+    vat_amt = calculate_vat_amount(net_price_before_vat, vat_rate=vat_rate)
+    kpbt_amt = calculate_maintenance_fee_amount(
+        net_price_before_vat, maintenance_fee_rate=maintenance_fee_rate
+    )
+    contract_price = calculate_final_contract_price(
+        net_price_before_vat, vat_amt, kpbt_amt
+    )
+
+    return ContractPricingSummary(
+        net_price_before_vat=net_price_before_vat,
+        vat_rate=vat_rate,
+        vat_amount=vat_amt,
+        maintenance_fee_rate=maintenance_fee_rate,
+        maintenance_fee_amount=kpbt_amt,
+        final_contract_price=contract_price,
+    )
 
 
 @forbid_float

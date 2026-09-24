@@ -45,16 +45,22 @@ from src.pricing_sidecar.contracts import (
 )
 from src.pricing_sidecar.engine import (
     AdditiveDiscountResult,
+    ContractPricingSummary,
     calculate_additive_discount,
+    calculate_contract_pricing,
+    calculate_final_contract_price,
     calculate_fixed_discount,
+    calculate_maintenance_fee_amount,
     calculate_percentage_discount,
     calculate_total_benefit_value,
+    calculate_vat_amount,
     validate_dual_discount_cap,
 )
 
 __all__ = [
     "AdditiveDiscountResult",
     "CANONICAL_SCENARIO_ORDER",
+    "ContractPricingSummary",
     "PRECISION",
     "ROUNDING_RULE",
     "SCENARIO_ALIAS_MAP",
@@ -81,9 +87,13 @@ __all__ = [
     "ValuationStatus",
     "assert_no_float",
     "calculate_additive_discount",
+    "calculate_contract_pricing",
+    "calculate_final_contract_price",
     "calculate_fixed_discount",
+    "calculate_maintenance_fee_amount",
     "calculate_percentage_discount",
     "calculate_total_benefit_value",
+    "calculate_vat_amount",
     "create_canonical_scenario_config",
     "create_pa_chudong_config",
     "create_pa_nhanh_config",

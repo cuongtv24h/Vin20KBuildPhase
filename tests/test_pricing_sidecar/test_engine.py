@@ -19,10 +19,15 @@ from src.pricing_sidecar.contracts import (
 )
 from src.pricing_sidecar.engine import (
     AdditiveDiscountResult,
+    ContractPricingSummary,
     calculate_additive_discount,
+    calculate_contract_pricing,
+    calculate_final_contract_price,
     calculate_fixed_discount,
+    calculate_maintenance_fee_amount,
     calculate_percentage_discount,
     calculate_total_benefit_value,
+    calculate_vat_amount,
     validate_dual_discount_cap,
 )
 
@@ -474,7 +479,91 @@ class TestDualDiscountCap:
 
 
 # ===========================================================================
-# 6. Anti-Float Guard Enforcement Tests
+# 6. Contract Pricing & Taxes Tests (Step 3 & Step 4 FCS §5)
+# ===========================================================================
+class TestContractPricingAndTaxes:
+    """Test VAT 10%, Maintenance Fee 2%, and Contract Price balance."""
+
+    def test_pricing_tc01_baseline(self) -> None:
+        """TC-01 / TC-03: Net 3.5B -> VAT 350M, KPBT 70M, Contract 3.92B."""
+        summary = calculate_contract_pricing(3_500_000_000)
+        assert summary.net_price_before_vat == 3_500_000_000
+        assert summary.vat_amount == 350_000_000
+        assert summary.maintenance_fee_amount == 70_000_000
+        assert summary.final_contract_price == 3_920_000_000
+
+    def test_pricing_tc02_early_95(self) -> None:
+        """TC-02 / TC-10: Net 3.22B -> VAT 322M, KPBT 64.4M, Contract 3.6064B."""
+        summary = calculate_contract_pricing(3_220_000_000)
+        assert summary.net_price_before_vat == 3_220_000_000
+        assert summary.vat_amount == 322_000_000
+        assert summary.maintenance_fee_amount == 64_400_000
+        assert summary.final_contract_price == 3_606_400_000
+
+    def test_pricing_tc04_resident_additive(self) -> None:
+        """TC-04: Net 3.185B -> VAT 318.5M, KPBT 63.7M, Contract 3.5672B."""
+        summary = calculate_contract_pricing(3_185_000_000)
+        assert summary.vat_amount == 318_500_000
+        assert summary.maintenance_fee_amount == 63_700_000
+        assert summary.final_contract_price == 3_567_200_000
+
+    def test_pricing_tc05_interior_voucher(self) -> None:
+        """TC-05: Net 3.174B -> VAT 317.4M, KPBT 63.48M, Contract 3.55488B."""
+        summary = calculate_contract_pricing(3_174_000_000)
+        assert summary.vat_amount == 317_400_000
+        assert summary.maintenance_fee_amount == 63_480_000
+        assert summary.final_contract_price == 3_554_880_000
+
+    def test_pricing_tc06_gold_sjc(self) -> None:
+        """TC-06: Net 3.1396B -> VAT 313.96M, KPBT 62.792M, Contract 3.516352B."""
+        summary = calculate_contract_pricing(3_139_600_000)
+        assert summary.vat_amount == 313_960_000
+        assert summary.maintenance_fee_amount == 62_792_000
+        assert summary.final_contract_price == 3_516_352_000
+
+    def test_pricing_tc11_time_travel_v2(self) -> None:
+        """TC-11: Net 3.29B -> VAT 329M, KPBT 65.8M, Contract 3.6848B."""
+        summary = calculate_contract_pricing(3_290_000_000)
+        assert summary.vat_amount == 329_000_000
+        assert summary.maintenance_fee_amount == 65_800_000
+        assert summary.final_contract_price == 3_684_800_000
+
+    def test_pricing_tuple_unpacking(self) -> None:
+        """Verify summary unpacking: vat_amount, kpbt_amount, contract_price."""
+        vat, kpbt, contract = calculate_contract_pricing(3_500_000_000)
+        assert vat == 350_000_000
+        assert kpbt == 70_000_000
+        assert contract == 3_920_000_000
+
+    def test_odd_net_price_rounding_half_up(self) -> None:
+        """Test accounting rounding ROUND_HALF_UP on non-round net price."""
+        # 3,123,456,789 * 10% = 312,345,678.9 -> 312,345,679
+        # 3,123,456,789 * 2% = 62,469,135.78 -> 62,469,136
+        summary = calculate_contract_pricing(3_123_456_789)
+        assert summary.vat_amount == 312_345_679
+        assert summary.maintenance_fee_amount == 62_469_136
+        expected_contract = 3_123_456_789 + 312_345_679 + 62_469_136
+        assert summary.final_contract_price == expected_contract
+
+    def test_negative_net_price_raises_error(self) -> None:
+        with pytest.raises(ValueError, match="không được âm"):
+            calculate_vat_amount(-1)
+        with pytest.raises(ValueError, match="không được âm"):
+            calculate_maintenance_fee_amount(-1)
+        with pytest.raises(ValueError, match="không được âm"):
+            calculate_final_contract_price(-1, 0, 0)
+
+    def test_negative_rates_raises_error(self) -> None:
+        with pytest.raises(ValueError, match="không được âm"):
+            calculate_vat_amount(3_500_000_000, vat_rate=Decimal("-0.01"))
+        with pytest.raises(ValueError, match="không được âm"):
+            calculate_maintenance_fee_amount(
+                3_500_000_000, maintenance_fee_rate=Decimal("-0.01")
+            )
+
+
+# ===========================================================================
+# 7. Anti-Float Guard Enforcement Tests
 # ===========================================================================
 class TestAntiFloatGuardInEngine:
     """Ensure engine functions immediately reject float arguments."""
@@ -520,6 +609,35 @@ class TestAntiFloatGuardInEngine:
                 max_discount_rate=0.35,  # float!
             )
 
+    def test_calculate_vat_amount_rejects_float(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_vat_amount(3500000000.0)
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_vat_amount(3_500_000_000, vat_rate=0.10)
+
+    def test_calculate_maintenance_fee_amount_rejects_float(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_maintenance_fee_amount(3500000000.0)
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_maintenance_fee_amount(
+                3_500_000_000, maintenance_fee_rate=0.02
+            )
+
+    def test_calculate_final_contract_price_rejects_float(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            calculate_final_contract_price(3500000000.0, 350000000, 70000000)
+
+    def test_contract_pricing_summary_rejects_float(self) -> None:
+        with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
+            ContractPricingSummary(
+                net_price_before_vat=3_500_000_000,
+                vat_rate=0.10,  # float!
+                vat_amount=350_000_000,
+                maintenance_fee_rate=Decimal("0.0200"),
+                maintenance_fee_amount=70_000_000,
+                final_contract_price=3_920_000_000,
+            )
+
     def test_additive_discount_result_rejects_float(self) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             AdditiveDiscountResult(
@@ -531,4 +649,5 @@ class TestAntiFloatGuardInEngine:
                 net_price_before_vat=3_220_000_000,
                 total_discount_amount_vnd=280_000_000,
             )
+
 
