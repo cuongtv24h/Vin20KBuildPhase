@@ -57,8 +57,10 @@
 |--------|------|--------|--------|------|
 | Dev 2 (ChungVanDuy) | Task 4.1: Hiện thực Serializer RFC 8785 Canonical JSON (JCS) với sắp xếp UTF-16 code units đệ quy | ✅ Done | `src/pricing_sidecar/canonical_hash.py`, `tests/test_pricing_sidecar/test_canonical_hash.py` (Chuẩn hóa đệ quy không float, minification, UTF-8 bytes) | 1.0h |
 | Dev 2 (ChungVanDuy) | Task 4.2: Hàm sinh mã băm SHA-256 canonical_snapshot_hash & factory PricingCalculationOutput | ✅ Done | `src/pricing_sidecar/canonical_hash.py`, `src/pricing_sidecar/__init__.py` (23/23 tests pass, nâng tổng tests sidecar lên 239/239, toàn repo lên 248/248, ruff clean) | 0.8h |
+| Dev 2 (ChungVanDuy) | Task 4.3: Viết Test Runner tự động nạp dữ liệu kiểm chuẩn 17 cases | ✅ Done | `tests/benchmarks/test_golden_scenarios.py` (Nạp 17 cases Table 10 FCS, adapter chuyển đổi quy tắc ưu đãi) | 0.8h |
+| Dev 2 (ChungVanDuy) | Task 4.4: So khớp chính xác số tiền nguyên VNĐ (AC-FIN-01 Delta = 0 VND) & kiểm soát ngoại lệ | ✅ Done | `tests/benchmarks/test_golden_scenarios.py` (20/20 tests pass, 13 ca tính toán Delta=0 tuyệt đối, 4 ca ngoại lệ/rào cản pass, nâng tổng tests toàn repo lên 268/268, ruff clean) | 1.0h |
 
-**Tổng kết ngày:** Hoàn thành xuất sắc Task 4.1 và Task 4.2: hiện thực hóa trọn vẹn Serializer RFC 8785 Canonical JSON (JCS) sắp xếp key theo chuẩn UTF-16 code units đệ quy, chuẩn hóa khoảng trắng, bảo toàn Anti-Float Guard, tích hợp bộ sinh mã băm SHA-256 `canonical_snapshot_hash` 64 hex characters cho payload snapshot FCS v2.6 §8 và kiểm chứng tính toàn vẹn mật mã học. Toàn bộ 248/248 tests toàn repo pass 100% (2.36s) và linter ruff đạt chuẩn sạch tuyệt đối.
+**Tổng kết ngày:** Hoàn thành xuất sắc Task 4.1, Task 4.2, Task 4.3 và Task 4.4 (đạt 66.7% Task Lớn 4, 81.5% toàn bộ WBS): hiện thực hóa Serializer RFC 8785 Canonical JSON (JCS), băm SHA-256 `canonical_snapshot_hash`, và bộ Test Runner kiểm chuẩn Golden Benchmark 17 cases đối soát $\Delta = 0$ VNĐ tuyệt đối theo tiêu chuẩn AC-FIN-01, vượt qua 100% các chốt chặn Sanity Gate và ngoại lệ nghiệp vụ. Toàn bộ 268/268 tests toàn repo đạt tỷ lệ pass 100% (2.87s) và linter ruff đạt chuẩn sạch tuyệt đối.
 
 ---
 
