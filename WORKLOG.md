@@ -51,6 +51,17 @@
 
 ---
 
+## 2026-09-25
+
+| Member | Task | Status | Output | Time |
+|--------|------|--------|--------|------|
+| Dev 2 (ChungVanDuy) | Task 4.1: Hiện thực Serializer RFC 8785 Canonical JSON (JCS) với sắp xếp UTF-16 code units đệ quy | ✅ Done | `src/pricing_sidecar/canonical_hash.py`, `tests/test_pricing_sidecar/test_canonical_hash.py` (Chuẩn hóa đệ quy không float, minification, UTF-8 bytes) | 1.0h |
+| Dev 2 (ChungVanDuy) | Task 4.2: Hàm sinh mã băm SHA-256 canonical_snapshot_hash & factory PricingCalculationOutput | ✅ Done | `src/pricing_sidecar/canonical_hash.py`, `src/pricing_sidecar/__init__.py` (23/23 tests pass, nâng tổng tests sidecar lên 239/239, toàn repo lên 248/248, ruff clean) | 0.8h |
+
+**Tổng kết ngày:** Hoàn thành xuất sắc Task 4.1 và Task 4.2: hiện thực hóa trọn vẹn Serializer RFC 8785 Canonical JSON (JCS) sắp xếp key theo chuẩn UTF-16 code units đệ quy, chuẩn hóa khoảng trắng, bảo toàn Anti-Float Guard, tích hợp bộ sinh mã băm SHA-256 `canonical_snapshot_hash` 64 hex characters cho payload snapshot FCS v2.6 §8 và kiểm chứng tính toàn vẹn mật mã học. Toàn bộ 248/248 tests toàn repo pass 100% (2.36s) và linter ruff đạt chuẩn sạch tuyệt đối.
+
+---
+
 ## [YYYY-MM-DD]
 
 | Member | Task | Status | Output | Time |

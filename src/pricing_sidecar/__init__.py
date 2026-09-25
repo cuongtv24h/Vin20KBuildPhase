@@ -14,6 +14,17 @@ from src.pricing_sidecar.arithmetic import (
     sum_rates,
     to_decimal,
 )
+from src.pricing_sidecar.canonical_hash import (
+    CANONICAL_ENGINE_VERSION,
+    CANONICAL_SPEC_VERSION,
+    build_pricing_snapshot_payload,
+    canonical_json_bytes,
+    canonical_json_dumps,
+    canonicalize_data,
+    create_pricing_calculation_output,
+    generate_canonical_hash,
+    verify_canonical_hash,
+)
 from src.pricing_sidecar.contracts import (
     CANONICAL_SCENARIO_ORDER,
     SCENARIO_ALIAS_MAP,
@@ -167,5 +178,13 @@ __all__ = [
     "get_objective_metric_value",
     "rank_scenarios_by_objective",
     "recommend_best_scenario",
+    "CANONICAL_ENGINE_VERSION",
+    "CANONICAL_SPEC_VERSION",
+    "build_pricing_snapshot_payload",
+    "canonical_json_bytes",
+    "canonical_json_dumps",
+    "canonicalize_data",
+    "create_pricing_calculation_output",
+    "generate_canonical_hash",
+    "verify_canonical_hash",
 ]
-
