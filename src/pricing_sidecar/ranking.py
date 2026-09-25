@@ -98,9 +98,7 @@ def _parse_infeasible_set(
         elif isinstance(item, str):
             result.add(resolve_scenario_type(item))
         else:
-            raise TypeError(
-                f"FLOAT_PROHIBITED: Kiểu dữ liệu không hợp lệ trong infeasible_scenarios: {type(item)}"
-            )
+            raise TypeError(f"FLOAT_PROHIBITED: Kiểu dữ liệu không hợp lệ trong infeasible_scenarios: {type(item)}")
     return result
 
 
@@ -200,9 +198,7 @@ def generate_quantitative_rationale(
         if objective == OptimizationObjective.MAX_BENEFIT_VALUE:
             diff_vnd = rec_val - other_val
             if diff_vnd > 0:
-                comparisons.append(
-                    f"vượt trội hơn {other_code} ({other_val_str}) là {format_vnd(diff_vnd)}"
-                )
+                comparisons.append(f"vượt trội hơn {other_code} ({other_val_str}) là {format_vnd(diff_vnd)}")
             elif diff_vnd == 0:
                 comparisons.append(f"ngang bằng với {other_code} ({other_val_str})")
             else:
@@ -309,20 +305,22 @@ def recommend_best_scenario(
     comparison_summary: list[dict[str, Any]] = []
     for rank_idx, s in enumerate(ranked, start=1):
         is_feas = s.scenario_type not in infeasible_set
-        comparison_summary.append({
-            "rank": rank_idx,
-            "scenario_type": s.scenario_type.value,
-            "canonical_code": s.scenario_type.canonical_code,
-            "scenario_name": s.scenario_name,
-            "net_price_vnd": s.net_price_before_vat,
-            "contract_price_vnd": s.final_contract_price,
-            "initial_cash_outflow_vnd": s.initial_cash_outflow_vnd,
-            "cash_outflow_to_handover_vnd": s.customer_cash_outflow_until_handover,
-            "total_benefit_value_vnd": s.total_benefit_value_vnd,
-            "target_metric_value_vnd": get_objective_metric_value(s, objective),
-            "is_feasible": is_feas,
-            "is_recommended": (s.scenario_type == winner.scenario_type),
-        })
+        comparison_summary.append(
+            {
+                "rank": rank_idx,
+                "scenario_type": s.scenario_type.value,
+                "canonical_code": s.scenario_type.canonical_code,
+                "scenario_name": s.scenario_name,
+                "net_price_vnd": s.net_price_before_vat,
+                "contract_price_vnd": s.final_contract_price,
+                "initial_cash_outflow_vnd": s.initial_cash_outflow_vnd,
+                "cash_outflow_to_handover_vnd": s.customer_cash_outflow_until_handover,
+                "total_benefit_value_vnd": s.total_benefit_value_vnd,
+                "target_metric_value_vnd": get_objective_metric_value(s, objective),
+                "is_feasible": is_feas,
+                "is_recommended": (s.scenario_type == winner.scenario_type),
+            }
+        )
 
     # Tạo quantitative rationale
     other_feasible = [s for s in feasible_ranked if s.scenario_type != winner.scenario_type]

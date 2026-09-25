@@ -41,20 +41,20 @@ class OptimizationObjective(StrEnum):
 class BenefitCategory(StrEnum):
     """Commercial benefit category classification."""
 
-    CASH_DISCOUNT = "CASH_DISCOUNT"      # Chiết khấu tiền mặt trực tiếp
-    IN_KIND_GIFT = "IN_KIND_GIFT"        # Quà tặng hiện vật (Vàng SJC, Nội thất, Xe điện)
-    VOUCHER = "VOUCHER"                  # Phiếu mua hàng / Voucher
-    SERVICE_WAIVER = "SERVICE_WAIVER"    # Miễn phí dịch vụ quản lý vận hành
+    CASH_DISCOUNT = "CASH_DISCOUNT"  # Chiết khấu tiền mặt trực tiếp
+    IN_KIND_GIFT = "IN_KIND_GIFT"  # Quà tặng hiện vật (Vàng SJC, Nội thất, Xe điện)
+    VOUCHER = "VOUCHER"  # Phiếu mua hàng / Voucher
+    SERVICE_WAIVER = "SERVICE_WAIVER"  # Miễn phí dịch vụ quản lý vận hành
 
 
 class BenefitType(StrEnum):
     """Mechanism by which a benefit is applied into calculations."""
 
-    FIXED_CASH = "FIXED_CASH"            # Giảm trừ tiền mặt cố định vào Base_1
-    PERCENTAGE = "PERCENTAGE"            # Chiết khấu tỷ lệ % cộng dồn (Additive)
-    IN_KIND = "IN_KIND"                  # Quà tặng hiện vật
-    VOUCHER = "VOUCHER"                  # Phiếu ưu đãi
-    SERVICE_WAIVER = "SERVICE_WAIVER"    # Miễn phí quản lý dịch vụ
+    FIXED_CASH = "FIXED_CASH"  # Giảm trừ tiền mặt cố định vào Base_1
+    PERCENTAGE = "PERCENTAGE"  # Chiết khấu tỷ lệ % cộng dồn (Additive)
+    IN_KIND = "IN_KIND"  # Quà tặng hiện vật
+    VOUCHER = "VOUCHER"  # Phiếu ưu đãi
+    SERVICE_WAIVER = "SERVICE_WAIVER"  # Miễn phí quản lý dịch vụ
 
 
 class CalculationBase(StrEnum):
@@ -67,9 +67,9 @@ class CalculationBase(StrEnum):
 class ValuationStatus(StrEnum):
     """Valuation status for in-kind gifts and non-cash incentives."""
 
-    APPROVED = "APPROVED"       # Đã có chứng thư/hóa đơn định giá chính thức -> Tính vào benefit value & objective
-    PENDING = "PENDING"         # Đang chờ thẩm định -> Hiển thị ghi chú, KHÔNG tính vào objective
-    UNVALUED = "UNVALUED"       # Quà tặng thuần túy, chưa có giá trị quy đổi tiền tệ
+    APPROVED = "APPROVED"  # Đã có chứng thư/hóa đơn định giá chính thức -> Tính vào benefit value & objective
+    PENDING = "PENDING"  # Đang chờ thẩm định -> Hiển thị ghi chú, KHÔNG tính vào objective
+    UNVALUED = "UNVALUED"  # Quà tặng thuần túy, chưa có giá trị quy đổi tiền tệ
 
 
 class QuoteWorkflowStatus(StrEnum):
@@ -82,9 +82,9 @@ class QuoteWorkflowStatus(StrEnum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     ABSTAINED = "ABSTAINED"
-    BLOCKED = "BLOCKED"              # Phong tỏa do tranh chấp căn, double-booking
+    BLOCKED = "BLOCKED"  # Phong tỏa do tranh chấp căn, double-booking
     PDF_ISSUED = "PDF_ISSUED"
-    SUPERSEDED = "SUPERSEDED"        # Phiên bản cũ đã bị thay thế bởi phiên bản mới
+    SUPERSEDED = "SUPERSEDED"  # Phiên bản cũ đã bị thay thế bởi phiên bản mới
 
 
 class PolicyDecisionStatus(StrEnum):
@@ -243,9 +243,7 @@ class PaymentScenarioConfig(AntiFloatBaseModel):
         # 5. Invariant Timeline Monotonicity: Ngày đợt sau >= đợt trước
         days_seq = [r.days_from_deposit for r in rules]
         if days_seq != sorted(days_seq):
-            raise ValueError(
-                f"Scenario {self.scenario_type}: Tiến độ days_from_deposit phải đơn điệu không giảm."
-            )
+            raise ValueError(f"Scenario {self.scenario_type}: Tiến độ days_from_deposit phải đơn điệu không giảm.")
 
         # 6. Invariant Maintenance Fee: Toàn bộ 100% KPBT phải được thu (thông thường tại handover)
         total_kpbt_ratio = sum(r.maintenance_fee_ratio for r in rules)
@@ -341,9 +339,7 @@ class PricingCalculationInput(AntiFloatBaseModel):
     calculation_spec_version: str = Field(default="2.6")
     quote_id: str | None = None
     quote_version: int | None = None
-    selected_scenarios: list[str] = Field(
-        default_factory=lambda: ["PA-CHUDONG", "PA-NHANH", "PA-VAY"]
-    )
+    selected_scenarios: list[str] = Field(default_factory=lambda: ["PA-CHUDONG", "PA-NHANH", "PA-VAY"])
     tiebreak_rule_id: str = Field(default="TB-RULE-2026-CHUDONG-V1")
 
     @model_validator(mode="after")
@@ -603,17 +599,11 @@ def create_canonical_scenario_config(
 ) -> PaymentScenarioConfig:
     """Factory dispatch tạo PaymentScenarioConfig chuẩn tắc cho bất kỳ ScenarioType nào."""
     if scenario_type == ScenarioType.STANDARD_PROGRESS:
-        return create_pa_chudong_config(
-            deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference
-        )
+        return create_pa_chudong_config(deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference)
     if scenario_type == ScenarioType.EARLY_95:
-        return create_pa_nhanh_config(
-            deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference
-        )
+        return create_pa_nhanh_config(deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference)
     if scenario_type == ScenarioType.BANK_LOAN_HTLS:
-        return create_pa_vay_config(
-            deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference
-        )
+        return create_pa_vay_config(deposit_amount_vnd=deposit_amount_vnd, policy_reference=policy_reference)
     raise ValueError(f"Unsupported scenario_type: {scenario_type}")
 
 
@@ -629,26 +619,18 @@ class CashflowInstallmentOutput(AntiFloatBaseModel):
     customer_equity_paid_vnd: int = Field(..., ge=0)
     bank_disbursement_vnd: int = Field(..., ge=0)
     maintenance_fee_paid_vnd: int = Field(..., ge=0)
-    installment_gross_obligation_vnd: int = Field(
-        ..., ge=0, description="Tổng nghĩa vụ đợt này (Equity + Bank + KPBT)"
-    )
+    installment_gross_obligation_vnd: int = Field(..., ge=0, description="Tổng nghĩa vụ đợt này (Equity + Bank + KPBT)")
     installment_additional_cash_due_vnd: int = Field(
         ..., ge=0, description="Tiền khách nộp thêm thực tế sau khi trừ cọc (Đợt 1)"
     )
-    deposit_credited_vnd: int = Field(
-        default=0, ge=0, description="Tiền cọc kết chuyển vào đợt này"
-    )
+    deposit_credited_vnd: int = Field(default=0, ge=0, description="Tiền cọc kết chuyển vào đợt này")
     is_handover_milestone: bool = Field(default=False)
     is_reconciliation_installment: bool = Field(default=False)
 
     @model_validator(mode="after")
     def validate_installment_consistency(self) -> "CashflowInstallmentOutput":
         # 1. Gross obligation must equal equity + bank + maintenance fee
-        expected_gross = (
-            self.customer_equity_paid_vnd
-            + self.bank_disbursement_vnd
-            + self.maintenance_fee_paid_vnd
-        )
+        expected_gross = self.customer_equity_paid_vnd + self.bank_disbursement_vnd + self.maintenance_fee_paid_vnd
         if self.installment_gross_obligation_vnd != expected_gross:
             raise ValueError(
                 f"Installment {self.installment_number}: installment_gross_obligation_vnd "
@@ -664,9 +646,7 @@ class CashflowInstallmentOutput(AntiFloatBaseModel):
 
         # 3. Additional cash due must equal customer equity paid minus deposit credited + maintenance fee paid
         expected_additional_cash = (
-            self.customer_equity_paid_vnd
-            - self.deposit_credited_vnd
-            + self.maintenance_fee_paid_vnd
+            self.customer_equity_paid_vnd - self.deposit_credited_vnd + self.maintenance_fee_paid_vnd
         )
         if self.installment_additional_cash_due_vnd != expected_additional_cash:
             raise ValueError(
@@ -683,33 +663,21 @@ class ScenarioCalculationResult(AntiFloatBaseModel):
     scenario_type: ScenarioType
     scenario_name: str = Field(..., min_length=1)
     listed_price_vnd: int = Field(..., gt=0, description="P_listed: Giá niêm yết chưa VAT")
-    fixed_discount_vnd: int = Field(
-        default=0, ge=0, description="D_fixed: Giảm trừ tiền mặt cố định"
-    )
-    base_after_fixed_vnd: int = Field(
-        ..., ge=0, description="Base_1 = P_listed - D_fixed"
-    )
+    fixed_discount_vnd: int = Field(default=0, ge=0, description="D_fixed: Giảm trừ tiền mặt cố định")
+    base_after_fixed_vnd: int = Field(..., ge=0, description="Base_1 = P_listed - D_fixed")
     total_discount_rate: Decimal = Field(
         default=Decimal("0.0000"),
         ge=0,
         le=1,
         description="Sum_Rate: Tổng tỷ lệ chiết khấu %",
     )
-    percentage_discount_vnd: int = Field(
-        default=0, ge=0, description="Discount_Percent_Amount"
-    )
-    net_price_before_vat: int = Field(
-        ..., gt=0, description="P_net = Base_1 - Discount_Percent_Amount"
-    )
+    percentage_discount_vnd: int = Field(default=0, ge=0, description="Discount_Percent_Amount")
+    net_price_before_vat: int = Field(..., gt=0, description="P_net = Base_1 - Discount_Percent_Amount")
     vat_rate: Decimal = Field(default=Decimal("0.1000"), ge=0, le=1)
     vat_amount: int = Field(..., ge=0, description="A_vat = round_vnd(P_net * R_vat)")
     maintenance_fee_rate: Decimal = Field(default=Decimal("0.0200"), ge=0, le=1)
-    maintenance_fee_amount: int = Field(
-        ..., ge=0, description="A_kpbt = round_vnd(P_net * R_kpbt)"
-    )
-    final_contract_price: int = Field(
-        ..., gt=0, description="P_contract = P_net + A_vat + A_kpbt"
-    )
+    maintenance_fee_amount: int = Field(..., ge=0, description="A_kpbt = round_vnd(P_net * R_kpbt)")
+    final_contract_price: int = Field(..., gt=0, description="P_contract = P_net + A_vat + A_kpbt")
     initial_gross_obligation_vnd: int = Field(
         ..., ge=0, description="Tổng nghĩa vụ Đợt 1 (gồm cọc và ngân hàng nếu có)"
     )
@@ -756,9 +724,7 @@ class ScenarioCalculationResult(AntiFloatBaseModel):
 
         # 4. Cashflow schedule reconciliation (if schedule present)
         if self.cashflow_schedule:
-            total_schedule_gross = sum(
-                inst.installment_gross_obligation_vnd for inst in self.cashflow_schedule
-            )
+            total_schedule_gross = sum(inst.installment_gross_obligation_vnd for inst in self.cashflow_schedule)
             if total_schedule_gross != self.final_contract_price:
                 raise ValueError(
                     f"Tổng nghĩa vụ dòng tiền ({total_schedule_gross}) != final_contract_price ({self.final_contract_price})."
@@ -794,9 +760,7 @@ class PricingCalculationOutput(AntiFloatBaseModel):
 
     spec_version: str = Field(default="2.6")
     engine_version: str = Field(default="DeterministicPricingEngine_v2.6")
-    calculation_timestamp: str = Field(
-        ..., min_length=1, description="ISO-8601 UTC timestamp of calculation run"
-    )
+    calculation_timestamp: str = Field(..., min_length=1, description="ISO-8601 UTC timestamp of calculation run")
     unit_code: str = Field(..., min_length=1)
     scenario_results: list[ScenarioCalculationResult]
     recommended_result: RecommendationResult | None = None

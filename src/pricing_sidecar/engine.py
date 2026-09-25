@@ -113,9 +113,7 @@ def calculate_fixed_discount(
     assert_no_float(listed_price_vnd, benefits)
 
     if listed_price_vnd <= 0:
-        raise ValueError(
-            f"SANITY_FAIL: listed_price_vnd ({listed_price_vnd:,}đ) phải là số nguyên dương > 0."
-        )
+        raise ValueError(f"SANITY_FAIL: listed_price_vnd ({listed_price_vnd:,}đ) phải là số nguyên dương > 0.")
 
     if not benefits:
         return 0, listed_price_vnd
@@ -139,9 +137,7 @@ def calculate_fixed_discount(
             total_fixed_discount += b.fixed_deduction_vnd
 
     if total_fixed_discount < 0:
-        raise ValueError(
-            f"SANITY_FAIL: fixed_discount_vnd ({total_fixed_discount:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: fixed_discount_vnd ({total_fixed_discount:,}đ) không được âm.")
 
     if total_fixed_discount > listed_price_vnd:
         raise ValueError(
@@ -180,15 +176,11 @@ def calculate_percentage_discount(
     assert_no_float(base_after_fixed_vnd, benefits, scenario_discount_rate)
 
     if base_after_fixed_vnd < 0:
-        raise ValueError(
-            f"SANITY_FAIL: base_after_fixed_vnd ({base_after_fixed_vnd:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: base_after_fixed_vnd ({base_after_fixed_vnd:,}đ) không được âm.")
 
     scenario_rate = to_decimal(scenario_discount_rate)
     if scenario_rate < Decimal("0.0000"):
-        raise ValueError(
-            f"SANITY_FAIL: scenario_discount_rate ({scenario_rate}) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: scenario_discount_rate ({scenario_rate}) không được âm.")
 
     sum_rate = scenario_rate
 
@@ -243,9 +235,7 @@ def validate_dual_discount_cap(
     )
 
     if listed_price_vnd <= 0:
-        raise ValueError(
-            f"SANITY_FAIL: listed_price_vnd ({listed_price_vnd:,}đ) phải là số nguyên dương > 0."
-        )
+        raise ValueError(f"SANITY_FAIL: listed_price_vnd ({listed_price_vnd:,}đ) phải là số nguyên dương > 0.")
 
     rate = to_decimal(total_discount_rate)
     max_rate = to_decimal(max_discount_rate)
@@ -253,10 +243,7 @@ def validate_dual_discount_cap(
 
     # 1. Trần tỷ lệ phần trăm (Percentage Cap)
     if rate > max_rate:
-        raise ValueError(
-            f"DUAL_CAP_EXCEEDED: Tỷ lệ chiết khấu ({rate}) "
-            f"vượt trần tỷ lệ cho phép ({max_rate})."
-        )
+        raise ValueError(f"DUAL_CAP_EXCEEDED: Tỷ lệ chiết khấu ({rate}) vượt trần tỷ lệ cho phép ({max_rate}).")
 
     # 2. Trần tổng giá trị tài chính (Total Value Cap)
     max_total_allowed_vnd = round_vnd(to_decimal(listed_price_vnd) * max_total_cap_rate)
@@ -304,9 +291,7 @@ def calculate_additive_discount(
     )
 
     total_discount_vnd = fixed_vnd + percentage_vnd
-    max_total_discount_vnd = round_vnd(
-        to_decimal(listed_price_vnd) * to_decimal(max_total_discount_cap_rate)
-    )
+    max_total_discount_vnd = round_vnd(to_decimal(listed_price_vnd) * to_decimal(max_total_discount_cap_rate))
 
     if enforce_caps:
         validate_dual_discount_cap(
@@ -354,9 +339,7 @@ def calculate_vat_amount(
     assert_no_float(net_price_before_vat, vat_rate)
 
     if net_price_before_vat < 0:
-        raise ValueError(
-            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
 
     rate = to_decimal(vat_rate)
     if rate < Decimal("0.0000"):
@@ -388,9 +371,7 @@ def calculate_maintenance_fee_amount(
     assert_no_float(net_price_before_vat, maintenance_fee_rate)
 
     if net_price_before_vat < 0:
-        raise ValueError(
-            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
 
     rate = to_decimal(maintenance_fee_rate)
     if rate < Decimal("0.0000"):
@@ -424,15 +405,11 @@ def calculate_final_contract_price(
     assert_no_float(net_price_before_vat, vat_amount, maintenance_fee_amount)
 
     if net_price_before_vat < 0:
-        raise ValueError(
-            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
     if vat_amount < 0:
         raise ValueError(f"SANITY_FAIL: vat_amount ({vat_amount:,}đ) không được âm.")
     if maintenance_fee_amount < 0:
-        raise ValueError(
-            f"SANITY_FAIL: maintenance_fee_amount ({maintenance_fee_amount:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: maintenance_fee_amount ({maintenance_fee_amount:,}đ) không được âm.")
 
     return net_price_before_vat + vat_amount + maintenance_fee_amount
 
@@ -456,12 +433,8 @@ def calculate_contract_pricing(
     assert_no_float(net_price_before_vat, vat_rate, maintenance_fee_rate)
 
     vat_amt = calculate_vat_amount(net_price_before_vat, vat_rate=vat_rate)
-    kpbt_amt = calculate_maintenance_fee_amount(
-        net_price_before_vat, maintenance_fee_rate=maintenance_fee_rate
-    )
-    contract_price = calculate_final_contract_price(
-        net_price_before_vat, vat_amt, kpbt_amt
-    )
+    kpbt_amt = calculate_maintenance_fee_amount(net_price_before_vat, maintenance_fee_rate=maintenance_fee_rate)
+    contract_price = calculate_final_contract_price(net_price_before_vat, vat_amt, kpbt_amt)
 
     return ContractPricingSummary(
         net_price_before_vat=net_price_before_vat,
@@ -535,35 +508,23 @@ def generate_cashflow_schedule(
         deposit_date,
     )
     if net_price_before_vat < 0:
-        raise ValueError(
-            f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
     if vat_amount < 0:
-        raise ValueError(
-            f"SANITY_FAIL: vat_amount ({vat_amount:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: vat_amount ({vat_amount:,}đ) không được âm.")
     if kpbt_amount < 0:
-        raise ValueError(
-            f"SANITY_FAIL: kpbt_amount ({kpbt_amount:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: kpbt_amount ({kpbt_amount:,}đ) không được âm.")
     if deposit_amount_vnd < 0:
-        raise ValueError(
-            f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm.")
     rules = scenario_config.installment_rules
     if not rules:
-        raise ValueError(
-            "SANITY_FAIL: scenario_config.installment_rules không được rỗng."
-        )
+        raise ValueError("SANITY_FAIL: scenario_config.installment_rules không được rỗng.")
 
     base_date = deposit_date or date(2026, 3, 8)
     base_with_vat = net_price_before_vat + vat_amount
     contract_price = base_with_vat + kpbt_amount
 
     # Dual Reconciliation Target (FCS v2.6 §6.2)
-    total_equity_target = round_vnd(
-        to_decimal(base_with_vat) * scenario_config.customer_equity_rate
-    )
+    total_equity_target = round_vnd(to_decimal(base_with_vat) * scenario_config.customer_equity_rate)
     total_bank_target = base_with_vat - total_equity_target
 
     schedule: list[CashflowInstallmentOutput] = []
@@ -575,15 +536,15 @@ def generate_cashflow_schedule(
         due_date = base_date + timedelta(days=rule.days_from_deposit)
 
         if not rule.is_reconciliation:
-            eq_amt = round_vnd(
-                to_decimal(base_with_vat) * rule.customer_equity_ratio
-            )
-            bank_amt = round_vnd(
-                to_decimal(base_with_vat) * rule.bank_disbursement_ratio
-            )
-            kpbt_amt = round_vnd(
-                to_decimal(kpbt_amount) * rule.maintenance_fee_ratio
-            )
+            eq_amt = round_vnd(to_decimal(base_with_vat) * rule.customer_equity_ratio)
+            if (
+                scenario_config.bank_financing_rate > 0
+                and rule.bank_disbursement_ratio == scenario_config.bank_financing_rate
+            ):
+                bank_amt = total_bank_target
+            else:
+                bank_amt = round_vnd(to_decimal(base_with_vat) * rule.bank_disbursement_ratio)
+            kpbt_amt = round_vnd(to_decimal(kpbt_amount) * rule.maintenance_fee_ratio)
         else:
             # Task 2.8 (FCS §6.2): Reconciliation Gate Tường minh - Bù triệt tiêu sai số lẻ, đảm bảo không âm
             eq_amt = total_equity_target - sum_equity_so_far
@@ -627,9 +588,7 @@ def generate_cashflow_schedule(
         )
 
     # Invariant: Tổng nghĩa vụ các đợt phải khớp chính xác 100% P_contract
-    total_schedule_gross = sum(
-        inst.installment_gross_obligation_vnd for inst in schedule
-    )
+    total_schedule_gross = sum(inst.installment_gross_obligation_vnd for inst in schedule)
     if total_schedule_gross != contract_price:
         raise ValueError(
             f"SANITY_FAIL: Tổng nghĩa vụ dòng tiền ({total_schedule_gross:,}đ) "
@@ -668,9 +627,7 @@ def _calculate_scenario_core(
         deposit_date,
     )
     if deposit_amount_vnd < 0:
-        raise ValueError(
-            f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm."
-        )
+        raise ValueError(f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm.")
 
     # 1. Bước 1 & Bước 2: Additive Discount Model & Dual Discount Cap
     additive_result = calculate_additive_discount(
@@ -704,19 +661,11 @@ def _calculate_scenario_core(
 
     inst_1 = schedule[0]
     initial_gross = inst_1.installment_gross_obligation_vnd
-    initial_outflow = (
-        deposit_amount_vnd + inst_1.installment_additional_cash_due_vnd
-    )
+    initial_outflow = deposit_amount_vnd + inst_1.installment_additional_cash_due_vnd
 
     # Dòng tiền mặt khách nộp đến mốc bàn giao nhà (FCS §7.1)
-    handover_rule = next(
-        (r for r in scenario_config.installment_rules if r.is_handover), None
-    )
-    handover_idx = (
-        handover_rule.installment_number
-        if handover_rule
-        else len(scenario_config.installment_rules)
-    )
+    handover_rule = next((r for r in scenario_config.installment_rules if r.is_handover), None)
+    handover_idx = handover_rule.installment_number if handover_rule else len(scenario_config.installment_rules)
     cash_to_handover = sum(
         inst.customer_equity_paid_vnd + inst.maintenance_fee_paid_vnd
         for inst in schedule
@@ -774,9 +723,7 @@ def calculate_pa_chudong(
         max_total_discount_cap_rate,
         deposit_date,
     )
-    cfg = scenario_config or create_pa_chudong_config(
-        deposit_amount_vnd=deposit_amount_vnd
-    )
+    cfg = scenario_config or create_pa_chudong_config(deposit_amount_vnd=deposit_amount_vnd)
     return _calculate_scenario_core(
         scenario_config=cfg,
         listed_price_vnd=listed_price_vnd,
@@ -822,9 +769,7 @@ def calculate_pa_nhanh(
         max_total_discount_cap_rate,
         deposit_date,
     )
-    cfg = scenario_config or create_pa_nhanh_config(
-        deposit_amount_vnd=deposit_amount_vnd
-    )
+    cfg = scenario_config or create_pa_nhanh_config(deposit_amount_vnd=deposit_amount_vnd)
     return _calculate_scenario_core(
         scenario_config=cfg,
         listed_price_vnd=listed_price_vnd,
@@ -895,9 +840,7 @@ def resolve_scenario_type(code_or_type: ScenarioType | str) -> ScenarioType:
     if isinstance(code_or_type, ScenarioType):
         return code_or_type
     if not isinstance(code_or_type, str):
-        raise TypeError(
-            f"FLOAT_PROHIBITED: Kiểu dữ liệu không hợp lệ: {type(code_or_type)}"
-        )
+        raise TypeError(f"FLOAT_PROHIBITED: Kiểu dữ liệu không hợp lệ: {type(code_or_type)}")
 
     code_upper = code_or_type.strip().upper()
     if code_upper in ("STANDARD_PROGRESS", "PA-CHUDONG", "CHUDONG", "PROGRESS"):
@@ -919,9 +862,7 @@ def resolve_scenario_type(code_or_type: ScenarioType | str) -> ScenarioType:
         "BANK_LOAN_SUPPORT",
     ):
         return ScenarioType.BANK_LOAN_HTLS
-    raise ValueError(
-        f"UNSUPPORTED_SCENARIO: Kịch bản '{code_or_type}' không hợp lệ hoặc chưa được hỗ trợ."
-    )
+    raise ValueError(f"UNSUPPORTED_SCENARIO: Kịch bản '{code_or_type}' không hợp lệ hoặc chưa được hỗ trợ.")
 
 
 @forbid_float
@@ -990,7 +931,4 @@ def calculate_canonical_scenario(
             scenario_config=scenario_config,
         )
 
-    raise ValueError(
-        f"UNSUPPORTED_SCENARIO: Kịch bản '{scenario_type_or_code}' không hợp lệ."
-    )
-
+    raise ValueError(f"UNSUPPORTED_SCENARIO: Kịch bản '{scenario_type_or_code}' không hợp lệ.")

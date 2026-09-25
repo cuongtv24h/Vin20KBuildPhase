@@ -61,9 +61,7 @@ class SanityFieldErrorDetail(AntiFloatBaseModel):
     actual_vnd: int | None = Field(default=None, description="Actual calculated amount in integer VND")
     expected_rate: Decimal | None = Field(default=None, description="Expected rate Decimal")
     actual_rate: Decimal | None = Field(default=None, description="Actual rate Decimal")
-    scenario_type: ScenarioType | str | None = Field(
-        default=None, description="Scenario identifier if applicable"
-    )
+    scenario_type: ScenarioType | str | None = Field(default=None, description="Scenario identifier if applicable")
 
 
 # ---------------------------------------------------------------------------
@@ -127,9 +125,7 @@ def check_scenario_sanity(
     errors: list[SanityFieldErrorDetail] = []
     sc_type = calc_result.scenario_type
 
-    effective_listed_price = (
-        listed_price_vnd if listed_price_vnd is not None else calc_result.listed_price_vnd
-    )
+    effective_listed_price = listed_price_vnd if listed_price_vnd is not None else calc_result.listed_price_vnd
 
     # -----------------------------------------------------------------------
     # 1. Sanity Check 1: Cận Giá Net (INV-FIN-01)
@@ -255,9 +251,7 @@ def check_scenario_sanity(
     # 5. Sanity Check 5: Cân bằng Dòng tiền Lập lịch (INV-FIN-05)
     # -----------------------------------------------------------------------
     if calc_result.cashflow_schedule:
-        sum_schedule_gross = sum(
-            item.installment_gross_obligation_vnd for item in calc_result.cashflow_schedule
-        )
+        sum_schedule_gross = sum(item.installment_gross_obligation_vnd for item in calc_result.cashflow_schedule)
         if sum_schedule_gross != calc_result.final_contract_price:
             errors.append(
                 SanityFieldErrorDetail(
@@ -276,9 +270,7 @@ def check_scenario_sanity(
         for idx, item in enumerate(calc_result.cashflow_schedule):
             # 5a. Gross obligation must equal equity + bank + kpbt
             expected_inst_gross = (
-                item.customer_equity_paid_vnd
-                + item.bank_disbursement_vnd
-                + item.maintenance_fee_paid_vnd
+                item.customer_equity_paid_vnd + item.bank_disbursement_vnd + item.maintenance_fee_paid_vnd
             )
             if item.installment_gross_obligation_vnd != expected_inst_gross:
                 errors.append(
@@ -298,9 +290,7 @@ def check_scenario_sanity(
 
             # 5b. Additional cash due must equal equity - deposit + kpbt
             expected_additional_cash = (
-                item.customer_equity_paid_vnd
-                - item.deposit_credited_vnd
-                + item.maintenance_fee_paid_vnd
+                item.customer_equity_paid_vnd - item.deposit_credited_vnd + item.maintenance_fee_paid_vnd
             )
             if item.installment_additional_cash_due_vnd != expected_additional_cash:
                 errors.append(

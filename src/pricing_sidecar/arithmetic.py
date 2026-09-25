@@ -89,10 +89,7 @@ def to_decimal(val: Decimal | int | str) -> Decimal:
         return val
     if isinstance(val, (int, str)):
         return Decimal(str(val))
-    raise TypeError(
-        f"Cannot convert type '{type(val).__name__}' to Decimal. "
-        "Expected Decimal, int, or str."
-    )
+    raise TypeError(f"Cannot convert type '{type(val).__name__}' to Decimal. Expected Decimal, int, or str.")
 
 
 @forbid_float
