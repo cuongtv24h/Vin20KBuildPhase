@@ -66,9 +66,7 @@ class TestAntiFloatGuardInModels:
                 bank_financing_rate=0.0,  # float!
             )
 
-    def test_benefit_rule_rejects_float_discount_rate(
-        self, sample_policy_ref: StructuredPolicyReference
-    ) -> None:
+    def test_benefit_rule_rejects_float_discount_rate(self, sample_policy_ref: StructuredPolicyReference) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             BenefitApplicationRule(
                 benefit_id="BEN-01",
@@ -206,10 +204,7 @@ class TestPaymentScenarioConfigInvariants:
         base_chudong = create_pa_chudong_config()
 
         # Case A: 0 reconciliation
-        rules_no_recon = [
-            r.model_copy(update={"is_reconciliation": False})
-            for r in base_chudong.installment_rules
-        ]
+        rules_no_recon = [r.model_copy(update={"is_reconciliation": False}) for r in base_chudong.installment_rules]
         with pytest.raises(ValueError, match="DUY NHẤT 1 đợt reconciliation"):
             PaymentScenarioConfig(
                 scenario_type=ScenarioType.STANDARD_PROGRESS,
@@ -238,10 +233,7 @@ class TestPaymentScenarioConfigInvariants:
         base_chudong = create_pa_chudong_config()
 
         # Case A: 0 handover
-        rules_no_handover = [
-            r.model_copy(update={"is_handover": False})
-            for r in base_chudong.installment_rules
-        ]
+        rules_no_handover = [r.model_copy(update={"is_handover": False}) for r in base_chudong.installment_rules]
         with pytest.raises(ValueError, match="DUY NHẤT 1 đợt bàn giao nhà"):
             PaymentScenarioConfig(
                 scenario_type=ScenarioType.STANDARD_PROGRESS,
@@ -303,9 +295,7 @@ class TestPaymentScenarioConfigInvariants:
         """Invariant 7: sum of maintenance_fee_ratio across all rules must equal 1.0000."""
         base_chudong = create_pa_chudong_config()
         rules_bad_kpbt = [
-            r.model_copy(update={"maintenance_fee_ratio": Decimal("0.9800")})
-            if r.installment_number == 8
-            else r
+            r.model_copy(update={"maintenance_fee_ratio": Decimal("0.9800")}) if r.installment_number == 8 else r
             for r in base_chudong.installment_rules
         ]
         with pytest.raises(ValueError, match="Tổng maintenance_fee_ratio phải bằng 1.0000"):
@@ -322,9 +312,7 @@ class TestPaymentScenarioConfigInvariants:
         base_chudong = create_pa_chudong_config()
         # Raise non-recon equity beyond 1.0000 (e.g. đợt 1 from 0.15 to 0.25 -> total non-recon = 1.05 > 1.00)
         rules_exceed_equity = [
-            r.model_copy(update={"customer_equity_ratio": Decimal("0.2500")})
-            if r.installment_number == 1
-            else r
+            r.model_copy(update={"customer_equity_ratio": Decimal("0.2500")}) if r.installment_number == 1 else r
             for r in base_chudong.installment_rules
         ]
         with pytest.raises(ValueError, match="vượt quá trần cấu hình"):
@@ -369,9 +357,7 @@ class TestBenefitApplicationRule:
         )
         assert rule.discount_rate == Decimal("0.0100")
 
-    def test_category_type_mismatch_rejected(
-        self, sample_policy_ref: StructuredPolicyReference
-    ) -> None:
+    def test_category_type_mismatch_rejected(self, sample_policy_ref: StructuredPolicyReference) -> None:
         with pytest.raises(ValueError, match="không tương thích với benefit_type"):
             BenefitApplicationRule(
                 benefit_id="BEN-BAD-MAP",
@@ -382,9 +368,7 @@ class TestBenefitApplicationRule:
                 source_policy_clause=sample_policy_ref,
             )
 
-    def test_unauthorized_price_deduction_rejected(
-        self, sample_policy_ref: StructuredPolicyReference
-    ) -> None:
+    def test_unauthorized_price_deduction_rejected(self, sample_policy_ref: StructuredPolicyReference) -> None:
         with pytest.raises(ValueError, match="price_deduction_authorized=False"):
             BenefitApplicationRule(
                 benefit_id="BEN-NO-AUTH",
@@ -396,9 +380,7 @@ class TestBenefitApplicationRule:
                 source_policy_clause=sample_policy_ref,
             )
 
-    def test_fixed_cash_requires_positive_amount(
-        self, sample_policy_ref: StructuredPolicyReference
-    ) -> None:
+    def test_fixed_cash_requires_positive_amount(self, sample_policy_ref: StructuredPolicyReference) -> None:
         with pytest.raises(ValueError, match="FIXED_CASH yêu cầu fixed_deduction_vnd > 0"):
             BenefitApplicationRule(
                 benefit_id="BEN-ZERO-CASH",
@@ -410,9 +392,7 @@ class TestBenefitApplicationRule:
                 source_policy_clause=sample_policy_ref,
             )
 
-    def test_percentage_requires_positive_rate(
-        self, sample_policy_ref: StructuredPolicyReference
-    ) -> None:
+    def test_percentage_requires_positive_rate(self, sample_policy_ref: StructuredPolicyReference) -> None:
         with pytest.raises(ValueError, match="PERCENTAGE yêu cầu discount_rate > 0"):
             BenefitApplicationRule(
                 benefit_id="BEN-ZERO-RATE",

@@ -65,9 +65,7 @@ def canonical_vay_result() -> ScenarioCalculationResult:
 class TestSanityChecksPositive:
     """Positive test cases verifying that canonical calculations pass all 6 Sanity Checks."""
 
-    def test_pa_chudong_passes_all_checks(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_pa_chudong_passes_all_checks(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         report = validate_scenario_calculation(canonical_chudong_result, raise_on_error=True)
         assert report.is_valid is True
         assert report.status == CalculationStatus.VALID
@@ -75,17 +73,13 @@ class TestSanityChecksPositive:
         assert report.error_message is None
         assert report.invariants_checked == STANDARD_SANITY_INVARIANTS
 
-    def test_pa_nhanh_passes_all_checks(
-        self, canonical_nhanh_result: ScenarioCalculationResult
-    ) -> None:
+    def test_pa_nhanh_passes_all_checks(self, canonical_nhanh_result: ScenarioCalculationResult) -> None:
         report = validate_scenario_calculation(canonical_nhanh_result, raise_on_error=True)
         assert report.is_valid is True
         assert report.status == CalculationStatus.VALID
         assert len(report.field_errors) == 0
 
-    def test_pa_vay_passes_all_checks(
-        self, canonical_vay_result: ScenarioCalculationResult
-    ) -> None:
+    def test_pa_vay_passes_all_checks(self, canonical_vay_result: ScenarioCalculationResult) -> None:
         report = validate_scenario_calculation(canonical_vay_result, raise_on_error=True)
         assert report.is_valid is True
         assert report.status == CalculationStatus.VALID
@@ -127,9 +121,7 @@ class TestSanityChecksPositive:
 class TestSanityCheck1NetBounds:
     """Verifies Sanity Check 1: 0 < net_price_before_vat <= listed_price_vnd."""
 
-    def test_net_price_non_positive_fails(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_net_price_non_positive_fails(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         # Construct object bypassing model validator to test validation gate
         mutated = canonical_chudong_result.model_copy(deep=True)
         object.__setattr__(mutated, "net_price_before_vat", 0)
@@ -143,9 +135,7 @@ class TestSanityCheck1NetBounds:
         assert field_err.actual_vnd == 0
         assert "SANITY_FAIL" in field_err.message
 
-    def test_net_price_exceeds_listed_price_fails(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_net_price_exceeds_listed_price_fails(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         object.__setattr__(mutated, "net_price_before_vat", 4_000_000_000)
 
@@ -164,15 +154,11 @@ class TestSanityCheck1NetBounds:
 class TestSanityCheck2DualDiscountCap:
     """Verifies Sanity Check 2: rate <= max_discount_rate and total <= 40% listed."""
 
-    def test_percentage_discount_cap_exceeded(
-        self, canonical_nhanh_result: ScenarioCalculationResult
-    ) -> None:
+    def test_percentage_discount_cap_exceeded(self, canonical_nhanh_result: ScenarioCalculationResult) -> None:
         mutated = canonical_nhanh_result.model_copy(deep=True)
         object.__setattr__(mutated, "total_discount_rate", Decimal("0.3600"))
 
-        errors = check_scenario_sanity(
-            mutated, max_discount_rate=Decimal("0.3500")
-        )
+        errors = check_scenario_sanity(mutated, max_discount_rate=Decimal("0.3500"))
         codes = [err.code for err in errors]
         assert "PERCENTAGE_DISCOUNT_CAP_EXCEEDED" in codes
 
@@ -181,9 +167,7 @@ class TestSanityCheck2DualDiscountCap:
         assert field_err.expected_rate == Decimal("0.3500")
         assert field_err.actual_rate == Decimal("0.3600")
 
-    def test_total_discount_money_cap_exceeded(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_total_discount_money_cap_exceeded(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         # 3.5B * 40% = 1.4B; set fixed discount to 1.5B
         object.__setattr__(mutated, "fixed_discount_vnd", 1_500_000_000)
@@ -207,9 +191,7 @@ class TestSanityCheck2DualDiscountCap:
 class TestSanityCheck3TaxAndFeeConsistency:
     """Verifies Sanity Check 3: VAT and KPBT exact match to policy snapshot rates."""
 
-    def test_vat_mismatch_detected(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_vat_mismatch_detected(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         # Offset VAT by 1 VND
         expected = canonical_chudong_result.vat_amount
@@ -224,9 +206,7 @@ class TestSanityCheck3TaxAndFeeConsistency:
         assert field_err.expected_vnd == expected
         assert field_err.actual_vnd == expected + 1
 
-    def test_kpbt_mismatch_detected(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_kpbt_mismatch_detected(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         expected = canonical_chudong_result.maintenance_fee_amount
         object.__setattr__(mutated, "maintenance_fee_amount", expected - 1000)
@@ -247,9 +227,7 @@ class TestSanityCheck3TaxAndFeeConsistency:
 class TestSanityCheck4ContractPriceBalance:
     """Verifies Sanity Check 4: final_contract_price == net + vat + kpbt."""
 
-    def test_contract_price_mismatch_detected(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_contract_price_mismatch_detected(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         object.__setattr__(
             mutated,
@@ -272,9 +250,7 @@ class TestSanityCheck4ContractPriceBalance:
 class TestSanityCheck5CashflowReconciliation:
     """Verifies Sanity Check 5: schedule sum == contract price and internal installment consistency."""
 
-    def test_schedule_total_sum_mismatch(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_schedule_total_sum_mismatch(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         # Modify last installment amount by -1 VND
         sched = list(mutated.cashflow_schedule)
@@ -296,9 +272,7 @@ class TestSanityCheck5CashflowReconciliation:
         assert field_err.expected_vnd == mutated.final_contract_price
         assert field_err.actual_vnd == mutated.final_contract_price - 1
 
-    def test_installment_gross_obligation_mismatch(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_installment_gross_obligation_mismatch(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         sched = list(mutated.cashflow_schedule)
         inst0 = sched[0].model_copy(deep=True)
@@ -341,9 +315,7 @@ class TestSanityCheck5CashflowReconciliation:
 class TestSanityCheck6NonNegativeAndMonotonicity:
     """Verifies Sanity Check 6: All amounts >= 0, deposit credit <= equity, monotonic timeline."""
 
-    def test_negative_top_level_vat_amount(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_negative_top_level_vat_amount(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         object.__setattr__(mutated, "vat_amount", -1)
 
@@ -351,9 +323,7 @@ class TestSanityCheck6NonNegativeAndMonotonicity:
         codes = [err.code for err in errors]
         assert "NEGATIVE_AMOUNT_DETECTED" in codes
 
-    def test_negative_installment_amount_detected(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_negative_installment_amount_detected(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         mutated = canonical_chudong_result.model_copy(deep=True)
         sched = list(mutated.cashflow_schedule)
         inst0 = sched[0].model_copy(deep=True)
@@ -471,9 +441,7 @@ class TestFieldLevelErrorEnvelopeAndException:
 class TestAntiFloatGuardAndPerformance:
     """Verifies that floats are strictly prohibited and validation executes within SLA."""
 
-    def test_forbid_float_on_vat_rate(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_forbid_float_on_vat_rate(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             # Passing float 0.1 instead of Decimal("0.1000")
             validate_scenario_calculation(
@@ -481,9 +449,7 @@ class TestAntiFloatGuardAndPerformance:
                 vat_rate=0.1,  # type: ignore
             )
 
-    def test_forbid_float_on_discount_cap(
-        self, canonical_chudong_result: ScenarioCalculationResult
-    ) -> None:
+    def test_forbid_float_on_discount_cap(self, canonical_chudong_result: ScenarioCalculationResult) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             validate_scenario_calculation(
                 canonical_chudong_result,

@@ -25,6 +25,11 @@ from src.pricing_sidecar.canonical_hash import (
     generate_canonical_hash,
     verify_canonical_hash,
 )
+from src.pricing_sidecar.client import (
+    PricingSidecarClient,
+    PricingSidecarError,
+    SidecarMode,
+)
 from src.pricing_sidecar.contracts import (
     CANONICAL_SCENARIO_ORDER,
     SCENARIO_ALIAS_MAP,
@@ -85,6 +90,19 @@ from src.pricing_sidecar.ranking import (
     rank_scenarios_by_objective,
     recommend_best_scenario,
 )
+from src.pricing_sidecar.server import (
+    DEFAULT_PROCESSING_TIMEOUT_SECONDS,
+    DEFAULT_SOCKET_PATH,
+    DEFAULT_TCP_HOST,
+    DEFAULT_TCP_PORT,
+    ERROR_CALCULATOR_UNAVAILABLE,
+    ERROR_FINANCIAL_SANITY_FAILED,
+    ERROR_INTERNAL_ERROR,
+    ERROR_INVALID_REQUEST,
+    ERROR_PAYLOAD_TOO_LARGE,
+    MAX_REQUEST_SIZE,
+    PricingSidecarServer,
+)
 from src.pricing_sidecar.validation import (
     FINANCIAL_SANITY_FAILED_CODE,
     INV_FIN_01,
@@ -106,9 +124,23 @@ __all__ = [
     "CANONICAL_SCENARIO_ORDER",
     "CashflowResidualError",
     "ContractPricingSummary",
+    "DEFAULT_PROCESSING_TIMEOUT_SECONDS",
+    "DEFAULT_SOCKET_PATH",
+    "DEFAULT_TCP_HOST",
+    "DEFAULT_TCP_PORT",
+    "ERROR_CALCULATOR_UNAVAILABLE",
+    "ERROR_FINANCIAL_SANITY_FAILED",
+    "ERROR_INTERNAL_ERROR",
+    "ERROR_INVALID_REQUEST",
+    "ERROR_PAYLOAD_TOO_LARGE",
+    "MAX_REQUEST_SIZE",
     "PRECISION",
+    "PricingSidecarClient",
+    "PricingSidecarError",
+    "PricingSidecarServer",
     "ROUNDING_RULE",
     "SCENARIO_ALIAS_MAP",
+    "SidecarMode",
     "VALID_BENEFIT_MAPPING",
     "AntiFloatBaseModel",
     "BenefitApplicationRule",

@@ -155,9 +155,7 @@ def valid_scenario_result() -> ScenarioCalculationResult:
 class TestScenarioCalculationResult:
     """Test scenario arithmetic invariants and cashflow reconciliation."""
 
-    def test_valid_scenario_result_creation(
-        self, valid_scenario_result: ScenarioCalculationResult
-    ) -> None:
+    def test_valid_scenario_result_creation(self, valid_scenario_result: ScenarioCalculationResult) -> None:
         assert valid_scenario_result.final_contract_price == 3_920_000_000
         assert valid_scenario_result.net_price_before_vat == 3_500_000_000
 
@@ -374,9 +372,7 @@ class TestRecommendationResult:
 class TestPricingCalculationOutput:
     """Test top-level calculation output envelope and hash validation."""
 
-    def test_valid_output_envelope(
-        self, valid_scenario_result: ScenarioCalculationResult
-    ) -> None:
+    def test_valid_output_envelope(self, valid_scenario_result: ScenarioCalculationResult) -> None:
         rec = RecommendationResult(
             selected_objective=OptimizationObjective.MIN_NET_PRICE,
             recommended_scenario=ScenarioType.STANDARD_PROGRESS,
@@ -412,9 +408,7 @@ class TestPricingCalculationOutput:
                 canonical_snapshot_hash="f" * 64,
             )
 
-    def test_invalid_snapshot_hash_length_rejected(
-        self, valid_scenario_result: ScenarioCalculationResult
-    ) -> None:
+    def test_invalid_snapshot_hash_length_rejected(self, valid_scenario_result: ScenarioCalculationResult) -> None:
         """canonical_snapshot_hash must be exactly 64 hex characters."""
         with pytest.raises(ValidationError):
             PricingCalculationOutput(

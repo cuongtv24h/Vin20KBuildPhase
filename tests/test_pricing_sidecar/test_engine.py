@@ -126,17 +126,13 @@ class TestCalculateFixedDiscount:
         assert fixed == 0
         assert base == 3_500_000_000
 
-    def test_fixed_discount_voucher_50m(
-        self, voucher_50m_rule: BenefitApplicationRule
-    ) -> None:
+    def test_fixed_discount_voucher_50m(self, voucher_50m_rule: BenefitApplicationRule) -> None:
         """TC-05: 50M voucher -> D_fixed = 50M, Base_1 = 3.45B."""
         fixed, base = calculate_fixed_discount(3_500_000_000, [voucher_50m_rule])
         assert fixed == 50_000_000
         assert base == 3_450_000_000
 
-    def test_fixed_discount_in_kind_approved(
-        self, gold_160m_rule: BenefitApplicationRule
-    ) -> None:
+    def test_fixed_discount_in_kind_approved(self, gold_160m_rule: BenefitApplicationRule) -> None:
         """TC-06: 160M SJC gold approved -> D_fixed = 160M, Base_1 = 3.34B."""
         fixed, base = calculate_fixed_discount(3_500_000_000, [gold_160m_rule])
         assert fixed == 160_000_000
@@ -148,15 +144,11 @@ class TestCalculateFixedDiscount:
         gold_160m_rule: BenefitApplicationRule,
     ) -> None:
         """50M + 160M = 210M fixed discount."""
-        fixed, base = calculate_fixed_discount(
-            3_500_000_000, [voucher_50m_rule, gold_160m_rule]
-        )
+        fixed, base = calculate_fixed_discount(3_500_000_000, [voucher_50m_rule, gold_160m_rule])
         assert fixed == 210_000_000
         assert base == 3_290_000_000
 
-    def test_fixed_discount_in_kind_pending_ignored(
-        self, sample_policy_ref: StructuredPolicyReference
-    ) -> None:
+    def test_fixed_discount_in_kind_pending_ignored(self, sample_policy_ref: StructuredPolicyReference) -> None:
         """In-kind gift without valuation certificate (PENDING) must NOT be deducted."""
         # Create un-authorized in-kind gift
         pending_gift = BenefitApplicationRule(
@@ -173,9 +165,7 @@ class TestCalculateFixedDiscount:
         assert fixed == 0
         assert base == 3_500_000_000
 
-    def test_fixed_discount_percentage_rule_ignored_in_step_1(
-        self, resident_1pct_rule: BenefitApplicationRule
-    ) -> None:
+    def test_fixed_discount_percentage_rule_ignored_in_step_1(self, resident_1pct_rule: BenefitApplicationRule) -> None:
         """PERCENTAGE rules must not affect Step 1 fixed discount."""
         fixed, base = calculate_fixed_discount(3_500_000_000, [resident_1pct_rule])
         assert fixed == 0
@@ -233,9 +223,7 @@ class TestCalculatePercentageDiscount:
         assert pct_vnd == 280_000_000
         assert net == 3_220_000_000
 
-    def test_percentage_discount_tc04_additive_8pct_plus_1pct(
-        self, resident_1pct_rule: BenefitApplicationRule
-    ) -> None:
+    def test_percentage_discount_tc04_additive_8pct_plus_1pct(self, resident_1pct_rule: BenefitApplicationRule) -> None:
         """TC-04: PA-NHANH 8% + Cư dân 1% = 9% on 3.5B -> pct_vnd = 315M, Net = 3.185B."""
         rate, pct_vnd, net = calculate_percentage_discount(
             base_after_fixed_vnd=3_500_000_000,
@@ -274,9 +262,7 @@ class TestCalculatePercentageDiscount:
 
     def test_percentage_discount_negative_rate_raises_error(self) -> None:
         with pytest.raises(ValueError, match="không được âm"):
-            calculate_percentage_discount(
-                3_500_000_000, scenario_discount_rate=Decimal("-0.01")
-            )
+            calculate_percentage_discount(3_500_000_000, scenario_discount_rate=Decimal("-0.01"))
 
 
 # ===========================================================================
@@ -300,9 +286,7 @@ class TestCalculateAdditiveDiscount:
         assert res.net_price_before_vat == 3_500_000_000
         assert res.total_discount_amount_vnd == 0
 
-    def test_tc05_interior_voucher_plus_early_95(
-        self, voucher_50m_rule: BenefitApplicationRule
-    ) -> None:
+    def test_tc05_interior_voucher_plus_early_95(self, voucher_50m_rule: BenefitApplicationRule) -> None:
         """TC-05: 50M voucher + 8% early payment.
 
         Base_1 = 3.5B - 50M = 3.45B
@@ -323,9 +307,7 @@ class TestCalculateAdditiveDiscount:
         assert res.total_discount_amount_vnd == 326_000_000
         assert res.total_discount_vnd == 326_000_000
 
-    def test_tc06_gold_sjc_plus_early_6pct(
-        self, gold_160m_rule: BenefitApplicationRule
-    ) -> None:
+    def test_tc06_gold_sjc_plus_early_6pct(self, gold_160m_rule: BenefitApplicationRule) -> None:
         """TC-06: 160M gold + 6% early payment.
 
         Base_1 = 3.5B - 160M = 3.34B
@@ -569,9 +551,7 @@ class TestContractPricingAndTaxes:
         with pytest.raises(ValueError, match="không được âm"):
             calculate_vat_amount(3_500_000_000, vat_rate=Decimal("-0.01"))
         with pytest.raises(ValueError, match="không được âm"):
-            calculate_maintenance_fee_amount(
-                3_500_000_000, maintenance_fee_rate=Decimal("-0.01")
-            )
+            calculate_maintenance_fee_amount(3_500_000_000, maintenance_fee_rate=Decimal("-0.01"))
 
 
 # ===========================================================================
@@ -591,7 +571,9 @@ class TestAntiFloatGuardInEngine:
     def test_calculate_percentage_discount_rejects_float_scenario_rate(self) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             calculate_percentage_discount(
-                3_500_000_000, [], scenario_discount_rate=0.08  # float rate!
+                3_500_000_000,
+                [],
+                scenario_discount_rate=0.08,  # float rate!
             )
 
     def test_calculate_additive_discount_rejects_float_price(self) -> None:
@@ -601,7 +583,8 @@ class TestAntiFloatGuardInEngine:
     def test_calculate_additive_discount_rejects_float_cap(self) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             calculate_additive_discount(
-                3_500_000_000, max_discount_rate=0.35  # float cap!
+                3_500_000_000,
+                max_discount_rate=0.35,  # float cap!
             )
 
     def test_validate_dual_discount_cap_rejects_float_rate(self) -> None:
@@ -631,9 +614,7 @@ class TestAntiFloatGuardInEngine:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             calculate_maintenance_fee_amount(3500000000.0)
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
-            calculate_maintenance_fee_amount(
-                3_500_000_000, maintenance_fee_rate=0.02
-            )
+            calculate_maintenance_fee_amount(3_500_000_000, maintenance_fee_rate=0.02)
 
     def test_calculate_final_contract_price_rejects_float(self) -> None:
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
@@ -702,9 +683,7 @@ class TestCanonicalScenarios:
 
     def test_pa_nhanh_tc02_baseline(self) -> None:
         """TC-02 / TC-10: PA-NHANH with early discount 8%."""
-        res = calculate_pa_nhanh(
-            3_500_000_000, early_discount_rate=Decimal("0.0800")
-        )
+        res = calculate_pa_nhanh(3_500_000_000, early_discount_rate=Decimal("0.0800"))
         assert res.scenario_type == ScenarioType.EARLY_95
         assert res.scenario_name == "Phương án Thanh toán Sớm 95%"
         assert res.listed_price_vnd == 3_500_000_000
@@ -725,10 +704,7 @@ class TestCanonicalScenarios:
         """TC-03: PA-VAY with HTLS 0% 24 months, customer equity 30%."""
         res = calculate_pa_vay(3_500_000_000)
         assert res.scenario_type == ScenarioType.BANK_LOAN_HTLS
-        assert (
-            res.scenario_name
-            == "Phương án Hỗ trợ Lãi suất Ngân hàng (HTLS 70%)"
-        )
+        assert res.scenario_name == "Phương án Hỗ trợ Lãi suất Ngân hàng (HTLS 70%)"
         assert res.listed_price_vnd == 3_500_000_000
         assert res.fixed_discount_vnd == 0
         assert res.base_after_fixed_vnd == 3_500_000_000
@@ -743,9 +719,7 @@ class TestCanonicalScenarios:
         assert res.customer_cash_outflow_until_handover == 1_032_500_000
         assert res.total_benefit_value_vnd == 0
 
-    def test_pa_nhanh_resident_additive_tc04(
-        self, resident_1pct_rule: BenefitApplicationRule
-    ) -> None:
+    def test_pa_nhanh_resident_additive_tc04(self, resident_1pct_rule: BenefitApplicationRule) -> None:
         """TC-04: PA-NHANH + VIP resident discount 1% -> 9% total discount."""
         res = calculate_pa_nhanh(
             3_500_000_000,
@@ -761,9 +735,7 @@ class TestCanonicalScenarios:
         assert res.initial_gross_obligation_vnd == 3_328_325_000
         assert res.initial_cash_outflow_vnd == 3_328_325_000
 
-    def test_pa_nhanh_interior_voucher_tc05(
-        self, voucher_50m_rule: BenefitApplicationRule
-    ) -> None:
+    def test_pa_nhanh_interior_voucher_tc05(self, voucher_50m_rule: BenefitApplicationRule) -> None:
         """TC-05: PA-NHANH + 50M furniture voucher fixed deduction."""
         res = calculate_pa_nhanh(
             3_500_000_000,
@@ -781,9 +753,7 @@ class TestCanonicalScenarios:
         assert res.initial_cash_outflow_vnd == 3_316_830_000
         assert res.total_benefit_value_vnd == 50_000_000
 
-    def test_pa_nhanh_gold_sjc_tc06(
-        self, gold_160m_rule: BenefitApplicationRule
-    ) -> None:
+    def test_pa_nhanh_gold_sjc_tc06(self, gold_160m_rule: BenefitApplicationRule) -> None:
         """TC-06: PA-NHANH + 160M gold SJC fixed deduction + 6% early discount."""
         res = calculate_pa_nhanh(
             3_500_000_000,
@@ -803,9 +773,7 @@ class TestCanonicalScenarios:
 
     def test_pa_nhanh_time_travel_v2_tc11(self) -> None:
         """TC-11: PA-NHANH in July 2026 with 6% early discount."""
-        res = calculate_pa_nhanh(
-            3_500_000_000, early_discount_rate=Decimal("0.0600")
-        )
+        res = calculate_pa_nhanh(3_500_000_000, early_discount_rate=Decimal("0.0600"))
         assert res.total_discount_rate == Decimal("0.0600")
         assert res.net_price_before_vat == 3_290_000_000
         assert res.vat_amount == 329_000_000
@@ -816,42 +784,19 @@ class TestCanonicalScenarios:
 
     def test_resolve_scenario_type(self) -> None:
         """Verify scenario alias and enum normalization."""
-        assert (
-            resolve_scenario_type(ScenarioType.STANDARD_PROGRESS)
-            == ScenarioType.STANDARD_PROGRESS
-        )
-        assert (
-            resolve_scenario_type("PA-CHUDONG")
-            == ScenarioType.STANDARD_PROGRESS
-        )
-        assert (
-            resolve_scenario_type("STANDARD_PROGRESS")
-            == ScenarioType.STANDARD_PROGRESS
-        )
-        assert (
-            resolve_scenario_type("chudong")
-            == ScenarioType.STANDARD_PROGRESS
-        )
+        assert resolve_scenario_type(ScenarioType.STANDARD_PROGRESS) == ScenarioType.STANDARD_PROGRESS
+        assert resolve_scenario_type("PA-CHUDONG") == ScenarioType.STANDARD_PROGRESS
+        assert resolve_scenario_type("STANDARD_PROGRESS") == ScenarioType.STANDARD_PROGRESS
+        assert resolve_scenario_type("chudong") == ScenarioType.STANDARD_PROGRESS
 
-        assert (
-            resolve_scenario_type(ScenarioType.EARLY_95)
-            == ScenarioType.EARLY_95
-        )
+        assert resolve_scenario_type(ScenarioType.EARLY_95) == ScenarioType.EARLY_95
         assert resolve_scenario_type("PA-NHANH") == ScenarioType.EARLY_95
         assert resolve_scenario_type("EARLY_95") == ScenarioType.EARLY_95
         assert resolve_scenario_type("nhanh") == ScenarioType.EARLY_95
 
-        assert (
-            resolve_scenario_type(ScenarioType.BANK_LOAN_HTLS)
-            == ScenarioType.BANK_LOAN_HTLS
-        )
-        assert (
-            resolve_scenario_type("PA-VAY") == ScenarioType.BANK_LOAN_HTLS
-        )
-        assert (
-            resolve_scenario_type("BANK_LOAN_HTLS")
-            == ScenarioType.BANK_LOAN_HTLS
-        )
+        assert resolve_scenario_type(ScenarioType.BANK_LOAN_HTLS) == ScenarioType.BANK_LOAN_HTLS
+        assert resolve_scenario_type("PA-VAY") == ScenarioType.BANK_LOAN_HTLS
+        assert resolve_scenario_type("BANK_LOAN_HTLS") == ScenarioType.BANK_LOAN_HTLS
         assert resolve_scenario_type("vay") == ScenarioType.BANK_LOAN_HTLS
 
         with pytest.raises(ValueError, match="UNSUPPORTED_SCENARIO"):
@@ -862,9 +807,7 @@ class TestCanonicalScenarios:
 
     def test_calculate_canonical_scenario_dispatcher(self) -> None:
         """Verify calculate_canonical_scenario dispatches correctly to all 3 scenarios."""
-        res_chudong = calculate_canonical_scenario(
-            "PA-CHUDONG", 3_500_000_000
-        )
+        res_chudong = calculate_canonical_scenario("PA-CHUDONG", 3_500_000_000)
         assert res_chudong.scenario_type == ScenarioType.STANDARD_PROGRESS
         assert res_chudong.final_contract_price == 3_920_000_000
 
@@ -878,9 +821,7 @@ class TestCanonicalScenarios:
 
     def test_deposit_greater_than_initial_gross_edge_case(self) -> None:
         """If deposit > initial gross, deposit_credited is clamped to eq_1."""
-        res = calculate_pa_chudong(
-            3_500_000_000, deposit_amount_vnd=600_000_000
-        )
+        res = calculate_pa_chudong(3_500_000_000, deposit_amount_vnd=600_000_000)
         assert res.initial_gross_obligation_vnd == 577_500_000
         assert res.initial_cash_outflow_vnd == 600_000_000
 
@@ -888,9 +829,7 @@ class TestCanonicalScenarios:
         with pytest.raises(ValueError, match=r"không được âm|greater_than_equal"):
             calculate_pa_chudong(3_500_000_000, deposit_amount_vnd=-100_000)
 
-    def test_dual_cap_violation_in_scenario_raises_error(
-        self, sample_policy_ref: StructuredPolicyReference
-    ) -> None:
+    def test_dual_cap_violation_in_scenario_raises_error(self, sample_policy_ref: StructuredPolicyReference) -> None:
         """Exceeding 35% discount in scenario raises DUAL_CAP_EXCEEDED."""
         huge_benefit = BenefitApplicationRule(
             benefit_id="HUGE-01",
@@ -980,17 +919,11 @@ class TestCashflowScheduleGenerator:
         assert inst9.is_reconciliation_installment
 
         # Total reconciliation check
-        total_gross = sum(
-            item.installment_gross_obligation_vnd for item in schedule
-        )
+        total_gross = sum(item.installment_gross_obligation_vnd for item in schedule)
         assert total_gross == 3_920_000_000
-        total_equity = sum(
-            item.customer_equity_paid_vnd for item in schedule
-        )
+        total_equity = sum(item.customer_equity_paid_vnd for item in schedule)
         assert total_equity == 3_850_000_000
-        total_kpbt = sum(
-            item.maintenance_fee_paid_vnd for item in schedule
-        )
+        total_kpbt = sum(item.maintenance_fee_paid_vnd for item in schedule)
         assert total_kpbt == 70_000_000
 
     def test_schedule_pa_nhanh_3_installments(self) -> None:
@@ -1033,9 +966,7 @@ class TestCashflowScheduleGenerator:
         assert inst3.installment_gross_obligation_vnd == 177_100_000
         assert inst3.is_reconciliation_installment
 
-        total_gross = sum(
-            item.installment_gross_obligation_vnd for item in schedule
-        )
+        total_gross = sum(item.installment_gross_obligation_vnd for item in schedule)
         assert total_gross == 3_606_400_000
 
     def test_schedule_pa_vay_6_installments(self) -> None:
@@ -1079,9 +1010,7 @@ class TestCashflowScheduleGenerator:
         assert schedule[5].customer_equity_paid_vnd == 192_500_000
         assert schedule[5].is_reconciliation_installment
 
-        total_gross = sum(
-            item.installment_gross_obligation_vnd for item in schedule
-        )
+        total_gross = sum(item.installment_gross_obligation_vnd for item in schedule)
         assert total_gross == 3_920_000_000
         total_bank = sum(item.bank_disbursement_vnd for item in schedule)
         assert total_bank == 2_695_000_000
@@ -1092,9 +1021,7 @@ class TestCashflowScheduleGenerator:
         net_price = 3_123_456_789
         vat = calculate_vat_amount(net_price)
         kpbt = calculate_maintenance_fee_amount(net_price)
-        expected_contract = calculate_final_contract_price(
-            net_price, vat, kpbt
-        )
+        expected_contract = calculate_final_contract_price(net_price, vat, kpbt)
 
         schedule = generate_cashflow_schedule(
             scenario_config=cfg,
@@ -1103,9 +1030,7 @@ class TestCashflowScheduleGenerator:
             kpbt_amount=kpbt,
             deposit_amount_vnd=50_000_000,
         )
-        total_gross = sum(
-            item.installment_gross_obligation_vnd for item in schedule
-        )
+        total_gross = sum(item.installment_gross_obligation_vnd for item in schedule)
         assert total_gross == expected_contract
 
     def test_schedule_reconciliation_negative_residual_raises_error(
@@ -1127,9 +1052,7 @@ class TestCashflowScheduleGenerator:
                 installment_number=2,
                 milestone_name="Đợt 2",
                 days_from_deposit=60,
-                customer_equity_ratio=Decimal(
-                    "0.5000"
-                ),  # 60% + 50% = 110% > 100%
+                customer_equity_ratio=Decimal("0.5000"),  # 60% + 50% = 110% > 100%
                 bank_disbursement_ratio=Decimal("0.0000"),
                 maintenance_fee_ratio=Decimal("1.0000"),
                 is_handover=True,
@@ -1179,17 +1102,11 @@ class TestCashflowScheduleGenerator:
         """Float arguments to generate_cashflow_schedule raise TypeError."""
         cfg = create_pa_chudong_config()
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
-            generate_cashflow_schedule(
-                cfg, 3500000000.0, 350_000_000, 70_000_000
-            )
+            generate_cashflow_schedule(cfg, 3500000000.0, 350_000_000, 70_000_000)
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
-            generate_cashflow_schedule(
-                cfg, 3_500_000_000, 350000000.0, 70_000_000
-            )
+            generate_cashflow_schedule(cfg, 3_500_000_000, 350000000.0, 70_000_000)
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
-            generate_cashflow_schedule(
-                cfg, 3_500_000_000, 350_000_000, 70000000.0
-            )
+            generate_cashflow_schedule(cfg, 3_500_000_000, 350_000_000, 70000000.0)
         with pytest.raises(TypeError, match="FLOAT_PROHIBITED"):
             generate_cashflow_schedule(
                 cfg,
@@ -1250,10 +1167,7 @@ class TestInstallmentDepositCredit:
         inst_1 = schedule[0]
         assert inst_1.deposit_credited_vnd == 0
         assert inst_1.installment_additional_cash_due_vnd == 577_500_000
-        assert (
-            inst_1.installment_additional_cash_due_vnd
-            == inst_1.installment_gross_obligation_vnd
-        )
+        assert inst_1.installment_additional_cash_due_vnd == inst_1.installment_gross_obligation_vnd
 
     def test_deposit_exact_match_equity(self) -> None:
         """Trường hợp cọc đúng bằng nghĩa vụ Đợt 1: tiền nộp thêm bằng 0 VNĐ."""
@@ -1300,9 +1214,7 @@ class TestInstallmentDepositCredit:
                 deposit_amount_vnd=dep,
             )
             inst_1 = res.cashflow_schedule[0]
-            expected_initial_outflow = (
-                dep + inst_1.installment_additional_cash_due_vnd
-            )
+            expected_initial_outflow = dep + inst_1.installment_additional_cash_due_vnd
             assert res.initial_cash_outflow_vnd == expected_initial_outflow
             if dep <= 577_500_000:
                 # Khi cọc <= gross_1, tổng tiền mặt khách bỏ ra đúng bằng gross_1
@@ -1318,54 +1230,42 @@ class TestHandoverMaintenanceFeeAllocation:
     def test_handover_kpbt_allocation_pa_chudong(self) -> None:
         """PA-CHUDONG: Milestone 8 là handover, thu đủ 100% KPBT (70M)."""
         res = calculate_pa_chudong(listed_price_vnd=3_500_000_000)
-        handover_milestones = [
-            inst for inst in res.cashflow_schedule if inst.is_handover_milestone
-        ]
+        handover_milestones = [inst for inst in res.cashflow_schedule if inst.is_handover_milestone]
         assert len(handover_milestones) == 1
         handover = handover_milestones[0]
         assert handover.installment_number == 8
         assert handover.maintenance_fee_paid_vnd == 70_000_000
 
         non_handover_kpbt = [
-            inst.maintenance_fee_paid_vnd
-            for inst in res.cashflow_schedule
-            if not inst.is_handover_milestone
+            inst.maintenance_fee_paid_vnd for inst in res.cashflow_schedule if not inst.is_handover_milestone
         ]
         assert all(kpbt == 0 for kpbt in non_handover_kpbt)
 
     def test_handover_kpbt_allocation_pa_nhanh(self) -> None:
         """PA-NHANH: Milestone 2 là handover, thu đủ 100% KPBT (64.4M trên giá Net 3.22B)."""
         res = calculate_pa_nhanh(listed_price_vnd=3_500_000_000)
-        handover_milestones = [
-            inst for inst in res.cashflow_schedule if inst.is_handover_milestone
-        ]
+        handover_milestones = [inst for inst in res.cashflow_schedule if inst.is_handover_milestone]
         assert len(handover_milestones) == 1
         handover = handover_milestones[0]
         assert handover.installment_number == 2
         assert handover.maintenance_fee_paid_vnd == 64_400_000
 
         non_handover_kpbt = [
-            inst.maintenance_fee_paid_vnd
-            for inst in res.cashflow_schedule
-            if not inst.is_handover_milestone
+            inst.maintenance_fee_paid_vnd for inst in res.cashflow_schedule if not inst.is_handover_milestone
         ]
         assert all(kpbt == 0 for kpbt in non_handover_kpbt)
 
     def test_handover_kpbt_allocation_pa_vay(self) -> None:
         """PA-VAY: Milestone 5 là handover, thu đủ 100% KPBT (70M)."""
         res = calculate_pa_vay(listed_price_vnd=3_500_000_000)
-        handover_milestones = [
-            inst for inst in res.cashflow_schedule if inst.is_handover_milestone
-        ]
+        handover_milestones = [inst for inst in res.cashflow_schedule if inst.is_handover_milestone]
         assert len(handover_milestones) == 1
         handover = handover_milestones[0]
         assert handover.installment_number == 5
         assert handover.maintenance_fee_paid_vnd == 70_000_000
 
         non_handover_kpbt = [
-            inst.maintenance_fee_paid_vnd
-            for inst in res.cashflow_schedule
-            if not inst.is_handover_milestone
+            inst.maintenance_fee_paid_vnd for inst in res.cashflow_schedule if not inst.is_handover_milestone
         ]
         assert all(kpbt == 0 for kpbt in non_handover_kpbt)
 
@@ -1373,9 +1273,7 @@ class TestHandoverMaintenanceFeeAllocation:
         """FCS §7.1: customer_cash_outflow_until_handover bắt buộc phải cộng dồn 100% KPBT."""
         res_chudong = calculate_pa_chudong(listed_price_vnd=3_500_000_000)
         # PA-CHUDONG: 8 đợt đầu gồm 95% vốn tự có (3,657,500,000) + 70,000,000 KPBT = 3,727,500,000đ
-        assert (
-            res_chudong.customer_cash_outflow_until_handover == 3_727_500_000
-        )
+        assert res_chudong.customer_cash_outflow_until_handover == 3_727_500_000
 
         res_nhanh = calculate_pa_nhanh(listed_price_vnd=3_500_000_000)
         # PA-NHANH: 95% vốn tự có (3,364,900,000) + 64,400,000 KPBT = 3,429,300,000đ
@@ -1538,9 +1436,7 @@ class TestReconciliationResidualGate:
                 milestone_name="Đợt 1",
                 days_from_deposit=15,
                 customer_equity_ratio=Decimal("0.3000"),
-                bank_disbursement_ratio=Decimal(
-                    "0.7500"
-                ),  # 75% > 70% ngân hàng
+                bank_disbursement_ratio=Decimal("0.7500"),  # 75% > 70% ngân hàng
                 maintenance_fee_ratio=Decimal("1.0000"),
                 is_handover=True,
                 is_reconciliation=False,
@@ -1641,11 +1537,6 @@ class TestReconciliationResidualGate:
                 deposit_amount_vnd=100_000_000,
             )
 
-            total_gross = sum(
-                inst.installment_gross_obligation_vnd for inst in schedule
-            )
+            total_gross = sum(inst.installment_gross_obligation_vnd for inst in schedule)
             # Khớp 100% từng đồng, không lệch 1 xu
             assert total_gross == contract_price
-
-
-
