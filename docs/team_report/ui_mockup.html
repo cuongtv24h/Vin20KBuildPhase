@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PricePolicy AI Agent – Nền tảng Bảo chứng Định giá & Quản trị Chính sách Bán hàng VLandFuture</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              400: '#38bdf8',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              900: '#0c4a6e',
+            },
+            surface: {
+              950: '#05070a',
+              900: '#0a0f16',
+              850: '#0f1724',
+              800: '#152033',
+              700: '#1e293b',
+              600: '#334155',
+            }
+          },
+          boxShadow: {
+            'glow-cyan': '0 0 35px -5px rgba(14, 165, 233, 0.25)',
+            'glow-emerald': '0 0 35px -5px rgba(16, 185, 129, 0.25)',
+            'glow-amber': '0 0 35px -5px rgba(245, 158, 11, 0.25)',
+            'inner-bevel': 'inset 0 1px 1px 0 rgba(255, 255, 255, 0.1)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #05070a;
+      color: #f1f5f9;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(14, 165, 233, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(16, 185, 129, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.04) 0%, transparent 50%);
+      background-attachment: fixed;
+    }
+    
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0f16; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #0284c7; }
+
+    .glass-bezel {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(16px);
+    }
+
+    .glass-bezel-active {
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.12) 0%, rgba(14, 165, 233, 0.03) 100%);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      box-shadow: 0 0 25px -5px rgba(14, 165, 233, 0.2);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans selection:bg-brand-500/30 selection:text-brand-400">
+
+  <!-- ========================================================================= -->
+  <!-- 1. FLOATING CONTROL ISLAND (NAVBAR SWITCH ROLES)                          -->
+  <!-- ========================================================================= -->
+  <header class="sticky top-4 z-50 px-4 sm:px-8">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 p-2 rounded-full glass-bezel shadow-2xl bg-surface-900/80">
+      
+      <!-- Brand & Project -->
+      <div class="flex items-center gap-3 px-4">
+        <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-brand-600 to-emerald-400 p-0.5 shadow-glow-cyan flex items-center justify-center">
+          <div class="w-full h-full bg-surface-950 rounded-full flex items-center justify-center">
+            <span class="text-sm font-black tracking-tighter bg-gradient-to-r from-brand-400 to-emerald-400 bg-clip-text text-transparent">VL</span>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold tracking-tight text-white">PricePolicy AI</span>
+            <span class="text-[9px] px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 font-mono font-medium border border-brand-500/20">BDS020-06</span>
+          </div>
+          <span class="text-[11px] text-slate-400 block leading-tight">Nền tảng Bảo chứng Định giá VLandFuture</span>
+        </div>
+      </div>
+
+      <!-- Role Switcher Segmented Control -->
+      <div class="flex items-center p-1 bg-surface-950/80 rounded-full border border-white/5 text-xs font-medium">
+        <button id="tab-sales" onclick="switchView('sales')" class="px-4 py-2 rounded-full transition-all duration-300 flex items-center gap-2 bg-brand-600 text-white shadow-glow-cyan">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span>1. Sales Portal (Tư vấn)</span>
+        </button>
+
+        <button id="tab-manager" onclick="switchView('manager')" class="px-4 py-2 rounded-full transition-all duration-300 flex items-center gap-2 text-slate-400 hover:text-white">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          <span>2. Manager Approval (HITL)</span>
+          <span id="badge-pending" class="px-1.5 py-0.2 text-[10px] rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">1</span>
+        </button>
+
+        <button id="tab-public" onclick="switchView('public')" class="px-4 py-2 rounded-full transition-all duration-300 flex items-center gap-2 text-slate-400 hover:text-white">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+          </svg>
+          <span>3. Public QR Verification</span>
+        </button>
+      </div>
+
+      <!-- User Info & Environment -->
+      <div class="hidden lg:flex items-center gap-3 pr-3 text-xs text-slate-400">
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="font-mono text-[11px] text-emerald-400">VPS Online (P95: 4.8s)</span>
+        </div>
+        <span class="text-white/20">|</span>
+        <span id="current-user-label" class="font-medium text-slate-300">Sales: Nguyễn Văn Tuấn (NV-8802)</span>
+      </div>
+
+    </div>
+  </header>
+
+
+  <!-- ========================================================================= -->
+  <!-- 2. MAIN CONTENT AREA                                                      -->
+  <!-- ========================================================================= -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 1: SALES PORTAL (QUOTATION BUILDER & CANONICAL COMPARISON)         -->
+    <!-- ======================================================================= -->
+    <div id="view-sales" class="space-y-6">
+      
+      <!-- Top Status Banner -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl glass-bezel">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-xl bg-brand-500/10 text-brand-400 border border-brand-500/20">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-base font-bold text-white tracking-tight">Hồ sơ Báo giá: <span class="font-mono text-brand-400">#Q-2026-09-00124</span></h1>
+            <p class="text-xs text-slate-400">Dự án: <span class="text-slate-200 font-medium">The Emerald Palace</span> • Căn hộ: <span class="text-slate-200 font-medium">A-12-05</span> • Phiên bản: <span class="font-mono text-emerald-400">v1.0 (Dự thảo)</span></p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <span id="sales-status-tag" class="px-3 py-1 rounded-full text-xs font-mono font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span> DRAFT
+          </span>
+          <button onclick="submitToManager()" id="btn-submit-manager" class="px-5 py-2.5 rounded-full text-xs font-semibold bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-400 hover:to-brand-500 text-white shadow-glow-cyan transition-all flex items-center gap-2">
+            <span>Trình Quản lý duyệt</span>
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Grid 2 Cột: Bên trái Form nhập liệu, Bên phải Streaming + Kết quả -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Cột trái: Tham số căn hộ, khách hàng, ưu đãi (Col 4) -->
+        <div class="lg:col-span-4 space-y-5">
+          
+          <!-- Card 1: Chọn Căn & Khách hàng -->
+          <div class="p-5 rounded-3xl glass-bezel space-y-4">
+            <div class="flex items-center justify-between border-b border-white/5 pb-3">
+              <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">1. Thông tin Bất động sản</h2>
+              <span class="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Bảng hàng Realtime</span>
+            </div>
+
+            <div class="space-y-3 text-xs">
+              <div>
+                <label class="text-slate-400 block mb-1">Mã căn hộ</label>
+                <select id="select-unit" onchange="updateUnitData()" class="w-full bg-surface-950/80 border border-white/10 rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:border-brand-500 font-mono">
+                  <option value="A-12-05">A-12-05 (78.5 m² • Đông Nam • 2PN-2WC)</option>
+                  <option value="B-04-12">B-04-12 (102.0 m² • Góc Tây Nam • 3PN-2WC)</option>
+                  <option value="C-21-08">C-21-08 (54.2 m² • Đông Bắc • 1PN+1)</option>
+                </select>
+              </div>
+
+              <div class="p-3 rounded-2xl bg-surface-950/60 border border-white/5 space-y-1.5 font-mono text-[11px]">
+                <div class="flex justify-between text-slate-400">
+                  <span>Giá niêm yết (chưa VAT):</span>
+                  <span id="label-listed-price" class="text-white font-bold">3.200.000.000 đ</span>
+                </div>
+                <div class="flex justify-between text-slate-400">
+                  <span>Thuế VAT tạm tính (10%):</span>
+                  <span id="label-vat-price" class="text-slate-300">320.000.000 đ</span>
+                </div>
+                <div class="flex justify-between text-slate-400">
+                  <span>KPBT (2% - thu đợt nhận nhà):</span>
+                  <span id="label-kpbt-price" class="text-slate-300">64.000.000 đ</span>
+                </div>
+              </div>
+
+              <div>
+                <label class="text-slate-400 block mb-1">Họ tên Khách hàng</label>
+                <input type="text" value="Trần Thị Minh Trang" class="w-full bg-surface-950/80 border border-white/10 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-brand-500 font-medium">
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-slate-400 block mb-1">Tiền cọc nộp trước</label>
+                  <input id="input-deposit" type="text" value="100.000.000" class="w-full bg-surface-950/80 border border-white/10 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-brand-500 font-mono text-right">
+                </div>
+                <div>
+                  <label class="text-slate-400 block mb-1">Kênh bán</label>
+                  <input type="text" value="O2O Direct Sales" disabled class="w-full bg-surface-950/40 border border-white/5 rounded-xl px-3 py-2 text-slate-500 font-mono">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Tiêu chí Tối ưu & Ưu đãi muốn kiểm thử -->
+          <div class="p-5 rounded-3xl glass-bezel space-y-4">
+            <div class="flex items-center justify-between border-b border-white/5 pb-3">
+              <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">2. Mục tiêu & Chính sách</h2>
+              <span class="text-[10px] text-brand-400 font-mono">5 Objectives</span>
+            </div>
+
+            <!-- Optimization Objective Radio -->
+            <div class="space-y-2 text-xs">
+              <label class="text-slate-400 block text-[11px]">Tiêu chí Xếp hạng Ưu tiên:</label>
+              <div class="grid grid-cols-1 gap-1.5 font-medium">
+                <label class="flex items-center gap-2 p-2 rounded-xl bg-brand-500/10 border border-brand-500/30 cursor-pointer">
+                  <input type="radio" name="objective" value="MIN_NET_PRICE" checked class="accent-brand-500">
+                  <span class="text-brand-300">MIN_NET_PRICE (Giá Net thấp nhất)</span>
+                </label>
+                <label class="flex items-center gap-2 p-2 rounded-xl bg-surface-950/40 border border-white/5 hover:border-white/10 cursor-pointer text-slate-400 hover:text-slate-300">
+                  <input type="radio" name="objective" value="MIN_INITIAL_OUTFLOW" class="accent-brand-500">
+                  <span>MIN_INITIAL_OUTFLOW (Tiền Đợt 1 ít nhất)</span>
+                </label>
+                <label class="flex items-center gap-2 p-2 rounded-xl bg-surface-950/40 border border-white/5 hover:border-white/10 cursor-pointer text-slate-400 hover:text-slate-300">
+                  <input type="radio" name="objective" value="MIN_CASH_OUTFLOW_TO_HANDOVER" class="accent-brand-500">
+                  <span>MIN_CASH_OUTFLOW (Đến khi nhận nhà)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Benefits checkboxes -->
+            <div class="space-y-2 text-xs pt-2 border-t border-white/5">
+              <label class="text-slate-400 block text-[11px]">Ưu đãi / Điều khoản lựa chọn:</label>
+              <div class="space-y-1.5">
+                <label class="flex items-center gap-2.5 p-2 rounded-xl bg-surface-950/60 border border-white/5 text-slate-300 cursor-pointer">
+                  <input id="chk-ck-early" type="checkbox" checked class="accent-brand-500 rounded">
+                  <span>CK Thanh toán sớm 95% (7.5%)</span>
+                </label>
+                <label class="flex items-center gap-2.5 p-2 rounded-xl bg-surface-950/60 border border-white/5 text-slate-300 cursor-pointer">
+                  <input id="chk-voucher" type="checkbox" checked class="accent-brand-500 rounded">
+                  <span>Voucher Nội thất VIP (50.000.000 đ)</span>
+                </label>
+                <label class="flex items-center gap-2.5 p-2 rounded-xl bg-surface-950/60 border border-white/5 text-slate-300 cursor-pointer">
+                  <input id="chk-htls" type="checkbox" class="accent-brand-500 rounded" onchange="simulateConflict()">
+                  <span id="label-htls-text">Gói Vay Hỗ trợ Lãi suất 0% (Ngân hàng 70%)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- CTA Button Execute AI Calculation -->
+            <button onclick="runAgentCalculation()" id="btn-run-agent" class="w-full py-3 rounded-2xl bg-gradient-to-r from-brand-600 via-brand-500 to-emerald-500 hover:opacity-95 text-white font-bold text-xs tracking-wider uppercase shadow-glow-cyan transition-all flex items-center justify-center gap-2">
+              <svg class="w-4 h-4 animate-spin hidden" id="spinner-calc" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+              </svg>
+              <span id="btn-calc-text">⚡ Phân tích & Tính giá AI (Agent Run)</span>
+            </button>
+          </div>
+
+        </div>
+
+        <!-- Cột phải: Streaming Log + 3 Kịch bản Đối đầu + Why/Why not (Col 8) -->
+        <div class="lg:col-span-8 space-y-5">
+          
+          <!-- Banner Cảnh báo Xung đột (Ẩn/Hiện khi thử xung đột) -->
+          <div id="conflict-banner" class="hidden p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-start gap-3">
+            <svg class="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <span class="font-bold block text-red-200 text-sm">Xung đột Chính sách Cấp 1 (Tier 1 Hard Conflict)!</span>
+              <p class="mt-0.5">Không thể đồng thời áp dụng <strong class="text-white">Chiết khấu Thanh toán sớm 95%</strong> và <strong class="text-white">Gói Vay HTLS 0%</strong> theo Quy định Mục 4.3 Chính sách Đợt 3. Hệ thống đã tự động dừng tính toán (Safe Abstention).</p>
+            </div>
+          </div>
+
+          <!-- Real-time Agent Streaming Trace Card -->
+          <div class="p-4 rounded-2xl glass-bezel space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-slate-300 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-brand-400 animate-ping"></span>
+                <span>Luồng Xử lý Agentic (LangGraph & Hardened Sidecar Trace)</span>
+              </span>
+              <span class="font-mono text-[11px] text-slate-400" id="trace-time">T=0.00s</span>
+            </div>
+            
+            <div id="trace-container" class="space-y-1.5 font-mono text-[11px] text-slate-400 bg-surface-950/70 p-3 rounded-xl border border-white/5">
+              <div class="text-emerald-400 flex items-center gap-2">
+                <span>✔</span> <span>[Time-Travel Policy] Nạp Chính sách hiệu lực: CSBH-Emerald-Dot3-v2.1 (SHA-256: 8f4a1c...b2)</span>
+              </div>
+              <div class="text-emerald-400 flex items-center gap-2">
+                <span>✔</span> <span>[Conflict Guard] Ma trận loại trừ 3 cấp: Không có xung đột điều khoản.</span>
+              </div>
+              <div class="text-emerald-400 flex items-center gap-2">
+                <span>✔</span> <span>[Pricing Sidecar] Tính toán số học 0-float trên UDS Socket. Sai số tuyệt đối Delta = 0 VNĐ.</span>
+              </div>
+              <div class="text-brand-400 flex items-center gap-2">
+                <span>✔</span> <span>[Dual Reconciliation] Cân bằng kép Vốn tự có & Ngân hàng: Hoàn tất 3 kịch bản chuẩn.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- BẢNG ĐỐI ĐẦU 3 KỊCH BẢN CHUẨN TẮC -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                <span>Bảng So sánh Đối đầu 3 Kịch bản Thanh toán Chuẩn tắc</span>
+                <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">FCS v2.6 Ready</span>
+              </h2>
+              <span class="text-xs text-slate-400">Xếp hạng theo: <strong class="text-brand-400">MIN_NET_PRICE</strong></span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              
+              <!-- Phương án 1: Tiến độ chuẩn -->
+              <div class="p-4 rounded-2xl glass-bezel border border-white/5 space-y-3 relative hover:border-white/20 transition-all">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="font-bold text-slate-300">PA-1: TIẾN ĐỘ CHUẨN</span>
+                  <span class="text-[10px] text-slate-400 font-mono">9 Đợt</span>
+                </div>
+                <div class="space-y-1">
+                  <span class="text-[10px] text-slate-400 uppercase tracking-wider block">Giá bán Net trước thuế:</span>
+                  <span class="text-lg font-bold font-mono text-white">3.104.000.000 đ</span>
+                  <span class="text-[11px] text-slate-400 block font-mono">Tổng HĐMB: 3.476.480.000 đ</span>
+                </div>
+                <div class="p-2.5 rounded-xl bg-surface-950/60 font-mono text-[11px] space-y-1 text-slate-400">
+                  <div class="flex justify-between">
+                    <span>Đợt 1 nộp thêm:</span>
+                    <span class="text-slate-200">221.552.000 đ</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>Lũy kế nhận nhà:</span>
+                    <span class="text-slate-200">3.302.656.000 đ</span>
+                  </div>
+                </div>
+                <button onclick="selectScenario('PA-1')" class="w-full py-2 rounded-xl bg-surface-800 hover:bg-surface-700 text-xs font-semibold text-slate-300 transition-all">
+                  Chọn Phương án này
+                </button>
+              </div>
+
+              <!-- Phương án 2: Thanh toán sớm 95% (ĐỀ XUẤT TỐI ƯU) -->
+              <div class="p-4 rounded-2xl glass-bezel-active relative space-y-3 shadow-glow-cyan transform scale-[1.02]">
+                <div class="absolute -top-2.5 right-3 px-2 py-0.5 rounded-full bg-gradient-to-r from-brand-500 to-emerald-400 text-[9px] font-bold uppercase tracking-wider text-surface-950">
+                  ★ ĐỀ XUẤT TỐI ƯU
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="font-bold text-brand-300">PA-2: TRẢ NHANH 95%</span>
+                  <span class="text-[10px] text-emerald-400 font-mono">2 Đợt</span>
+                </div>
+                <div class="space-y-1">
+                  <span class="text-[10px] text-brand-300 uppercase tracking-wider block">Giá bán Net trước thuế:</span>
+                  <span class="text-xl font-black font-mono text-emerald-400">2.871.000.000 đ</span>
+                  <span class="text-[11px] text-emerald-300/80 block font-mono">Tổng HĐMB: 3.215.520.000 đ</span>
+                  <span class="text-[10px] text-emerald-400 font-semibold block">Tiết kiệm: 233.000.000 VNĐ</span>
+                </div>
+                <div class="p-2.5 rounded-xl bg-surface-950/80 font-mono text-[11px] space-y-1 text-slate-300 border border-brand-500/20">
+                  <div class="flex justify-between">
+                    <span>Đợt 1 nộp thêm:</span>
+                    <span class="text-emerald-400 font-bold">2.805.744.000 đ</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>Lũy kế nhận nhà:</span>
+                    <span class="text-slate-200">3.215.520.000 đ</span>
+                  </div>
+                </div>
+                <button class="w-full py-2 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 text-xs font-bold text-white shadow-md">
+                  ✓ ĐANG ĐƯỢC CHỌN
+                </button>
+              </div>
+
+              <!-- Phương án 3: Vay HTLS 0% -->
+              <div class="p-4 rounded-2xl glass-bezel border border-white/5 space-y-3 relative hover:border-white/20 transition-all">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="font-bold text-slate-300">PA-3: VAY HTLS 0%</span>
+                  <span class="text-[10px] text-slate-400 font-mono">Bank 70%</span>
+                </div>
+                <div class="space-y-1">
+                  <span class="text-[10px] text-slate-400 uppercase tracking-wider block">Giá bán Net trước thuế:</span>
+                  <span class="text-lg font-bold font-mono text-white">3.104.000.000 đ</span>
+                  <span class="text-[11px] text-slate-400 block font-mono">Tổng HĐMB: 3.476.480.000 đ</span>
+                </div>
+                <div class="p-2.5 rounded-xl bg-surface-950/60 font-mono text-[11px] space-y-1 text-slate-400">
+                  <div class="flex justify-between">
+                    <span>Vốn tự có (30%):</span>
+                    <span class="text-slate-200">1.024.320.000 đ</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>Ngân hàng giải ngân:</span>
+                    <span class="text-brand-400 font-bold">2.389.744.000 đ</span>
+                  </div>
+                </div>
+                <button onclick="selectScenario('PA-3')" class="w-full py-2 rounded-xl bg-surface-800 hover:bg-surface-700 text-xs font-semibold text-slate-300 transition-all">
+                  Chọn Phương án này
+                </button>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Chi tiết Lịch nộp tiền Phương án 2 (Dual Reconciliation Breakdown) -->
+          <div class="p-5 rounded-3xl glass-bezel space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                <span>Dòng tiền Chi tiết: PA-2 (Thanh toán sớm 95% – 2 Đợt)</span>
+                <span class="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">Reconciled: Delta = 0 đ</span>
+              </h3>
+              <span class="text-[11px] text-slate-400 font-mono">Next Business Day Rules Applied</span>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left font-mono text-[11px]">
+                <thead>
+                  <tr class="border-b border-white/10 text-slate-400">
+                    <th class="py-2 px-3">Đợt</th>
+                    <th class="py-2 px-3">Mốc Thanh toán</th>
+                    <th class="py-2 px-3">Tỷ lệ</th>
+                    <th class="py-2 px-3 text-right">Tiền nhà (VAT)</th>
+                    <th class="py-2 px-3 text-right">Cấn trừ Cọc</th>
+                    <th class="py-2 px-3 text-right">Khách nộp thêm</th>
+                    <th class="py-2 px-3 text-right">KPBT (2%)</th>
+                    <th class="py-2 px-3 text-right font-bold text-white">Tổng cộng đợt</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-white/5 text-slate-300">
+                  <tr>
+                    <td class="py-2.5 px-3 font-bold text-brand-400">Đợt 1</td>
+                    <td class="py-2.5 px-3">Trong vòng 15 ngày (03/10/2026)</td>
+                    <td class="py-2.5 px-3">95.00%</td>
+                    <td class="py-2.5 px-3 text-right">2.905.744.000 đ</td>
+                    <td class="py-2.5 px-3 text-right text-amber-400">-100.000.000 đ</td>
+                    <td class="py-2.5 px-3 text-right font-bold text-white">2.805.744.000 đ</td>
+                    <td class="py-2.5 px-3 text-right">0 đ</td>
+                    <td class="py-2.5 px-3 text-right font-bold text-emerald-400">2.805.744.000 đ</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 px-3 font-bold text-brand-400">Đợt 2</td>
+                    <td class="py-2.5 px-3">Nhận bàn giao & Sổ hồng (15/12/2027)</td>
+                    <td class="py-2.5 px-3">5.00%</td>
+                    <td class="py-2.5 px-3 text-right">152.934.000 đ</td>
+                    <td class="py-2.5 px-3 text-right">0 đ</td>
+                    <td class="py-2.5 px-3 text-right">152.934.000 đ</td>
+                    <td class="py-2.5 px-3 text-right text-emerald-400">57.420.000 đ</td>
+                    <td class="py-2.5 px-3 text-right font-bold text-emerald-400">210.354.000 đ</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr class="border-t border-white/10 font-bold text-white bg-surface-950/60">
+                    <td colspan="3" class="py-2.5 px-3 text-brand-400">TỔNG NGHĨA VỤ HỢP ĐỒNG (P_contract):</td>
+                    <td class="py-2.5 px-3 text-right">3.058.678.000 đ</td>
+                    <td class="py-2.5 px-3 text-right text-amber-400">-100.000.000 đ</td>
+                    <td class="py-2.5 px-3 text-right">2.958.678.000 đ</td>
+                    <td class="py-2.5 px-3 text-right text-emerald-400">57.420.000 đ</td>
+                    <td class="py-2.5 px-3 text-right text-emerald-400 text-xs">3.215.520.000 đ</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- Card Why & Why Not Explainability -->
+          <div class="p-5 rounded-3xl glass-bezel space-y-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Minh bạch Căn cứ Ưu đãi & Giải trình Loại trừ ("Why & Why Not?")</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              
+              <!-- Khoản được duyệt -->
+              <div class="p-3 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 space-y-2">
+                <span class="font-bold text-emerald-400 flex items-center gap-1.5">
+                  <span>✔</span> <span>Khoản Chiết khấu / Ưu đãi Áp dụng</span>
+                </span>
+                <ul class="space-y-1.5 text-[11px] text-slate-300">
+                  <li>• <strong>CK Thanh toán sớm 95% (7.5%):</strong> Giảm 233.000.000 đ theo Mục 4.1 Chính sách Đợt 3.</li>
+                  <li>• <strong>Voucher Nội thất VIP (50.000.000 đ):</strong> Hiện vật quà tặng theo Quyết định 108/QĐ-VLAND (Không trừ vào giá bán HĐMB).</li>
+                </ul>
+              </div>
+
+              <!-- Khoản bị loại trừ -->
+              <div class="p-3 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-2">
+                <span class="font-bold text-amber-400 flex items-center gap-1.5">
+                  <span>ℹ</span> <span>Lý do Loại trừ Khoản không Áp dụng ("Why Not?")</span>
+                </span>
+                <ul class="space-y-1.5 text-[11px] text-slate-300">
+                  <li>• <strong>Gói Hỗ trợ Lãi suất 0%:</strong> Bị loại trừ do khách hàng đã chọn Kịch bản Thanh toán sớm (Xung đột Cấp 1).</li>
+                  <li>• <strong>Thuế TNCN Quà tặng:</strong> Khách hàng tự kê khai theo quy định hiện hành (Chính sách không cam kết nộp thay).</li>
+                </ul>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 2: MANAGER APPROVAL PORTAL (HITL & ED25519 SIGNING)               -->
+    <!-- ======================================================================= -->
+    <div id="view-manager" class="hidden space-y-6">
+      
+      <!-- Manager Header Stats -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="p-4 rounded-2xl glass-bezel flex items-center justify-between">
+          <div>
+            <span class="text-xs text-slate-400 block">Hồ sơ Chờ duyệt (HITL)</span>
+            <span class="text-2xl font-black text-amber-400 font-mono" id="stat-pending">1</span>
+          </div>
+          <div class="p-3 rounded-xl bg-amber-500/10 text-amber-400">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-2xl glass-bezel flex items-center justify-between">
+          <div>
+            <span class="text-xs text-slate-400 block">Đã Phê duyệt Hôm nay</span>
+            <span class="text-2xl font-black text-emerald-400 font-mono">18</span>
+          </div>
+          <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-2xl glass-bezel flex items-center justify-between">
+          <div>
+            <span class="text-xs text-slate-400 block">Yêu cầu Điều chỉnh</span>
+            <span class="text-2xl font-black text-blue-400 font-mono">2</span>
+          </div>
+          <div class="p-3 rounded-xl bg-blue-500/10 text-blue-400">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-2xl glass-bezel flex items-center justify-between">
+          <div>
+            <span class="text-xs text-slate-400 block">Ký số Ed25519 Local</span>
+            <span class="text-xs font-mono text-emerald-400 block font-bold">RFC 8032 Active</span>
+            <span class="text-[10px] text-slate-500 font-mono">Latency &lt; 1ms</span>
+          </div>
+          <div class="p-3 rounded-xl bg-purple-500/10 text-purple-400">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- HITL Detail Review Pane -->
+      <div class="p-6 rounded-3xl glass-bezel space-y-5">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-mono font-bold border border-emerald-500/20">🟢 CỜ XANH: ĐỦ ĐIỀU KIỆN KÝ</span>
+              <h2 class="text-lg font-bold text-white tracking-tight">Thẩm định Báo giá: #Q-2026-09-00124</h2>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">Sales đề xuất: <strong class="text-slate-200">Nguyễn Văn Tuấn (NV-8802)</strong> • Khách: <strong class="text-slate-200">Trần Thị Minh Trang</strong> • Căn: <strong class="text-slate-200">A-12-05</strong></p>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button onclick="rejectQuote()" class="px-4 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold border border-red-500/30 transition-all flex items-center gap-1.5">
+              <span>✕ Từ chối / Trả về</span>
+            </button>
+            <button onclick="openSignModal()" id="btn-open-sign" class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold shadow-glow-emerald transition-all flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              <span>Ký số Ed25519 & Phê duyệt</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3 Cột Kiểm định Rủi ro Tự động -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div class="p-3.5 rounded-2xl bg-surface-950/70 border border-white/5 space-y-1.5">
+            <span class="text-slate-400 block text-[11px]">1. Separation of Duties (SoD):</span>
+            <span class="text-emerald-400 font-bold block flex items-center gap-1">
+              <span>✔</span> <span>Người tạo ≠ Người duyệt</span>
+            </span>
+            <p class="text-[10px] text-slate-500">Người tạo: NV-8802 • Người duyệt: MGR-Hải. Tuân thủ chk_quote_sod.</p>
+          </div>
+
+          <div class="p-3.5 rounded-2xl bg-surface-950/70 border border-white/5 space-y-1.5">
+            <span class="text-slate-400 block text-[11px]">2. Khung Chiết khấu Tối đa:</span>
+            <span class="text-emerald-400 font-bold block flex items-center gap-1">
+              <span>✔</span> <span>7.5% &lt;= Ngưỡng 12.0%</span>
+            </span>
+            <p class="text-[10px] text-slate-500">Tổng giảm trừ: 233.000.000 đ. Nằm trong thẩm quyền phê duyệt.</p>
+          </div>
+
+          <div class="p-3.5 rounded-2xl bg-surface-950/70 border border-white/5 space-y-1.5">
+            <span class="text-slate-400 block text-[11px]">3. Bằng chứng Bất biến (Snapshot):</span>
+            <span class="text-emerald-400 font-bold block flex items-center gap-1">
+              <span>✔</span> <span>Snapshot Hash Captured</span>
+            </span>
+            <p class="text-[10px] text-slate-500 font-mono truncate">Canonical: c8f309a...e21d</p>
+          </div>
+        </div>
+
+        <!-- Tóm tắt số tiền phê duyệt -->
+        <div class="p-4 rounded-2xl bg-surface-950/90 border border-brand-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono">
+          <div>
+            <span class="text-xs text-slate-400 block">Phương án Phê duyệt:</span>
+            <span class="text-sm font-bold text-white">PA-2 (Thanh toán sớm 95% • 2 Đợt)</span>
+          </div>
+          <div>
+            <span class="text-xs text-slate-400 block">Giá Net trước thuế:</span>
+            <span class="text-base font-bold text-emerald-400">2.871.000.000 đ</span>
+          </div>
+          <div>
+            <span class="text-xs text-slate-400 block">Tổng giá trị HĐMB (gồm VAT + KPBT):</span>
+            <span class="text-lg font-black text-brand-400">3.215.520.000 đ</span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 3: PUBLIC QR VERIFICATION PORTAL                                  -->
+    <!-- ======================================================================= -->
+    <div id="view-public" class="hidden space-y-6">
+      
+      <div class="max-w-xl mx-auto p-6 sm:p-8 rounded-3xl glass-bezel space-y-6 text-center">
+        
+        <!-- Verified Shield Icon -->
+        <div class="w-16 h-16 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-glow-emerald">
+          <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+        </div>
+
+        <div class="space-y-1">
+          <span class="text-[10px] font-mono uppercase tracking-widest text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+            OFFICIAL DIGITAL PROOF • ED25519 VERIFIED
+          </span>
+          <h2 class="text-xl font-black text-white tracking-tight mt-2">Báo giá Đã được Bảo chứng Chính thức</h2>
+          <p class="text-xs text-slate-400">Hệ thống Bảo chứng Định giá & Chính sách Bán hàng VLandFuture</p>
+        </div>
+
+        <!-- Verified Metadata Box -->
+        <div class="p-4 rounded-2xl bg-surface-950/80 border border-white/5 text-left font-mono text-xs space-y-2 text-slate-300">
+          <div class="flex justify-between border-b border-white/5 pb-1.5">
+            <span class="text-slate-500">Mã Hồ sơ:</span>
+            <span class="text-white font-bold">#Q-2026-09-00124 (v1.0)</span>
+          </div>
+          <div class="flex justify-between border-b border-white/5 pb-1.5">
+            <span class="text-slate-500">Dự án & Căn hộ:</span>
+            <span class="text-white">The Emerald Palace • A-12-05</span>
+          </div>
+          <div class="flex justify-between border-b border-white/5 pb-1.5">
+            <span class="text-slate-500">Khách hàng:</span>
+            <span class="text-white">Trần Thị Minh Trang</span>
+          </div>
+          <div class="flex justify-between border-b border-white/5 pb-1.5">
+            <span class="text-slate-500">Tổng Giá trị HĐMB:</span>
+            <span class="text-emerald-400 font-bold text-sm">3.215.520.000 VNĐ</span>
+          </div>
+          <div class="flex justify-between border-b border-white/5 pb-1.5">
+            <span class="text-slate-500">Người ký duyệt:</span>
+            <span class="text-white">Trần Hoàng Hải (TP. Kinh doanh)</span>
+          </div>
+          <div class="flex justify-between border-b border-white/5 pb-1.5">
+            <span class="text-slate-500">Thời điểm Ký số:</span>
+            <span class="text-white">18/09/2026 14:32:05 GMT+7</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Trạng thái Báo giá:</span>
+            <span class="text-emerald-400 font-bold">CHƯA BỊ THU HỒI</span>
+          </div>
+        </div>
+
+        <!-- Hash string -->
+        <div class="p-3 rounded-xl bg-surface-950/50 border border-white/5 text-left font-mono text-[10px] text-slate-500 break-all">
+          <span class="text-slate-400 block mb-0.5">Signature Envelope (RFC 8032 Ed25519):</span>
+          <span>7f8c9b2a1e4d567890abcdef1234567890abcdef1234567890abcdef12345678</span>
+        </div>
+
+        <!-- Download Action Button -->
+        <button onclick="downloadMockPDF()" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-glow-emerald transition-all flex items-center justify-center gap-2">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          <span>Tải Bản Báo giá Gốc Có Chữ ký Số (PDF)</span>
+        </button>
+
+      </div>
+
+    </div>
+
+  </main>
+
+
+  <!-- ========================================================================= -->
+  <!-- 3. MODAL KÝ SỐ ED25519 (MANAGER RE-AUTHENTICATION MODAL)                  -->
+  <!-- ========================================================================= -->
+  <div id="modal-sign" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+    <div class="max-w-md w-full p-6 rounded-3xl glass-bezel bg-surface-900/95 border border-white/10 shadow-2xl space-y-5">
+      
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div class="flex items-center gap-2">
+          <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h3 class="text-sm font-bold text-white">Xác thực Ký số Điện tử (Ed25519)</h3>
+        </div>
+        <button onclick="closeSignModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <p class="text-slate-300">Bạn đang phê duyệt và phát hành báo giá chính thức có giá trị pháp lý:</p>
+        
+        <div class="p-3 rounded-xl bg-surface-950/80 font-mono text-[11px] space-y-1 border border-white/5">
+          <div class="flex justify-between text-slate-400">
+            <span>Mã hồ sơ:</span>
+            <span class="text-white font-bold">#Q-2026-09-00124</span>
+          </div>
+          <div class="flex justify-between text-slate-400">
+            <span>Tổng HĐMB:</span>
+            <span class="text-emerald-400 font-bold">3.215.520.000 VNĐ</span>
+          </div>
+          <div class="flex justify-between text-slate-400">
+            <span>Thuật toán ký:</span>
+            <span class="text-slate-200">Ed25519 (RFC 8032)</span>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-slate-400 block mb-1">Nhập Mật khẩu Quản lý hoặc Mã OTP Re-auth:</label>
+          <input id="input-manager-pass" type="password" value="vland2026" class="w-full bg-surface-950 border border-white/10 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500 text-sm">
+        </div>
+
+        <p class="text-[10px] text-slate-500">
+          ⚠ Lưu ý: Khi hoàn tất ký số, cơ sở dữ liệu sẽ kích hoạt trigger <code>trg_prevent_approved_quote_tamper</code>, khóa vĩnh viễn không thể sửa đổi.
+        </p>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-2">
+        <button onclick="closeSignModal()" class="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white">Hủy</button>
+        <button onclick="executeSigning()" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold shadow-glow-emerald transition-all">
+          🔐 Ký số & Xuất bản PDF
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ========================================================================= -->
+  <!-- 4. FOOTER                                                                 -->
+  <!-- ========================================================================= -->
+  <footer class="mt-auto py-6 border-t border-white/5 text-center text-xs text-slate-500">
+    <p>PricePolicy AI Agent • Dự án BDS020-06 • Hệ sinh thái VLandFuture • Kiến trúc Docker Compose trên Dedicated VPS</p>
+  </footer>
+
+
+  <!-- ========================================================================= -->
+  <!-- 5. INTERACTIVE JAVASCRIPT SIMULATION LOGIC                                -->
+  <!-- ========================================================================= -->
+  <script>
+    // State management
+    let currentRole = 'sales';
+    let isApproved = false;
+
+    function switchView(role) {
+      currentRole = role;
+      
+      // Update Tab Styles
+      ['sales', 'manager', 'public'].forEach(r => {
+        const tab = document.getElementById(`tab-${r}`);
+        const view = document.getElementById(`view-${r}`);
+        
+        if (r === role) {
+          tab.className = "px-4 py-2 rounded-full transition-all duration-300 flex items-center gap-2 bg-brand-600 text-white shadow-glow-cyan";
+          view.classList.remove('hidden');
+        } else {
+          tab.className = "px-4 py-2 rounded-full transition-all duration-300 flex items-center gap-2 text-slate-400 hover:text-white";
+          view.classList.add('hidden');
+        }
+      });
+
+      // Update User Label
+      const userLabel = document.getElementById('current-user-label');
+      if (role === 'sales') userLabel.textContent = "Sales: Nguyễn Văn Tuấn (NV-8802)";
+      else if (role === 'manager') userLabel.textContent = "Quản lý: Trần Hoàng Hải (TP. Kinh doanh)";
+      else userLabel.textContent = "Cổng Tra cứu Công khai (Guest / Khách hàng)";
+    }
+
+    function updateUnitData() {
+      const select = document.getElementById('select-unit');
+      const listed = document.getElementById('label-listed-price');
+      const vat = document.getElementById('label-vat-price');
+      const kpbt = document.getElementById('label-kpbt-price');
+
+      if (select.value === 'A-12-05') {
+        listed.textContent = "3.200.000.000 đ";
+        vat.textContent = "320.000.000 đ";
+        kpbt.textContent = "64.000.000 đ";
+      } else if (select.value === 'B-04-12') {
+        listed.textContent = "4.500.000.000 đ";
+        vat.textContent = "450.000.000 đ";
+        kpbt.textContent = "90.000.000 đ";
+      } else {
+        listed.textContent = "2.100.000.000 đ";
+        vat.textContent = "210.000.000 đ";
+        kpbt.textContent = "42.000.000 đ";
+      }
+      runAgentCalculation();
+    }
+
+    function simulateConflict() {
+      const chkHTLS = document.getElementById('chk-htls');
+      const chkEarly = document.getElementById('chk-ck-early');
+      const banner = document.getElementById('conflict-banner');
+      const btnSubmit = document.getElementById('btn-submit-manager');
+
+      if (chkHTLS.checked && chkEarly.checked) {
+        banner.classList.remove('hidden');
+        btnSubmit.disabled = true;
+        btnSubmit.className = "px-5 py-2.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-500 cursor-not-allowed flex items-center gap-2";
+      } else {
+        banner.classList.add('hidden');
+        btnSubmit.disabled = false;
+        btnSubmit.className = "px-5 py-2.5 rounded-full text-xs font-semibold bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-400 hover:to-brand-500 text-white shadow-glow-cyan transition-all flex items-center gap-2";
+      }
+    }
+
+    function runAgentCalculation() {
+      const spinner = document.getElementById('spinner-calc');
+      const btnText = document.getElementById('btn-calc-text');
+      const timeLabel = document.getElementById('trace-time');
+
+      spinner.classList.remove('hidden');
+      btnText.textContent = "Đang chạy LangGraph & Pricing Sidecar...";
+      timeLabel.textContent = "Running...";
+
+      setTimeout(() => {
+        spinner.classList.add('hidden');
+        btnText.textContent = "⚡ Phân tích & Tính giá AI (Agent Run)";
+        timeLabel.textContent = "T=4.82s (P95 Verified)";
+        simulateConflict();
+      }, 700);
+    }
+
+    function submitToManager() {
+      const statusTag = document.getElementById('sales-status-tag');
+      statusTag.className = "px-3 py-1 rounded-full text-xs font-mono font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1.5";
+      statusTag.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> READY_FOR_REVIEW`;
+      
+      alert("Đã gửi Hồ sơ Báo giá tới Quản lý thành công!\nTrạng thái: READY_FOR_REVIEW (Chờ thẩm định HITL).");
+      switchView('manager');
+    }
+
+    function openSignModal() {
+      document.getElementById('modal-sign').classList.remove('hidden');
+    }
+
+    function closeSignModal() {
+      document.getElementById('modal-sign').classList.add('hidden');
+    }
+
+    function executeSigning() {
+      closeSignModal();
+      isApproved = true;
+
+      // Update Manager View UI
+      const btnSign = document.getElementById('btn-open-sign');
+      btnSign.className = "px-6 py-2.5 rounded-xl bg-emerald-950 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-2 cursor-default";
+      btnSign.innerHTML = `<span>✔ ĐÃ KÝ SỐ ED25519 (APPROVED)</span>`;
+      document.getElementById('badge-pending').textContent = "0";
+      document.getElementById('stat-pending').textContent = "0";
+
+      // Update Sales View Status
+      const statusTag = document.getElementById('sales-status-tag');
+      statusTag.className = "px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5";
+      statusTag.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> APPROVED`;
+
+      alert("KÝ SỐ THÀNH CÔNG!\n• Thuật toán: RFC 8032 Ed25519\n• Key ID: key-vland-prod-signer-2026a\n• Trạng thái: APPROVED (Đã đóng băng hồ sơ).");
+      switchView('public');
+    }
+
+    function rejectQuote() {
+      const reason = prompt("Nhập lý do từ chối / yêu cầu chỉnh sửa:", "Khách hàng muốn tham khảo thêm phương án giãn tiến độ 12 đợt.");
+      if (reason) {
+        alert("Đã trả hồ sơ về cho Sales với trạng thái: NEEDS_REVISION.\nLý do: " + reason);
+        const statusTag = document.getElementById('sales-status-tag');
+        statusTag.className = "px-3 py-1 rounded-full text-xs font-mono font-semibold bg-red-500/10 text-red-400 border border-red-500/20 flex items-center gap-1.5";
+        statusTag.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-red-400"></span> NEEDS_REVISION`;
+        switchView('sales');
+      }
+    }
+
+    function downloadMockPDF() {
+      alert("Đang tải file PDF Báo giá chính thức...\nFile: BaoGia_A-12-05_Signed_Ed25519.pdf\nMã QR kiểm thực đã được nhúng sẵn trên trang bìa.");
+    }
+  </script>
+</body>
+</html>
