@@ -1,13 +1,13 @@
 """Database package for PricePolicy AI."""
-from src.db.session import get_db, async_session_factory, engine
 from src.db.models import (
+    AbstentionCertificateModel,
     Base,
-    PolicyModel,
+    EvidenceBundleModel,
     PolicyAtomModel,
     PolicyEdgeModel,
-    EvidenceBundleModel,
-    AbstentionCertificateModel,
+    PolicyModel,
 )
+from src.db.session import async_session_factory, engine, get_db
 
 __all__ = [
     "get_db",

@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 from urllib.parse import quote_plus, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from src.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def get_clean_database_url(url: str | None = None) -> str:
             raw_url = raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
         elif raw_url.startswith("postgres://"):
             raw_url = raw_url.replace("postgres://", "postgresql+asyncpg://", 1)
-    
+
     # Parse and encode password if it contains unencoded special characters
     try:
         parsed = urlparse(raw_url)
