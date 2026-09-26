@@ -37,11 +37,36 @@ class Settings(BaseSettings):
     fallback2_openai_base_url: str | None = None
     fallback2_model_name: str | None = None
 
-    # Database
+    # Database — Supabase PostgreSQL 16 (TD-4.2)
+    # Dev có thể để mặc định sqlite; production bắt buộc postgresql+asyncpg://
     database_url: str = "sqlite:///./data/app.db"
+    supabase_url: str | None = None
+    supabase_service_role_key: str | None = None
+    supabase_anon_key: str | None = None
 
-    # Vector Store
-    chroma_persist_dir: str = "./data/chroma"
+    # pgvector / Embeddings (C-02: time-travel semantic search)
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = Field(default=1536, ge=1, le=4096)
+
+    # Outbox Worker — Redis/ARQ (PDF + SSE dispatch, src/worker/)
+    redis_url: str | None = None
+
+    # Pricing Sidecar (C-06: Math Engine qua Unix Domain Socket)
+    pricing_sidecar_socket: str = "./data/pricing.sock"
+
+    # Ký số & HITL (C-05: KMS Ed25519 — private key chỉ nằm ở KMS)
+    signing_kms_url: str | None = None
+    signing_key_id: str | None = None
+
+    # Object storage — PDF báo giá & snapshots (Supabase Storage hoặc S3)
+    supabase_storage_bucket: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_bucket: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+
+    # Pre-Sales (C-09: TTL phiên chat công khai — Spike 5)
+    pre_sales_session_ttl_minutes: int = Field(default=60, ge=1, le=1440)
 
 
 @lru_cache

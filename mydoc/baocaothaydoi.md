@@ -5,8 +5,8 @@
 **Mã sản phẩm:** BDSVLandFuture-06  
 **Khối nghiệp vụ:** Kinh doanh Bất động sản VLandFuture  
 **Ngày khởi tạo:** 2026-09-26  
-**Lần cập nhật cuối:** 2026-09-26T11:55:00+07:00  
-**Phiên bản hệ thống:** v2.2 (Controlled Implementation Baseline — Post-Critique Round 2 Optimized)  
+**Lần cập nhật cuối:** 2026-09-26T18:30:00+07:00  
+**Phiên bản hệ thống:** v2.4 (Controlled Implementation Baseline — Codebase Dependencies & Env Locked)  
 **Tác giả / Quản trị viên:** Principal Enterprise Architect & Solution Architect Lead  
 **Trạng thái tài liệu:** **LIVING DOCUMENT (TÀI LIỆU SỐNG ĐƯỢC DUY TRÌ & CẬP NHẬT LIÊN TỤC)**
 
@@ -47,6 +47,21 @@ Mỗi bản ghi cập nhật trong tương lai phải tuân thủ đúng định
 ---
 
 ## 2. NHẬT KÝ THAY ĐỔI LỊCH SỬ
+
+---
+
+### [2026-09-26] - Phiên bản 2.4 — Chuẩn hóa Dependencies & Environment Variables theo Kiến trúc TD-4.1 (Codebase Baseline)
+
+- **Người thực hiện:** TechLead (Tạ Việt Cường)
+- **Tài liệu tác động:** `requirements.txt`, `.env.example`, `src/config.py`
+- **Lý do thay đổi:** Scaffold codebase đã khóa phân vùng theo 11 components (xem `CodeBaseIndex.md`); cần chuẩn hóa danh sách phụ thuộc và biến môi trường bám kiến trúc đã chốt (Supabase PostgreSQL 16 + pgvector, Redis/ARQ outbox, UDS pricing sidecar, KMS Ed25519, SSE, PDF+QR) để 4 thành viên cài môi trường đồng nhất ngay từ Sprint 1.
+- **Chi tiết các thay đổi:**
+  - **Dependencies:** bật nhóm persistence (`sqlalchemy[asyncio]`, `asyncpg`, `alembic`, `pgvector`), outbox worker (`redis`, `arq`), SSE (`sse-starlette`), ký số (`pynacl` — dev-verify; production ký qua KMS), PDF+QR (`reportlab`, `qrcode`). Loại bỏ `chromadb` — vector store chính thức là Supabase pgvector theo TD-4.2.
+  - **Environment:** tái cấu trúc `.env.example` theo nhóm component (DB, pgvector/embeddings 1536 dims, Redis, sidecar socket, KMS, object storage, pre-sales TTL); giữ nguyên nhóm AI-log grading và LangSmith của BTC.
+  - **Config:** `src/config.py` bỏ `chroma_persist_dir`, bổ sung settings tương ứng biến môi trường mới (đều có default an toàn, không phá behavior hiện tại).
+  - **Phạm vi code:** không thay đổi hợp đồng API/StateGraph/DD — chỉ tầng cấu hình & phụ thuộc.
+- **Quyết định Kiến trúc Mới (ADRs):** ADR-IMP-01 — Python deps cho persistence/worker/PDF được khóa vào requirements.txt cơ sở; lib tuỳ chọn (multipart, pyjwt, boto3, psycopg2-binary) để dạng comment, bật khi implement đúng component.
+- **Tiêu chuẩn Nghiệm thu Bổ sung (New ACs):** AC-ENV-01 — `pip install -r requirements.txt` trên Python 3.11 sạch, mọi import mới khả dụng; AC-ENV-02 — `ruff check src/ tests/` + toàn bộ pytest vẫn xanh sau thay đổi config.
 
 ---
 
