@@ -21,3 +21,9 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
 	find . -type d -name .ruff_cache -exec rm -rf {} +
+
+seed-data:
+	python scripts/seed_data.py --dry-run
+
+sidecar:
+	python -m src.pricing_sidecar
