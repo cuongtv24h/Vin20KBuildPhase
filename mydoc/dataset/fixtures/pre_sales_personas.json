@@ -1,0 +1,46 @@
+[
+  {
+    "persona_id": "PER-01",
+    "name": "Nguyễn Văn An (Gia đình trẻ mua ở)",
+    "asset_type_interest": "2BR",
+    "purchase_purpose": "RESIDENTIAL",
+    "own_funds_vnd": 1500000000,
+    "monthly_capacity_vnd": 25000000,
+    "target_move_in_period": "Q2/2027",
+    "expected_best_scenario": "PA-VAY (HTLS 0% 24 tháng)",
+    "why": "Vốn tự có 1.5 tỷ (khoảng 33% căn 4.5 tỷ), thu nhập tháng 25tr trả thoải mái sau khi hết ân hạn."
+  },
+  {
+    "persona_id": "PER-02",
+    "name": "Trần Thị Bích (Nhà đầu tư tối ưu giá)",
+    "asset_type_interest": "1BR",
+    "purchase_purpose": "INVESTMENT",
+    "own_funds_vnd": 3000000000,
+    "monthly_capacity_vnd": 50000000,
+    "target_move_in_period": "Bàn giao là cho thuê ngay",
+    "expected_best_scenario": "PA-NHANH (Thanh toán sớm 95%)",
+    "why": "Có sẵn tiền mặt, muốn lấy chiết khấu tối đa 8% để tối thiểu hóa giá vốn ban đầu."
+  },
+  {
+    "persona_id": "PER-03",
+    "name": "Lê Hoàng Cường (Gia đình đa thế hệ mua căn 3BR)",
+    "asset_type_interest": "3BR",
+    "purchase_purpose": "RESIDENTIAL",
+    "own_funds_vnd": 7000000000,
+    "monthly_capacity_vnd": 80000000,
+    "target_move_in_period": "Q2/2027",
+    "expected_best_scenario": "PA-NHANH + PACK-INTERIOR quy đổi",
+    "why": "Mua căn 3BR được tặng gói nội thất 200tr (hoặc quy đổi 100tr tiền mặt) kèm chiết khấu 8%."
+  },
+  {
+    "persona_id": "PER-04",
+    "name": "Phạm Quốc Dũng (Khách thiếu vốn nghiêm trọng)",
+    "asset_type_interest": "3BR",
+    "purchase_purpose": "RESIDENTIAL",
+    "own_funds_vnd": 500000000,
+    "monthly_capacity_vnd": 10000000,
+    "target_move_in_period": "Càng sớm càng tốt",
+    "expected_best_scenario": "ABSTAIN / UNSUITABLE_BUDGET",
+    "why": "Vốn tự có 500tr không đủ tối thiểu 30% cho căn 3BR (6.8 tỷ cần tối thiểu 2.04 tỷ). Agent phải dừng và khuyến cáo chọn 1BR."
+  }
+]

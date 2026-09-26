@@ -1,0 +1,26 @@
+[
+  {
+    "conflict_id": "CONF-01",
+    "tier": "TIER_1_HARD",
+    "policy_a": "POL-2026-VLF-EARLY",
+    "policy_b": "POL-2026-VLF-BANK",
+    "description": "Chiết khấu thanh toán sớm 95% loại trừ tuyệt đối với Gói Vay hỗ trợ lãi suất ngân hàng.",
+    "action": "MUTUALLY_EXCLUSIVE"
+  },
+  {
+    "conflict_id": "CONF-02",
+    "tier": "TIER_2_CONDITIONAL",
+    "policy_a": "POL-2026-VLF-INTERIOR",
+    "policy_b": "POL-2026-VLF-EARLY",
+    "condition": "Căn hộ 3BR khi thanh toán sớm 95% chỉ được hưởng quà tặng nội thất quy đổi 50% giá trị tiền mặt (100 triệu thay vì gói 200 triệu).",
+    "action": "REDUCE_BENEFIT"
+  },
+  {
+    "conflict_id": "CONF-03",
+    "tier": "TIER_3_AMBIGUOUS",
+    "policy_a": "POL-2026-VLF-VIP-EXP",
+    "policy_b": "ALL_POLICIES",
+    "condition": "Chính sách VIP vượt trần 10% bắt buộc có văn bản phê duyệt của Tổng Giám đốc; Agent không được tự suy đoán mức duyệt.",
+    "action": "SAFE_ABSTAIN"
+  }
+]

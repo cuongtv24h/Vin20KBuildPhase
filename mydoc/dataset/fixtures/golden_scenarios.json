@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "BENCH-01",
+    "description": "Căn R-02.02 (2BR) - Phương án Thanh toán Sớm 95% nhận chiết khấu 8%",
+    "unit_code": "R-02.02",
+    "listed_price_before_tax_vnd": 4600000000,
+    "selected_policies": [
+      "POL-2026-VLF-GEN",
+      "POL-2026-VLF-EARLY"
+    ],
+    "discount_pct": 0.08,
+    "discount_amount_vnd": 368000000,
+    "net_price_before_tax_vnd": 4232000000,
+    "vat_vnd": 423200000,
+    "contract_price_vnd": 4655200000,
+    "maintenance_fee_vnd": 84640000,
+    "total_outflow_vnd": 4739840000,
+    "expected_status": "APPROVED",
+    "delta_allowed_vnd": 0
+  },
+  {
+    "case_id": "BENCH-02",
+    "description": "Căn G-02.02 (3BR) - Phương án Tiến độ chuẩn 9 đợt nhận chiết khấu 2% + Quà tặng nội thất 200tr",
+    "unit_code": "G-02.02",
+    "listed_price_before_tax_vnd": 6320000000,
+    "selected_policies": [
+      "POL-2026-VLF-GEN",
+      "POL-2026-VLF-PROGRESS",
+      "POL-2026-VLF-INTERIOR"
+    ],
+    "discount_pct": 0.02,
+    "discount_amount_vnd": 126400000,
+    "net_price_before_tax_vnd": 6193600000,
+    "vat_vnd": 619360000,
+    "contract_price_vnd": 6812960000,
+    "maintenance_fee_vnd": 123872000,
+    "total_outflow_vnd": 6936832000,
+    "in_kind_benefit_vnd": 200000000,
+    "expected_status": "APPROVED",
+    "delta_allowed_vnd": 0
+  }
+]

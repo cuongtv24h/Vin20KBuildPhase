@@ -1,0 +1,146 @@
+[
+  {
+    "policy_id": "POL-2026-VLF-GEN",
+    "policy_name": "Chính sách Bán hàng Tổng thể & Bảng Giá Cơ sở 2026",
+    "version": "v1.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-12-31T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "ALL"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-EARLY",
+    "policy_name": "Chương trình Chiết khấu Thanh toán Sớm 95%",
+    "version": "v3.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-06-30T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "1BR",
+        "2BR",
+        "3BR"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-BANK",
+    "policy_name": "Gói Hỗ trợ Lãi suất Ngân hàng (HTLS 0% 24 tháng)",
+    "version": "v2.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-06-30T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "1BR",
+        "2BR",
+        "3BR"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-PROGRESS",
+    "policy_name": "Phương án Thanh toán Giãn theo Tiến độ Xây dựng (9 Đợt)",
+    "version": "v1.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-12-31T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "ALL"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-INTERIOR",
+    "policy_name": "Gói Quà tặng Nội thất Cao cấp cho Căn hộ 3 Phòng Ngủ",
+    "version": "v1.0",
+    "effective_from": "2026-02-01T00:00:00+07:00",
+    "effective_to": "2026-05-31T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "3BR"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-LOYALTY",
+    "policy_name": "Chương trình Tri ân Khách hàng Thân thiết & Người thân",
+    "version": "v1.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-12-31T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "ALL"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-VIP-EXP",
+    "policy_name": "Quy chế Phê duyệt Chiết khấu Ngoại lệ Khách hàng VIP",
+    "version": "v1.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-12-31T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "ALL"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-SALES-GUIDE",
+    "policy_name": "Cẩm nang Quy chuẩn Phát ngôn & Tư vấn Bán hàng Dành cho Sales",
+    "version": "v4.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-12-31T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "ALL"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-SUPERSEDED-OLD",
+    "policy_name": "Chính sách Bán hàng Giai đoạn Khởi động 2025 (Đã Hết Hiệu Lực)",
+    "version": "v0.9",
+    "effective_from": "2025-06-01T00:00:00+07:00",
+    "effective_to": "2025-12-31T23:59:59+07:00",
+    "status": "EXPIRED",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "ALL"
+      ]
+    }
+  },
+  {
+    "policy_id": "POL-2026-VLF-APPENDIX-COND",
+    "policy_name": "Phụ lục Bảng Tiêu chí & Điều kiện Áp dụng Ưu đãi Chi tiết",
+    "version": "v1.0",
+    "effective_from": "2026-01-01T00:00:00+07:00",
+    "effective_to": "2026-12-31T23:59:59+07:00",
+    "status": "ACTIVE",
+    "scope": {
+      "project_id": "PROJECT-VLF-001",
+      "applicable_units": [
+        "ALL"
+      ]
+    }
+  }
+]

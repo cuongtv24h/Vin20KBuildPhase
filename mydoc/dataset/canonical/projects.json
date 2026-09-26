@@ -1,0 +1,32 @@
+[
+  {
+    "project_id": "PROJECT-VLF-001",
+    "project_name": "VLand Future Riverside",
+    "location": "Long Biên, Hà Nội",
+    "currency": "VND",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "total_units": 40,
+    "developer": "VLand Future Group",
+    "handover_year": 2027,
+    "buildings": [
+      {
+        "building_code": "RIVER_TOWER",
+        "name": "Tòa River (R)",
+        "floors": 25,
+        "units_count": 20
+      },
+      {
+        "building_code": "GARDEN_TOWER",
+        "name": "Tòa Garden (G)",
+        "floors": 20,
+        "units_count": 15
+      },
+      {
+        "building_code": "CENTRAL_SHOPHOUSE",
+        "name": "Khu Shophouse (SH)",
+        "floors": 5,
+        "units_count": 5
+      }
+    ]
+  }
+]

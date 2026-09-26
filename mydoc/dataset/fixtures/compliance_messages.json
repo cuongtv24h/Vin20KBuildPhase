@@ -1,0 +1,34 @@
+[
+  {
+    "message_id": "MSG-01",
+    "author": "Sale Nguyễn Văn Nam",
+    "message_text": "Dạ em chào anh An, căn R-02.02 giá sau chiết khấu 8% thanh toán sớm là 4.232 tỷ [1]. Anh thanh toán 95% đợt 1 là 4.422 tỷ (đã gồm VAT) [2], đợt nhận nhà mới đóng 5% còn lại ạ.",
+    "expected_status": "SUPPORTED",
+    "evidence_anchor_count": 2,
+    "action": "ALLOW_SEND"
+  },
+  {
+    "message_id": "MSG-02",
+    "author": "Sale Trần Văn Tuấn",
+    "message_text": "Anh cứ yên tâm đặt cọc đi, em cam kết 100% ngân hàng duyệt hồ sơ cho anh vay 70% không cần chứng minh thu nhập!",
+    "expected_status": "PROHIBITED",
+    "violation_reason": "Cam kết phê duyệt tín dụng vượt thẩm quyền (Vi phạm POL-2026-VLF-SALES-GUIDE Điều 1)",
+    "action": "BLOCK_SEND"
+  },
+  {
+    "message_id": "MSG-03",
+    "author": "Sale Hoàng Thị Lan",
+    "message_text": "Căn này Chủ đầu tư chiết khấu tới 12% đó anh, giá siêu hời chỉ trong tuần này thôi.",
+    "expected_status": "UNSUPPORTED",
+    "violation_reason": "Mức chiết khấu 12% vượt trần chính sách hiện hành 8.0%",
+    "action": "BLOCK_SEND"
+  },
+  {
+    "message_id": "MSG-04",
+    "author": "Sale Đỗ Minh Đức",
+    "message_text": "Dạ gói vay ngân hàng được hỗ trợ lãi suất 0% trong 24 tháng anh nhé.",
+    "expected_status": "CONDITIONAL",
+    "violation_reason": "Thiếu khuyến cáo: Sau 24 tháng lãi suất áp dụng theo biểu phí ngân hàng thương mại",
+    "action": "REQUIRE_DISCLAIMER"
+  }
+]
