@@ -3,8 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import router
 from src.api.pricing_mock import router as pricing_router
+from src.api.routes import router
 from src.config import get_settings
 
 

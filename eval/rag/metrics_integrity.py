@@ -1,23 +1,19 @@
 import logging
 
-from src.models.rag_schemas import AttributedPolicyEvidence
+from src.models.pec_contracts import EvidenceBundle, EvidenceDecisionStatus
 
 logger = logging.getLogger(__name__)
 
-def verify_cryptographic_integrity(evidences: list[AttributedPolicyEvidence]) -> float:
+def verify_cryptographic_integrity(bundle: EvidenceBundle | None) -> float:
     """
-    Verifies the SHA-256 integrity of retrieved evidences.
-    Returns the percentage of perfectly intact evidences (should be 1.0).
+    Verifies the cryptographic integrity of the EvidenceBundle.
+    Returns 1.0 if perfectly intact and VERIFIED, else 0.0.
     """
-    if not evidences:
-        return 1.0 # Vacuously true
+    if bundle is None:
+        return 1.0 # Vacuously true (Abstained)
 
-    intact_count = 0
-
-    for evidence in evidences:
-        if evidence.verify_integrity():
-            intact_count += 1
-        else:
-            logger.error(f"Integrity Violation: Hash mismatch for {evidence.coordinate.citation_path}")
-
-    return intact_count / len(evidences)
+    if bundle.decision_status == EvidenceDecisionStatus.VERIFIED and bundle.canonical_bundle_hash:
+        return 1.0
+        
+    logger.error("Integrity Violation: Bundle is not VERIFIED or missing hash.")
+    return 0.0

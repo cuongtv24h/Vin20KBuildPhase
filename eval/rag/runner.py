@@ -9,7 +9,8 @@ from eval.rag.metrics_retrieval import calculate_clause_recall, calculate_confli
 from eval.rag.metrics_temporal import calculate_time_travel_leakage
 from eval.rag.reporter import ReportGenerator
 from eval.rag.scenarios import ScenarioLoader
-from src.rag.service import PolicyRAGService
+from src.services.rag.service import PolicyRAGService
+from src.models.pec_contracts import PolicyQuery
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,35 +40,33 @@ class RAGEvaluator:
             logger.info(f"Evaluating case: {case.case_id}...")
             start_time = time.time()
 
-            # Run RAG
-            query_date_obj = datetime.strptime(case.query_date, "%Y-%m-%d").date()
-            evidences, decisions = self.rag_service.search_policies(
-                query=case.query_text,
-                transaction_date=query_date_obj,
-                top_k=5
+            # Run RAG using new PEC-RAG pipeline
+            query_date_str = case.query_date
+            
+            policy_query = PolicyQuery(
+                query_text=case.query_text,
+                transaction_date=query_date_str,
+                project_scope=None
+            )
+            
+            bundle, cert = self.rag_service.compile_and_retrieve_bundle(
+                policy_query=policy_query
             )
 
             latency_ms = (time.time() - start_time) * 1000
             self.latency_tracker.record(latency_ms)
 
-            # If it's a conflict test, we need to bypass the pruner's exclusion to see if ALL were retrieved.
-            # But search_policies already applies the pruner.
-            # In our mutual exclusion, if preferred_policy isn't passed, both might still be returned or one gets dropped.
-            # We will measure what the final evidences contain.
-
             # Metrics
-            leakage = calculate_time_travel_leakage(evidences, case.query_date)
-            recall = calculate_clause_recall(evidences, case.expected_policy_ids)
-            integrity = verify_cryptographic_integrity(evidences)
-            completeness = 1.0
-
+            leakage = calculate_time_travel_leakage(bundle, case.expected_policy_ids)
+            recall = calculate_clause_recall(bundle, case.expected_policy_ids)
+            integrity = verify_cryptographic_integrity(bundle)
+            
             if case.is_conflict_test:
-                # If it's a conflict test and the pruner worked, maybe one was excluded.
-                # So we check if decisions contain the conflict.
-                if len(decisions) > 0:
-                    completeness = 1.0 # Conflict was correctly identified!
-                else:
-                    completeness = calculate_conflict_completeness(evidences, case.expected_policy_ids)
+                completeness = calculate_conflict_completeness(bundle, case.expected_policy_ids)
+            else:
+                completeness = 1.0
+
+            evidences_count = len(bundle.applied_rules) if bundle else 0
 
             self.results.append({
                 "case_id": case.case_id,
@@ -77,7 +76,7 @@ class RAGEvaluator:
                 "recall": recall,
                 "integrity": integrity,
                 "completeness": completeness,
-                "evidences_count": len(evidences)
+                "evidences_count": evidences_count
             })
 
         logger.info("Evaluation run complete.")
