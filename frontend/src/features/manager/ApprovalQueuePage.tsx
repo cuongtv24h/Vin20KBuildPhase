@@ -1,53 +1,53 @@
-import { useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { ClipboardCheck } from 'lucide-react'
+import type { Quote, QuoteWorkflowStatus, RiskFlagColor } from '@/api/contracts'
 import { useQuotes } from '@/api/hooks'
-import { EmptyState, ErrorState, LoadingState, PageHeader } from '@/components/common/PageStates'
+import { useCurrentUser } from '@/auth/useCurrentUser'
+import { EmptyState, PageHeader, QueryState } from '@/components/common/PageStates'
 import { QuoteTable } from '@/components/quote/QuoteTable'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { sortQueue } from '@/features/manager/queue'
-import type { Quote } from '@/types/domain'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-const TABS: { key: string; label: string; filter: (q: Quote) => boolean; empty: string }[] = [
-  { key: 'review', label: 'Chờ duyệt', filter: (q) => q.status === 'READY_FOR_REVIEW', empty: 'Không có hồ sơ chờ duyệt' },
-  { key: 'exception', label: 'Thẩm định ngoại lệ', filter: (q) => q.status === 'ABSTAINED', empty: 'Không có hồ sơ ngoại lệ' },
-  {
-    key: 'done',
-    label: 'Đã xử lý',
-    filter: (q) => ['APPROVED', 'REJECTED', 'NEEDS_REVISION'].includes(q.status),
-    empty: 'Chưa có quyết định nào',
-  },
+const RISK: Record<RiskFlagColor, number> = { RED: 0, YELLOW: 1, GREEN: 2 }
+
+/** Rủi ro cao trước; cùng mức thì hồ sơ chờ lâu hơn trước. */
+const byPriority = (a: Quote, b: Quote) => RISK[a.risk_flag.color] - RISK[b.risk_flag.color] || (a.submitted_at ?? a.updated_at).localeCompare(b.submitted_at ?? b.updated_at)
+
+const TABS: { key: string; label: string; statuses: QuoteWorkflowStatus[] }[] = [
+  { key: 'review', label: 'Chờ duyệt', statuses: ['READY_FOR_REVIEW'] },
+  { key: 'exception', label: 'Ngoại lệ', statuses: ['ABSTAINED'] },
+  { key: 'done', label: 'Đã xử lý', statuses: ['APPROVED', 'REJECTED', 'NEEDS_REVISION'] },
 ]
 
 export function ApprovalQueuePage() {
-  const quotes = useQuotes()
-  const [params, setParams] = useSearchParams()
-  const tab = TABS.find((t) => t.key === params.get('tab')) ?? TABS[0]
-
-  const rows = useMemo(() => {
-    const filtered = (quotes.data ?? []).filter(tab.filter)
-    return tab.key === 'done' ? filtered : sortQueue(filtered)
-  }, [quotes.data, tab])
-
+  const user = useCurrentUser()
+  const quotes = useQuotes({ status: TABS.flatMap((t) => t.statuses) }, { live: true })
   return (
     <div className="space-y-6">
-      <PageHeader title="Phê duyệt báo giá" description="Sắp xếp theo mức rủi ro, sau đó theo thời gian chờ." />
-      <Tabs value={tab.key} onValueChange={(v) => setParams({ tab: v }, { replace: true })}>
-        <TabsList>
-          {TABS.map((t) => (
-            <TabsTrigger key={t.key} value={t.key}>
-              {t.label} ({(quotes.data ?? []).filter(t.filter).length})
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-      {quotes.isLoading && <LoadingState />}
-      {quotes.error && <ErrorState error={quotes.error} onRetry={() => quotes.refetch()} />}
-      {quotes.data &&
-        (rows.length === 0 ? (
-          <EmptyState title={tab.empty} />
-        ) : (
-          <QuoteTable quotes={rows} hrefFor={(id) => `/manager/approvals/${id}`} showOwner showRisk />
-        ))}
+      <PageHeader title="Phê duyệt báo giá" />
+      <QueryState query={quotes} isEmpty={(d) => d.length === 0} empty={<EmptyState icon={ClipboardCheck} title="Không có hồ sơ" />}>
+        {(data) => (
+          <Tabs defaultValue="review">
+            <TabsList>
+              {TABS.map((t) => (
+                <TabsTrigger key={t.key} value={t.key}>
+                  {t.label} ({data.filter((q) => t.statuses.includes(q.status)).length})
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {TABS.map((t) => {
+              const rows = data.filter((q) => t.statuses.includes(q.status)).sort(t.key === 'done' ? (a, b) => b.updated_at.localeCompare(a.updated_at) : byPriority)
+              return (
+                <TabsContent key={t.key} value={t.key}>
+                  {rows.length === 0 ? (
+                    <EmptyState icon={ClipboardCheck} title="Không có hồ sơ" />
+                  ) : (
+                    <QuoteTable quotes={rows} hrefFor={(q) => `/manager/approvals/${q.quote_id}`} showOwner sodUserId={user.user_id} />
+                  )}
+                </TabsContent>
+              )
+            })}
+          </Tabs>
+        )}
+      </QueryState>
     </div>
   )
 }

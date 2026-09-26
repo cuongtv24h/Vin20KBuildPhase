@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import type { AuthSession } from '@/api/contracts'
-import type { UserRole } from '@/types/domain'
+import type { AuthSession, UserRole } from '@/api/contracts'
 
 interface SessionState {
   session: AuthSession | null
@@ -26,13 +25,20 @@ export const useSessionStore = create<SessionState>()(
 export function getAccessToken(): string | null {
   const session = useSessionStore.getState().session
   if (!session) return null
-  if (new Date(session.expiresAt).getTime() < Date.now()) return null
-  return session.accessToken
+  if (new Date(session.expires_at).getTime() < Date.now()) return null
+  return session.access_token
 }
 
 /** Trang chủ (entry point) của từng vai trò sau khi đăng nhập. */
 export const ROLE_HOME: Record<UserRole, string> = {
+  SALE: '/sale/leads',
+  MANAGER: '/manager/approvals',
+  POLICY_ADMIN: '/admin/policies',
+}
+
+/** Tiền tố route của từng vai trò — dùng để giữ lại đường dẫn sau khi đăng nhập lại. */
+export const ROLE_AREA: Record<UserRole, string> = {
   SALE: '/sale',
   MANAGER: '/manager',
-  SALE_ADMIN: '/admin',
+  POLICY_ADMIN: '/admin',
 }

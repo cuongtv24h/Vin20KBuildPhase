@@ -2,14 +2,15 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@ta
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import { API_MODE } from '@/api'
 import { ApiError } from '@/api/errors'
-import { onExternalChange } from '@/api/mock/db'
-import { useSessionStore } from '@/auth/sessionStore'
+import { setAuthTokenProvider } from '@/api/http'
+import { getAccessToken, useSessionStore } from '@/auth/sessionStore'
 import App from './App.tsx'
 import './index.css'
 
-/** Phiên hết hạn / bị thu hồi ở backend → xoá phiên, RequireRole sẽ đưa về /login. */
+setAuthTokenProvider(getAccessToken)
+
+/** Phiên hết hạn / bị thu hồi → xoá phiên, RequireRole đưa về /login. */
 function handleAuthError(error: unknown) {
   if (error instanceof ApiError && error.status === 401) useSessionStore.getState().clearSession()
 }
@@ -20,22 +21,27 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 15_000,
-      retry: (count, error) => !(error instanceof ApiError && error.status < 500) && count < 2,
+      // Lỗi nghiệp vụ (4xx) hiển thị ngay; lỗi hạ tầng thử lại 1 lần.
+      retry: (count, error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 1,
     },
   },
 })
 
-if (API_MODE === 'mock') {
-  // Đồng bộ dữ liệu giữa các tab (ví dụ: Sale ở tab này, khách mở báo giá ở tab khác).
-  onExternalChange(() => queryClient.invalidateQueries())
+async function bootstrap() {
+  // So sánh trực tiếp biến môi trường (thay tĩnh lúc build) để bản build real loại bỏ hẳn MSW & dữ liệu mock.
+  if (import.meta.env.NEXT_PUBLIC_API_MODE !== 'real') {
+    const { startMockBackend } = await import('./mocks/browser')
+    await startMockBackend({ onExternalChange: () => void queryClient.invalidateQueries() })
+  }
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </StrictMode>,
+  )
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </QueryClientProvider>
-  </StrictMode>,
-)
+void bootstrap()

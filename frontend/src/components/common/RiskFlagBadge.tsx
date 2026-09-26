@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import type { RiskFlag } from '@/types/domain'
+import type { RiskFlag } from '@/api/contracts'
 
 const DOT_CLASS: Record<RiskFlag['color'], string> = {
   RED: 'bg-destructive',

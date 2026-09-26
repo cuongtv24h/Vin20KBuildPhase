@@ -1,64 +1,53 @@
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Archive,
-  Building2,
-  ClipboardCheck,
-  FilePlus2,
-  FileStack,
-  FlaskConical,
-  Inbox,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  ScrollText,
-  ShieldCheck,
-  X,
-} from 'lucide-react'
+import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Inbox, LogOut, Menu, ScrollText, ShieldCheck, X } from 'lucide-react'
 import { useState, type ComponentType } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { api } from '@/api'
+import { api } from '@/api/client'
+import type { UserRole } from '@/api/contracts'
 import { useLeads, useQuotes } from '@/api/hooks'
 import { useSessionStore } from '@/auth/sessionStore'
 import { Button } from '@/components/ui/button'
-import { MANAGER_QUEUE_STATUSES } from '@/engine/workflow'
 import { ROLE_LABEL } from '@/lib/labels'
+import { MANAGER_QUEUE } from '@/lib/quoteRules'
 import { cn } from '@/lib/utils'
-import type { UserRole } from '@/types/domain'
 
 interface NavItem {
   to: string
   label: string
   icon: ComponentType<{ className?: string }>
   end?: boolean
-  badgeKey?: 'unassignedLeads' | 'managerQueue'
+  badgeKey?: 'openLeads' | 'managerQueue'
 }
 
 const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   SALE: [
-    { to: '/sale', label: 'Tổng quan', icon: LayoutDashboard, end: true },
-    { to: '/sale/leads', label: 'Yêu cầu khách hàng', icon: Inbox, badgeKey: 'unassignedLeads' },
-    { to: '/sale/quotes', label: 'Hồ sơ báo giá', icon: FileStack },
+    { to: '/sale/leads', label: 'Hồ sơ khách', icon: Inbox, badgeKey: 'openLeads' },
+    { to: '/sale/quotes', label: 'Báo giá', icon: FileStack },
   ],
-  MANAGER: [
-    { to: '/manager', label: 'Tổng quan', icon: LayoutDashboard, end: true },
-    { to: '/manager/approvals', label: 'Phê duyệt báo giá', icon: ClipboardCheck, badgeKey: 'managerQueue' },
-  ],
-  SALE_ADMIN: [
-    { to: '/admin', label: 'Tổng quan', icon: LayoutDashboard, end: true },
+  MANAGER: [{ to: '/manager/approvals', label: 'Phê duyệt báo giá', icon: ClipboardCheck, badgeKey: 'managerQueue' }],
+  POLICY_ADMIN: [
     { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
-    { to: '/admin/inventory', label: 'Bảng hàng', icon: Building2 },
-    { to: '/admin/quotes', label: 'Tra cứu hồ sơ', icon: Archive },
-    { to: '/admin/formula-tests', label: 'Kiểm thử công thức', icon: FlaskConical },
+    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
   ],
 }
 
-function useNavBadges(role: UserRole) {
-  const leads = useLeads({ scope: 'UNASSIGNED' })
-  const queue = useQuotes({ status: MANAGER_QUEUE_STATUSES })
-  return {
-    unassignedLeads: role === 'SALE' ? (leads.data?.length ?? 0) : 0,
-    managerQueue: role === 'MANAGER' ? (queue.data?.length ?? 0) : 0,
-  }
+function SaleBadges() {
+  const leads = useLeads()
+  return { openLeads: leads.data?.filter((d) => d.status !== 'CONVERTED_TO_QUOTE').length ?? 0, managerQueue: 0 }
+}
+
+function ManagerBadges() {
+  const queue = useQuotes({ status: MANAGER_QUEUE }, { live: true })
+  return { openLeads: 0, managerQueue: queue.data?.length ?? 0 }
+}
+
+const NO_BADGES = () => ({ openLeads: 0, managerQueue: 0 })
+
+/** Mỗi vai trò chỉ gọi endpoint mình có quyền — không bắn request 403 ở nền. */
+const BADGE_HOOK: Record<UserRole, () => Record<NonNullable<NavItem['badgeKey']>, number>> = {
+  SALE: SaleBadges,
+  MANAGER: ManagerBadges,
+  POLICY_ADMIN: NO_BADGES,
 }
 
 export function StaffLayout() {
@@ -69,12 +58,12 @@ export function StaffLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const role = session?.user.role ?? 'SALE'
-  const badges = useNavBadges(role)
+  const badges = BADGE_HOOK[role]()
   const items = NAV_BY_ROLE[role]
 
   async function handleLogout() {
     try {
-      await api.auth.logout()
+      await api.auth.logout().catch(() => undefined)
     } finally {
       clearSession()
       queryClient.clear()
@@ -127,7 +116,7 @@ export function StaffLayout() {
       {role === 'SALE' && (
         <Button asChild variant="secondary" className="justify-start">
           <Link to="/sale/quotes/new" onClick={() => setMobileOpen(false)}>
-            <FilePlus2 className="h-4 w-4" /> Lập báo giá
+            <FilePlus2 className="h-4 w-4" /> Báo giá khách tại sàn
           </Link>
         </Button>
       )}
@@ -136,7 +125,7 @@ export function StaffLayout() {
 
       <div className="mt-auto space-y-3 border-t border-primary-foreground/15 px-2 pt-4">
         <div className="leading-tight">
-          <p className="text-sm font-medium">{session?.user.fullName}</p>
+          <p className="text-sm font-medium">{session?.user.full_name}</p>
           <p className="text-xs text-primary-foreground/60">{ROLE_LABEL[role]}</p>
           <p className="truncate text-xs text-primary-foreground/50">{session?.user.email}</p>
         </div>
@@ -168,7 +157,7 @@ export function StaffLayout() {
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
           <span className="font-display font-semibold">PricePolicy</span>
-          <span className="text-xs text-muted-foreground">{session?.user.fullName}</span>
+          <span className="text-xs text-muted-foreground">{session?.user.full_name}</span>
         </header>
         <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <Outlet />

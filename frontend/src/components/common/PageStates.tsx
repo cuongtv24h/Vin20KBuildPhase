@@ -1,3 +1,4 @@
+import type { UseQueryResult } from '@tanstack/react-query'
 import { AlertCircle, Inbox, Loader2 } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -104,4 +105,29 @@ export function StatCard({
       {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   )
+}
+
+/**
+ * Bốn trạng thái bắt buộc của mọi màn hình: loading / error / empty / data.
+ * Dữ liệu cũ vẫn hiển thị khi đang tải lại (không nháy spinner).
+ */
+export function QueryState<T>({
+  query,
+  children,
+  isEmpty,
+  empty,
+  loadingLabel,
+  className,
+}: {
+  query: Pick<UseQueryResult<T>, 'data' | 'error' | 'isLoading' | 'refetch'>
+  children: (data: T) => ReactNode
+  isEmpty?: (data: T) => boolean
+  empty?: ReactNode
+  loadingLabel?: string
+  className?: string
+}) {
+  if (query.isLoading) return <LoadingState label={loadingLabel} className={className} />
+  if (query.error && query.data === undefined) return <ErrorState error={query.error} onRetry={() => query.refetch()} />
+  if (query.data === undefined || (isEmpty?.(query.data) ?? false)) return <>{empty ?? <EmptyState title="Chưa có dữ liệu" />}</>
+  return <>{children(query.data)}</>
 }

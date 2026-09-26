@@ -1,15 +1,12 @@
 import { Loader2, LogIn, ShieldCheck } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { API_MODE } from '@/api'
 import { errorMessage } from '@/api/errors'
 import { useLogin } from '@/api/hooks'
-import { MOCK_PASSWORD, STAFF_FIXTURE } from '@/api/mock/fixtures/users'
-import { ROLE_HOME, getAccessToken, useSessionStore } from '@/auth/sessionStore'
+import { ROLE_AREA, ROLE_HOME, getAccessToken, useSessionStore } from '@/auth/sessionStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ROLE_LABEL } from '@/lib/labels'
 
 export function LoginPage() {
   const session = useSessionStore((s) => s.session)
@@ -30,8 +27,8 @@ export function LoginPage() {
     if (!result) return
     setSession(result)
     const redirect = params.get('redirect')
-    const home = ROLE_HOME[result.user.role]
-    navigate(redirect && redirect.startsWith(home) ? redirect : home, { replace: true })
+    const role = result.user.role
+    navigate(redirect && redirect.startsWith(ROLE_AREA[role]) ? redirect : ROLE_HOME[role], { replace: true })
   }
 
   return (
@@ -45,7 +42,6 @@ export function LoginPage() {
         </Link>
         <div className="max-w-md space-y-3">
           <p className="font-display text-3xl font-semibold leading-tight">Báo giá đúng chính sách, duyệt trong một phút.</p>
-          <p className="text-sm text-primary-foreground/70">Hệ thống lập báo giá, phê duyệt và quản trị chính sách bán hàng nội bộ.</p>
         </div>
         <p className="text-xs text-primary-foreground/50">© 2026 VLandFuture</p>
       </div>
@@ -54,7 +50,6 @@ export function LoginPage() {
         <div className="w-full max-w-sm space-y-6">
           <div className="space-y-1">
             <h1 className="font-display text-2xl font-semibold tracking-tight">Đăng nhập</h1>
-            <p className="text-sm text-muted-foreground">Dùng tài khoản email công ty.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -87,29 +82,6 @@ export function LoginPage() {
               Đăng nhập
             </Button>
           </form>
-
-          {API_MODE === 'mock' && (
-            <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
-              <p className="text-xs font-medium text-muted-foreground">Tài khoản môi trường thử nghiệm</p>
-              <div className="grid gap-1.5">
-                {STAFF_FIXTURE.map((u) => (
-                  <button
-                    key={u.userId}
-                    type="button"
-                    data-testid={`quick-login-${u.userId}`}
-                    onClick={() => {
-                      setEmail(u.email)
-                      setPassword(MOCK_PASSWORD)
-                    }}
-                    className="flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-muted"
-                  >
-                    <span className="font-medium">{u.fullName}</span>
-                    <span className="text-xs text-muted-foreground">{ROLE_LABEL[u.role]}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           <Link to="/" className="block text-center text-sm text-muted-foreground hover:text-foreground">
             ← Về trang dự án

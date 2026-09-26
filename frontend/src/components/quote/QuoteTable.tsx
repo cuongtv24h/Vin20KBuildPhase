@@ -1,73 +1,65 @@
-import { ChevronRight } from 'lucide-react'
+import { ShieldAlert } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import type { Quote } from '@/api/contracts'
+import { MoneyText } from '@/components/common/MoneyText'
 import { RiskFlagBadge } from '@/components/common/RiskFlagBadge'
-import { WorkflowStatusBadge } from '@/components/common/StatusBadge'
+import { QuoteStatusBadge } from '@/components/common/StatusBadge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { formatRelative, formatVnd } from '@/lib/format'
-import type { Quote } from '@/types/domain'
+import { formatRelative } from '@/lib/format'
 
-interface QuoteTableProps {
-  quotes: Quote[]
-  /** Đường dẫn chi tiết cho từng hồ sơ, ví dụ (id) => `/sale/quotes/${id}`. */
-  hrefFor: (quoteId: string) => string
-  showOwner?: boolean
-  showRisk?: boolean
-}
-
-export function QuoteTable({ quotes, hrefFor, showOwner, showRisk }: QuoteTableProps) {
+export function QuoteTable({ quotes, hrefFor, showOwner, sodUserId }: { quotes: Quote[]; hrefFor: (q: Quote) => string; showOwner?: boolean; sodUserId?: string }) {
   const navigate = useNavigate()
-
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card">
-      <Table>
+      <Table data-testid="quote-table">
         <TableHeader>
           <TableRow>
-            <TableHead>Mã hồ sơ</TableHead>
-            <TableHead>Khách hàng / Căn hộ</TableHead>
+            <TableHead>Hồ sơ</TableHead>
+            <TableHead>Khách hàng</TableHead>
             {showOwner && <TableHead>Chuyên viên</TableHead>}
-            {showRisk && <TableHead>Mức rủi ro</TableHead>}
             <TableHead>Trạng thái</TableHead>
-            <TableHead className="text-right">Giá đề xuất</TableHead>
-            <TableHead>Cập nhật</TableHead>
-            <TableHead />
+            <TableHead>Rủi ro</TableHead>
+            <TableHead className="text-right">Phương án đề xuất</TableHead>
+            <TableHead className="text-right">Cập nhật</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {quotes.map((q) => {
-            const recommended = q.scenarios.find((s) => s.plan === q.recommendation?.recommendedPlan)
+            const rec = q.scenarios.find((s) => s.scenario_code === q.recommendation?.recommended_scenario)
             return (
-              <TableRow
-                key={q.quoteId}
-                className="cursor-pointer"
-                data-quote-id={q.quoteId}
-                onClick={() => navigate(hrefFor(q.quoteId))}
-              >
-                <TableCell className="whitespace-nowrap font-medium">
-                  {q.quoteId}
-                  {q.version > 1 && <span className="ml-1 text-xs text-muted-foreground">v{q.version}</span>}
-                </TableCell>
+              <TableRow key={q.quote_id} className="cursor-pointer" onClick={() => navigate(hrefFor(q))} data-quote={q.quote_id}>
                 <TableCell>
-                  <p className="font-medium leading-tight">{q.context.customerName}</p>
+                  <p className="font-medium">{q.quote_id}</p>
                   <p className="text-xs text-muted-foreground">
-                    {q.unit.unitCode} · {q.unit.projectName}
+                    v{q.quote_version} · {q.unit.unit_code}
                   </p>
                 </TableCell>
-                {showOwner && <TableCell className="whitespace-nowrap text-sm">{q.ownerName}</TableCell>}
-                {showRisk && (
+                <TableCell>{q.transaction_context.customer_name}</TableCell>
+                {showOwner && (
                   <TableCell>
-                    <RiskFlagBadge flag={q.riskFlag} />
+                    <span className="inline-flex items-center gap-1">
+                      {q.created_by.full_name}
+                      {sodUserId === q.created_by.user_id && <ShieldAlert className="h-3.5 w-3.5 text-warning" aria-label="Hồ sơ do bạn lập" />}
+                    </span>
                   </TableCell>
                 )}
                 <TableCell>
-                  <WorkflowStatusBadge status={q.status} />
+                  <QuoteStatusBadge status={q.status} />
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-right tabular-nums">
-                  {recommended ? formatVnd(recommended.netPrice) : '—'}
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatRelative(q.updatedAt)}</TableCell>
                 <TableCell>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  <RiskFlagBadge flag={q.risk_flag} className="text-xs" />
                 </TableCell>
+                <TableCell className="text-right">
+                  {rec ? (
+                    <>
+                      <MoneyText amount={rec.total_contract_price_vnd} size="sm" className="font-medium" />
+                      <p className="text-xs text-muted-foreground">{rec.label}</p>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-right text-xs text-muted-foreground">{formatRelative(q.updated_at)}</TableCell>
               </TableRow>
             )
           })}

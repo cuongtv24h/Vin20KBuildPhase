@@ -1,64 +1,58 @@
-import { FilePlus2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { FilePlus2, FileStack } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import type { Quote, QuoteWorkflowStatus } from '@/api/contracts'
 import { useQuotes } from '@/api/hooks'
-import { EmptyState, ErrorState, LoadingState, PageHeader } from '@/components/common/PageStates'
+import { EmptyState, PageHeader, QueryState } from '@/components/common/PageStates'
 import { QuoteTable } from '@/components/quote/QuoteTable'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { WorkflowStatus } from '@/types/domain'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-const GROUPS: { key: string; label: string; statuses: WorkflowStatus[] | null }[] = [
-  { key: 'all', label: 'Tất cả', statuses: null },
-  { key: 'todo', label: 'Cần xử lý', statuses: ['DRAFT', 'NEEDS_REVISION', 'CALCULATION_FAILED'] },
-  { key: 'review', label: 'Chờ Quản lý', statuses: ['READY_FOR_REVIEW', 'ABSTAINED'] },
+const GROUPS: { key: string; label: string; statuses: QuoteWorkflowStatus[] | null }[] = [
+  { key: 'action', label: 'Cần xử lý', statuses: ['DRAFT', 'NEEDS_INPUT', 'NEEDS_REVISION', 'ABSTAINED', 'CALCULATION_FAILED', 'ANALYZING'] },
+  { key: 'review', label: 'Chờ duyệt', statuses: ['READY_FOR_REVIEW'] },
   { key: 'approved', label: 'Đã duyệt', statuses: ['APPROVED'] },
   { key: 'rejected', label: 'Từ chối', statuses: ['REJECTED'] },
+  { key: 'all', label: 'Tất cả', statuses: null },
 ]
 
 export function SaleQuotesPage() {
-  const quotes = useQuotes()
-  const [group, setGroup] = useState('all')
-  const [search, setSearch] = useState('')
-
-  const filtered = useMemo(() => {
-    const statuses = GROUPS.find((g) => g.key === group)?.statuses
-    const term = search.trim().toLowerCase()
-    return (quotes.data ?? []).filter(
-      (q) =>
-        (!statuses || statuses.includes(q.status)) &&
-        (!term || [q.quoteId, q.context.customerName, q.unit.unitCode, q.context.customerPhone].some((v) => v.toLowerCase().includes(term))),
-    )
-  }, [quotes.data, group, search])
-
+  const quotes = useQuotes({}, { live: true })
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Hồ sơ báo giá"
+        title="Báo giá"
         actions={
           <Button asChild>
             <Link to="/sale/quotes/new">
-              <FilePlus2 className="h-4 w-4" /> Lập báo giá
+              <FilePlus2 className="h-4 w-4" /> Báo giá khách tại sàn
             </Link>
           </Button>
         }
       />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs value={group} onValueChange={setGroup}>
-          <TabsList>
+      <QueryState query={quotes} isEmpty={(d) => d.length === 0} empty={<EmptyState icon={FileStack} title="Chưa có báo giá" />}>
+        {(data) => (
+          <Tabs defaultValue="action">
+            <TabsList className="flex-wrap">
+              {GROUPS.map((g) => (
+                <TabsTrigger key={g.key} value={g.key}>
+                  {g.label} ({filter(data, g.statuses).length})
+                </TabsTrigger>
+              ))}
+            </TabsList>
             {GROUPS.map((g) => (
-              <TabsTrigger key={g.key} value={g.key}>
-                {g.label} ({(quotes.data ?? []).filter((q) => !g.statuses || g.statuses.includes(q.status)).length})
-              </TabsTrigger>
+              <TabsContent key={g.key} value={g.key}>
+                {filter(data, g.statuses).length === 0 ? (
+                  <EmptyState title="Không có hồ sơ" />
+                ) : (
+                  <QuoteTable quotes={filter(data, g.statuses)} hrefFor={(q) => `/sale/quotes/${q.quote_id}`} />
+                )}
+              </TabsContent>
             ))}
-          </TabsList>
-        </Tabs>
-        <Input className="max-w-xs" placeholder="Tìm mã hồ sơ, khách hàng, căn hộ…" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
-      {quotes.isLoading && <LoadingState />}
-      {quotes.error && <ErrorState error={quotes.error} onRetry={() => quotes.refetch()} />}
-      {quotes.data && (filtered.length === 0 ? <EmptyState title="Không có hồ sơ phù hợp" /> : <QuoteTable quotes={filtered} hrefFor={(id) => `/sale/quotes/${id}`} />)}
+          </Tabs>
+        )}
+      </QueryState>
     </div>
   )
 }
+
+const filter = (quotes: Quote[], statuses: QuoteWorkflowStatus[] | null) => (statuses ? quotes.filter((q) => statuses.includes(q.status)) : quotes)

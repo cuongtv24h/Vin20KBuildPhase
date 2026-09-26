@@ -21,6 +21,9 @@ export function CustomerLayout() {
             <Link to="/" className="hidden rounded-md px-3 py-2 font-medium text-foreground/80 hover:text-primary sm:inline-block">
               Dự án
             </Link>
+            <Link to="/tu-van" className="rounded-md px-3 py-2 font-medium text-foreground/80 hover:text-primary">
+              Tư vấn tài chính
+            </Link>
             <a
               href={`tel:${HOTLINE.replace(/\s/g, '')}`}
               className="inline-flex items-center gap-1.5 rounded-full bg-gold px-3.5 py-2 text-xs font-semibold text-gold-foreground hover:bg-gold/90"

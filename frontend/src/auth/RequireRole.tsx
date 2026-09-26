@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { ROLE_HOME, getAccessToken, useSessionStore } from '@/auth/sessionStore'
-import type { UserRole } from '@/types/domain'
+import type { UserRole } from '@/api/contracts'
 
 /** Chặn truy cập theo vai trò: chưa đăng nhập → /login; sai vai trò → trang chủ của vai trò đó. */
 export function RequireRole({ role, children }: { role: UserRole; children: ReactNode }) {
