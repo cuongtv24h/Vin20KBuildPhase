@@ -37,12 +37,16 @@ class Settings(BaseSettings):
     fallback2_openai_base_url: str | None = None
     fallback2_model_name: str | None = None
 
-    # Database & Vector Store (pgvector)
+    # Database & Vector Store (PostgreSQL + pgvector)
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/pricepolicy_db"
-    pg_table_name: str = "policy_clauses"
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dim: int = 1536
+    pg_table_name: str = "policy_atoms"
+    embedding_model_id: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dim: int = 384
+    reranker_model_id: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_enabled: bool = True
+    reranker_top_k: int = 5
     hybrid_search_enabled: bool = True
+    coarse_top_k: int = 30
 
 
 @lru_cache
