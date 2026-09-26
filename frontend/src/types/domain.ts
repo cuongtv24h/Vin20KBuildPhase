@@ -1,12 +1,12 @@
 /**
- * Domain types cho PricePolicy AI Agent (VLandFuture).
- * Toàn bộ dữ liệu trong app này là MOCK — xem src/data/ để biết nguồn giả lập.
- * Khi nối API thật, chỉ cần thay lớp src/data/ bằng lớp gọi API cùng interface này.
+ * Domain model dùng chung giữa UI và lớp API (src/api).
+ * Tên trường và giá trị enum là hợp đồng dữ liệu với backend — đổi ở đây phải đổi cả
+ * backend (xem frontend/docs/INTEGRATION.md).
  */
 
-// ─── Trạng thái chuẩn (đặt tên đúng theo tài liệu nghiệp vụ) ───────────────
+// ─── Enum trạng thái ────────────────────────────────────────────────────────
 
-/** 6 trạng thái quyết định của một điều khoản/ưu đãi cho một giao dịch cụ thể. */
+/** Trạng thái quyết định của một điều khoản/ưu đãi đối với một giao dịch cụ thể. */
 export type PolicyDecisionStatus =
   | 'ELIGIBLE'
   | 'NOT_ELIGIBLE'
@@ -15,7 +15,7 @@ export type PolicyDecisionStatus =
   | 'EXPIRED'
   | 'PENDING_APPROVAL'
 
-/** Trạng thái vòng đời của một hồ sơ báo giá (Quote). */
+/** Vòng đời hồ sơ báo giá. Chuyển trạng thái hợp lệ: xem src/engine/workflow.ts. */
 export type WorkflowStatus =
   | 'DRAFT'
   | 'READY_FOR_REVIEW'
@@ -39,9 +39,40 @@ export type ConflictTier = 1 | 2 | 3
 
 export type RiskFlagColor = 'RED' | 'YELLOW' | 'GREEN'
 
-export type UserRole = 'SALES' | 'MANAGER' | 'ADMIN'
+/** Vai trò nhân viên nội bộ. Khách hàng không đăng nhập — truy cập qua cổng công khai. */
+export type UserRole = 'SALE' | 'SALE_ADMIN' | 'MANAGER'
 
-// ─── Căn hộ (Inventory reference — read-only) ──────────────────────────────
+export type PolicyStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+
+export type UnitStatus = 'AVAILABLE' | 'RESERVED' | 'SOLD'
+
+export type LeadStatus = 'NEW' | 'IN_PROGRESS' | 'QUOTE_SENT' | 'CUSTOMER_ACCEPTED' | 'CLOSED'
+
+export type ShareChannel = 'ZALO' | 'SMS' | 'EMAIL'
+
+export type CustomerDecision = 'ACCEPTED' | 'NEED_CONSULTATION'
+
+// ─── Người dùng nội bộ ──────────────────────────────────────────────────────
+
+export interface StaffUser {
+  userId: string
+  fullName: string
+  email: string
+  phone: string
+  role: UserRole
+  title: string
+}
+
+// ─── Dự án & căn hộ ─────────────────────────────────────────────────────────
+
+export interface Project {
+  projectId: string
+  name: string
+  location: string
+  description: string
+  handoverTime: string
+  totalUnits: number
+}
 
 export interface ApartmentUnit {
   unitCode: string
@@ -53,10 +84,10 @@ export interface ApartmentUnit {
   areaM2: number
   view: string
   listedPrice: number
-  status: 'AVAILABLE' | 'RESERVED' | 'SOLD'
+  status: UnitStatus
 }
 
-// ─── Chính sách (Policy Intelligence) ──────────────────────────────────────
+// ─── Chính sách bán hàng ───────────────────────────────────────────────────
 
 export interface SourceCoordinate {
   documentId: string
@@ -76,25 +107,22 @@ export interface PolicyRule {
   title: string
   evidenceText: string
   source: SourceCoordinate
-  /** Áp dụng cho tỷ lệ % giảm trên giá niêm yết (kind = PERCENT_DISCOUNT). */
+  /** Tỷ lệ giảm trên giá niêm yết (kind = PERCENT_DISCOUNT). */
   discountRate?: number
-  /** Giá trị quy đổi tiền mặt cho quà tặng hiện vật (kind = GIFT). */
+  /** Giá trị quy đổi tiền mặt của quà tặng (kind = GIFT). */
   cashEquivalentVnd?: number
   /** Số tháng hỗ trợ lãi suất 0% (kind = BANK_SUPPORT). */
   interestSupportMonths?: number
-  /** Phương án thanh toán mà điều khoản này có thể áp dụng. */
   applicablePlans: PaymentPlanType[]
-  /** Nếu có, chỉ áp dụng cho các phân khúc khách hàng này. */
   requiredSegments?: CustomerSegment[]
-  /** Nếu có, yêu cầu số lượng căn mua tối thiểu. */
   minUnitsPurchased?: number
-  /** Cấp 1 — Loại trừ tường minh: danh sách ruleCode không được chọn cùng lúc. */
+  /** Xung đột Cấp 1 — loại trừ tường minh. */
   mutualExclusion?: string[]
-  /** Cấp 2 — Xung đột ràng buộc điều kiện ngầm. */
+  /** Xung đột Cấp 2 — mâu thuẫn điều kiện thực thi ngầm. */
   conditionalConflict?: { ruleCode: string; reasonText: string }[]
-  /** Cấp 3 — Điều khoản mơ hồ, không đủ căn cứ để agent tự quyết. */
+  /** Xung đột Cấp 3 — điều khoản mơ hồ, cần Quản lý thẩm định. */
   isAmbiguous?: boolean
-  /** true nếu Sale phải tự chọn (checkbox); false = tự động áp dụng theo hồ sơ khách. */
+  /** true = Sale chọn thủ công; false = tự động áp dụng theo hồ sơ khách. */
   isSelectable: boolean
 }
 
@@ -103,33 +131,45 @@ export interface PolicyVersion {
   version: string
   title: string
   projectId: string
-  effectiveFrom: string // ISO date
-  effectiveTo: string // ISO date
+  status: PolicyStatus
+  effectiveFrom: string // YYYY-MM-DD
+  effectiveTo: string // YYYY-MM-DD
   sourceDocument: string
   sourceFileHash: string
+  createdAt: string
+  createdBy: string
+  publishedAt: string | null
+  publishedBy: string | null
   rules: PolicyRule[]
 }
 
-// ─── Phương án thanh toán (Cashflow schedule config) ───────────────────────
+// ─── Phương án thanh toán ──────────────────────────────────────────────────
+
+export interface PaymentMilestone {
+  label: string
+  milestone: string
+  /** Tỷ lệ trên Net Price. */
+  ratio: number
+  payer: 'CUSTOMER' | 'BANK'
+}
 
 export interface PaymentPlanConfig {
   plan: PaymentPlanType
   label: string
   description: string
   installmentsCount: number
-  /** Tỷ lệ % netPrice phải trả ở đợt 1. */
   initialPaymentRatio: number
-  /** Tỷ lệ % netPrice khách phải chi tiền mặt tính đến thời điểm bàn giao. */
   totalCashOutflowRatio: number
+  schedule: PaymentMilestone[]
 }
 
-// ─── Kết quả tính toán (Deterministic Pricing Engine output) ──────────────
+// ─── Kết quả tính toán ─────────────────────────────────────────────────────
 
 export interface RuleEvaluationResult {
   ruleCode: string
   title: string
   status: PolicyDecisionStatus
-  amountVnd: number // số tiền chiết khấu hoặc giá trị quy đổi (0 nếu không áp dụng)
+  amountVnd: number
   reasonText: string
   source: SourceCoordinate
 }
@@ -159,10 +199,9 @@ export interface RecommendationRecord {
   comparisons: { plan: PaymentPlanType; deltaLabel: string; deltaVnd: number }[]
 }
 
-// ─── Preflight / Conflict Detection ────────────────────────────────────────
+// ─── Preflight ─────────────────────────────────────────────────────────────
 
 export interface ConflictFinding {
-  /** Không áp dụng cho status = 'EXPIRED'. */
   tier?: ConflictTier
   ruleCodes: string[]
   status: 'CONFLICT' | 'AMBIGUOUS' | 'EXPIRED'
@@ -170,15 +209,24 @@ export interface ConflictFinding {
   source?: SourceCoordinate
 }
 
+export interface PolicyVersionRef {
+  policyId: string
+  version: string
+  title: string
+  effectiveFrom: string
+  effectiveTo: string
+  sourceFileHash: string
+}
+
 export interface PreflightResult {
   transactionDate: string
-  activePolicy: PolicyVersion | null
+  activePolicy: PolicyVersionRef | null
   expired: boolean
   findings: ConflictFinding[]
   hasBlockingIssue: boolean
 }
 
-// ─── Transaction Context (input của Sales Copilot) ─────────────────────────
+// ─── Đầu vào phân tích báo giá ─────────────────────────────────────────────
 
 export interface TransactionContext {
   unitCode: string
@@ -188,10 +236,28 @@ export interface TransactionContext {
   selectedRuleCodes: string[]
   objective: OptimizationObjective
   customerName: string
-  salesRepName: string
+  customerPhone: string
 }
 
-// ─── Quote (Hồ sơ báo giá — Commercial Quote) ──────────────────────────────
+// ─── Khách hàng tiềm năng (Pre-sale) ───────────────────────────────────────
+
+export interface Lead {
+  leadId: string
+  createdAt: string
+  updatedAt: string
+  fullName: string
+  phone: string
+  email: string
+  unitCode: string
+  customerSegment: CustomerSegment
+  objective: OptimizationObjective
+  note: string
+  status: LeadStatus
+  assignedSaleId: string | null
+  assignedSaleName: string | null
+}
+
+// ─── Hồ sơ báo giá ─────────────────────────────────────────────────────────
 
 export interface RiskFlag {
   color: RiskFlagColor
@@ -208,16 +274,55 @@ export interface ApprovalRecord {
   signatureHex?: string
 }
 
+export type QuoteEventType =
+  | 'CREATED'
+  | 'REVISED'
+  | 'SUBMITTED'
+  | 'ESCALATED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'REVISION_REQUESTED'
+  | 'SHARED'
+  | 'CUSTOMER_VIEWED'
+  | 'CUSTOMER_RESPONDED'
+
+export interface QuoteEvent {
+  eventId: string
+  type: QuoteEventType
+  at: string
+  version: number
+  actorName: string
+  actorRole: UserRole | 'CUSTOMER' | 'SYSTEM'
+  note?: string
+}
+
+export interface CustomerResponse {
+  decision: CustomerDecision
+  note: string
+  preferredAppointment: string | null
+  at: string
+}
+
+export interface QuoteDistribution {
+  shareToken: string
+  channel: ShareChannel
+  sharedAt: string
+  sharedBy: string
+  expiresAt: string
+  viewedAt: string | null
+  customerResponse: CustomerResponse | null
+}
+
 export interface PolicySnapshot {
   quoteId: string
+  version: number
   snapshotTimestamp: string
-  snapshotHash: string
   unit: ApartmentUnit
   context: TransactionContext
-  policyVersion: { policyId: string; version: string; effectiveFrom: string; effectiveTo: string; sourceFileHash: string }
+  policyVersion: PolicyVersionRef | null
   scenarios: CalculationResult[]
   recommendation: RecommendationRecord | null
-  approval: ApprovalRecord | null
+  approval: Omit<ApprovalRecord, 'signatureHex'>
 }
 
 export interface Quote {
@@ -226,6 +331,9 @@ export interface Quote {
   status: WorkflowStatus
   createdAt: string
   updatedAt: string
+  ownerId: string
+  ownerName: string
+  leadId: string | null
   context: TransactionContext
   unit: ApartmentUnit
   preflight: PreflightResult | null
@@ -233,11 +341,13 @@ export interface Quote {
   recommendation: RecommendationRecord | null
   riskFlag: RiskFlag
   approval: ApprovalRecord | null
+  snapshot: PolicySnapshot | null
   snapshotHash: string | null
-  demoScenarioTag?: string
+  distribution: QuoteDistribution | null
+  history: QuoteEvent[]
 }
 
-// ─── Benchmark ──────────────────────────────────────────────────────────
+// ─── Kiểm thử công thức ────────────────────────────────────────────────────
 
 export interface BenchmarkCase {
   id: string

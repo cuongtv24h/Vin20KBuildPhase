@@ -1,8 +1,8 @@
-import { PAYMENT_PLANS_MOCK } from '@/data/plans.mock'
 import type {
   ApartmentUnit,
   CalculationResult,
   CustomerSegment,
+  PaymentPlanConfig,
   PolicyVersion,
   RuleEvaluationResult,
 } from '@/types/domain'
@@ -106,6 +106,7 @@ export function validatePricingResult(output: NetPriceOutput): ValidationResult 
 export interface ComputeScenariosParams {
   unit: ApartmentUnit
   policy: PolicyVersion
+  plans: PaymentPlanConfig[]
   selectedRuleCodes: string[]
   customerSegment: CustomerSegment
   unitsQuantity: number
@@ -118,10 +119,10 @@ export interface ComputeScenariosParams {
  * số học đi qua calculateNetPrice()/validatePricingResult() ở trên.
  */
 export function computeScenarios(params: ComputeScenariosParams): CalculationResult[] {
-  const { unit, policy, selectedRuleCodes, customerSegment, unitsQuantity } = params
+  const { unit, policy, plans, selectedRuleCodes, customerSegment, unitsQuantity } = params
   const selectedSet = new Set(selectedRuleCodes)
 
-  return PAYMENT_PLANS_MOCK.map((planConfig) => {
+  return plans.map((planConfig) => {
     const applicableRules = policy.rules.filter((r) => r.applicablePlans.includes(planConfig.plan))
     const ruleBreakdown: RuleEvaluationResult[] = []
     const eligibleRates: number[] = []

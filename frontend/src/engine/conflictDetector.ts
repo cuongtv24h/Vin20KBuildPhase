@@ -1,29 +1,39 @@
-import { getPolicyForDate } from '@/data/policies.mock'
-import type {
-  ApartmentUnit,
-  ConflictFinding,
-  CustomerSegment,
-  PolicyRule,
-  PreflightResult,
-} from '@/types/domain'
+import type { ConflictFinding, PolicyRule, PolicyVersion, PolicyVersionRef, PreflightResult } from '@/types/domain'
 
 export interface PreflightParams {
-  unit: ApartmentUnit
+  projectName: string
   transactionDate: string
-  customerSegment: CustomerSegment
-  unitsQuantity: number
+  /** Phiên bản chính sách PUBLISHED có hiệu lực tại ngày giao dịch (null nếu không có). */
+  activePolicy: PolicyVersion | null
   selectedRuleCodes: string[]
 }
 
+export function toPolicyRef(policy: PolicyVersion): PolicyVersionRef {
+  return {
+    policyId: policy.policyId,
+    version: policy.version,
+    title: policy.title,
+    effectiveFrom: policy.effectiveFrom,
+    effectiveTo: policy.effectiveTo,
+    sourceFileHash: policy.sourceFileHash,
+  }
+}
+
+/** Time-Travel: chọn phiên bản PUBLISHED có dải hiệu lực bao trùm ngày giao dịch. */
+export function selectPolicyForDate(policies: PolicyVersion[], projectId: string, date: string): PolicyVersion | null {
+  return (
+    policies.find(
+      (p) => p.status === 'PUBLISHED' && p.projectId === projectId && date >= p.effectiveFrom && date <= p.effectiveTo,
+    ) ?? null
+  )
+}
+
 /**
- * Cửa kiểm soát Xung đột (Conflict Gate) + Time-Travel Policy Selector.
- * Chạy TRƯỚC khi tính toán — nếu phát hiện EXPIRED / CONFLICT (Cấp 1, 2) / AMBIGUOUS
- * (Cấp 3) trong tập ưu đãi Sale đã chọn, toàn bộ luồng tính toán bị chặn (Safe
- * Abstention Gate — Vùng 3 theo Decision Boundary của PRD §5).
+ * Conflict Gate — chạy TRƯỚC khi tính toán. Nếu phát hiện EXPIRED / CONFLICT (Cấp 1, 2) /
+ * AMBIGUOUS (Cấp 3) trong tập ưu đãi đã chọn, luồng tính toán bị chặn (Safe Abstention).
  */
 export function runPreflight(params: PreflightParams): PreflightResult {
-  const { unit, transactionDate, selectedRuleCodes } = params
-  const activePolicy = getPolicyForDate(unit.projectId, transactionDate)
+  const { projectName, transactionDate, activePolicy, selectedRuleCodes } = params
   const findings: ConflictFinding[] = []
 
   if (!activePolicy) {
@@ -36,7 +46,7 @@ export function runPreflight(params: PreflightParams): PreflightResult {
         {
           status: 'EXPIRED',
           ruleCodes: [],
-          message: `Không tìm thấy văn bản chính sách nào của dự án "${unit.projectName}" còn hiệu lực tại ngày giao dịch ${transactionDate}. Hệ thống từ chối tự suy đoán chính sách áp dụng.`,
+          message: `Không có văn bản chính sách nào của dự án "${projectName}" còn hiệu lực tại ngày giao dịch ${transactionDate}.`,
         },
       ],
     }
@@ -53,49 +63,49 @@ export function runPreflight(params: PreflightParams): PreflightResult {
         tier: 3,
         status: 'AMBIGUOUS',
         ruleCodes: [code],
-        message: `Điều khoản "${rule.title}" (${rule.source.clauseTitle}) dùng từ ngữ mở, không quy định rõ ràng cách thức áp dụng. Agent từ chối tự suy diễn mức ưu đãi.`,
+        message: `Điều khoản "${rule.title}" (${rule.source.clauseTitle}) không quy định rõ mức và cách thức áp dụng — cần Quản lý thẩm định.`,
         source: rule.source,
       })
     }
   }
 
-  // Cấp 1 — Loại trừ tường minh (Explicit Exclusion)
-  const seenPairs = new Set<string>()
+  // Cấp 1 — Loại trừ tường minh
+  const seenTier1 = new Set<string>()
   for (const code of selectedRuleCodes) {
     const rule = rulesByCode.get(code)
     if (!rule?.mutualExclusion) continue
     for (const otherCode of rule.mutualExclusion) {
       if (!selectedSet.has(otherCode)) continue
       const pairKey = [code, otherCode].sort().join('::')
-      if (seenPairs.has(pairKey)) continue
-      seenPairs.add(pairKey)
+      if (seenTier1.has(pairKey)) continue
+      seenTier1.add(pairKey)
       const other = rulesByCode.get(otherCode)
       findings.push({
         tier: 1,
         status: 'CONFLICT',
         ruleCodes: [code, otherCode],
-        message: `"${rule.title}" và "${other?.title ?? otherCode}" bị loại trừ tường minh lẫn nhau theo ${rule.source.clauseTitle}. Không được phép cộng dồn đồng thời.`,
+        message: `"${rule.title}" và "${other?.title ?? otherCode}" bị loại trừ lẫn nhau theo ${rule.source.clauseTitle}, không được áp dụng đồng thời.`,
         source: rule.source,
       })
     }
   }
 
-  // Cấp 2 — Xung đột ràng buộc điều kiện ngầm (Conditional Conflict)
-  const seenPairsTier2 = new Set<string>()
+  // Cấp 2 — Mâu thuẫn điều kiện thực thi
+  const seenTier2 = new Set<string>()
   for (const code of selectedRuleCodes) {
     const rule = rulesByCode.get(code)
     if (!rule?.conditionalConflict) continue
     for (const conflict of rule.conditionalConflict) {
       if (!selectedSet.has(conflict.ruleCode)) continue
       const pairKey = [code, conflict.ruleCode].sort().join('::')
-      if (seenPairsTier2.has(pairKey)) continue
-      seenPairsTier2.add(pairKey)
+      if (seenTier2.has(pairKey)) continue
+      seenTier2.add(pairKey)
       const other = rulesByCode.get(conflict.ruleCode)
       findings.push({
         tier: 2,
         status: 'CONFLICT',
         ruleCodes: [code, conflict.ruleCode],
-        message: `"${rule.title}" và "${other?.title ?? conflict.ruleCode}" mâu thuẫn điều kiện thực thi ngầm: ${conflict.reasonText}`,
+        message: `"${rule.title}" và "${other?.title ?? conflict.ruleCode}" mâu thuẫn điều kiện thực thi: ${conflict.reasonText}`,
         source: rule.source,
       })
     }
@@ -103,7 +113,7 @@ export function runPreflight(params: PreflightParams): PreflightResult {
 
   return {
     transactionDate,
-    activePolicy,
+    activePolicy: toPolicyRef(activePolicy),
     expired: false,
     findings,
     hasBlockingIssue: findings.length > 0,

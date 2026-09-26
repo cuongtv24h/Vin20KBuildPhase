@@ -41,3 +41,24 @@ export function truncateHash(hash: string, visible = 10): string {
   if (hash.length <= visible * 2) return hash
   return `${hash.slice(0, visible)}…${hash.slice(-visible)}`
 }
+
+/** Ngày hiện tại theo giờ địa phương, định dạng YYYY-MM-DD (dùng làm ngày giao dịch mặc định). */
+export function todayIso(date: Date = new Date()): string {
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+/** "2 giờ trước", "3 ngày trước"... */
+export function formatRelative(isoDate: string, now: Date = new Date()): string {
+  const diffMs = now.getTime() - new Date(isoDate).getTime()
+  const minutes = Math.round(diffMs / 60_000)
+  if (minutes < 1) return 'vừa xong'
+  if (minutes < 60) return `${minutes} phút trước`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} giờ trước`
+  const days = Math.round(hours / 24)
+  if (days < 30) return `${days} ngày trước`
+  return formatDate(isoDate)
+}

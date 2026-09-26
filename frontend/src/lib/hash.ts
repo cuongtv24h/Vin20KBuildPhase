@@ -31,25 +31,10 @@ export async function sha256Hex(content: string): Promise<string> {
   return bytes.map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/**
- * Sinh lưới ô vuông minh hoạ (không phải QR quét được thật) từ chuỗi hash hex,
- * dùng để trực quan hoá tính duy nhất/tất định của mã băm trên UI.
- */
-export function hashToGrid(hex: string, size = 12): boolean[][] {
-  const bits: number[] = []
-  for (const ch of hex) {
-    const v = Number.parseInt(ch, 16)
-    for (let b = 3; b >= 0; b--) bits.push((v >> b) & 1)
-  }
-  const grid: boolean[][] = []
-  let cursor = 0
-  for (let row = 0; row < size; row++) {
-    const line: boolean[] = []
-    for (let col = 0; col < size; col++) {
-      line.push(Boolean(bits[cursor % bits.length]))
-      cursor++
-    }
-    grid.push(line)
-  }
-  return grid
+/** SHA-256 của nội dung nhị phân (dùng khi Admin Sale tải lên văn bản chính sách gốc). */
+export async function sha256HexOfBuffer(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', buffer)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
 }
