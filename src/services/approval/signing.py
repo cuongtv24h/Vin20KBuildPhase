@@ -16,6 +16,8 @@ from pydantic import BaseModel
 
 from src.contracts.common import canonical_json_bytes, sha256_hex
 
+_process_ephemeral_key: ed25519.Ed25519PrivateKey | None = None
+
 
 class KMSServerSigner:
     """
@@ -37,6 +39,8 @@ class KMSServerSigner:
         import logging
         import os
 
+        global _process_ephemeral_key
+
         if private_key_bytes:
             self._private_key = ed25519.Ed25519PrivateKey.from_private_bytes(private_key_bytes)
         else:
@@ -45,12 +49,14 @@ class KMSServerSigner:
                 seed_bytes = bytes.fromhex(seed_hex)
                 self._private_key = ed25519.Ed25519PrivateKey.from_private_bytes(seed_bytes)
             else:
-                logging.getLogger(__name__).warning(
-                    "KMS_ED25519_SEED not set — generating ephemeral Ed25519 key pair. "
-                    "Signatures will NOT be verifiable across restarts. "
-                    "Set KMS_ED25519_SEED (64 hex chars) for production use."
-                )
-                self._private_key = ed25519.Ed25519PrivateKey.generate()
+                if _process_ephemeral_key is None:
+                    logging.getLogger(__name__).warning(
+                        "KMS_ED25519_SEED not set — generating ephemeral Ed25519 key pair. "
+                        "Signatures will NOT be verifiable across restarts. "
+                        "Set KMS_ED25519_SEED (64 hex chars) for production use."
+                    )
+                    _process_ephemeral_key = ed25519.Ed25519PrivateKey.generate()
+                self._private_key = _process_ephemeral_key
         self._public_key = self._private_key.public_key()
 
     def get_public_key_raw_bytes(self) -> bytes:

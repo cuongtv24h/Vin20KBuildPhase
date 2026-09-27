@@ -19,6 +19,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import (
@@ -249,8 +250,10 @@ async def calculate_quote(
     # Fetch latest snapshot to get financial inputs if available
     latest_snapshot = await QuoteRepository.get_snapshot(db, quote.quote_id, quote.quote_version)
     snap_payload = latest_snapshot.payload_json if latest_snapshot and latest_snapshot.payload_json else {}
-
-    price = quote.total_contract_price_vnd or snap_payload.get("listed_price_before_tax_vnd", 1_000_000_000)
+    if quote.total_contract_price_vnd is not None:
+        price = quote.total_contract_price_vnd
+    else:
+        price = snap_payload.get("listed_price_before_tax_vnd", 1_000_000_000)
     own_funds = snap_payload.get("own_funds_vnd", int(price * 0.3))
     monthly_cap = snap_payload.get("monthly_capacity_vnd", 50_000_000)
 
@@ -472,7 +475,7 @@ async def get_quote_audit_trail(
         for e in events
     ]
 
-    is_valid, msg = await AuditChainVerifier().verify_chain_integrity(db, quote_id)
+    is_valid, msg = await AuditChainVerifier().verify_chain_integrity(db, quote_id, events=events)
     tamper_details = None if is_valid else msg
 
     return {
@@ -513,13 +516,21 @@ async def verify_quote_signature(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     """12. Public Signature Verification (Zero-Trust RFC 8032 Ed25519)."""
-    quote = await QuoteRepository.get_by_id(db, quote_id, "DEFAULT")
+    stmt = select(QuoteModel).where(QuoteModel.quote_id == quote_id)
+    quote = (await db.execute(stmt)).scalars().first()
     if not quote or not quote.signature or not quote.snapshot_hash:
         return {
             "quote_id": quote_id,
+            "verified": False,
             "is_valid": False,
             "error": "Quote not signed or not found.",
         }
+
+    signer = KMSServerSigner()
+    is_valid = signer.verify_signature(
+        snapshot_hash=quote.snapshot_hash,
+        signature_base64=quote.signature,
+    )
 
     return {
         "quote_id": quote_id,
@@ -527,6 +538,8 @@ async def verify_quote_signature(
         "status": quote.status,
         "snapshot_hash": quote.snapshot_hash,
         "signature": quote.signature,
-        "verified": True,
+        "verified": is_valid,
+        "algorithm": "Ed25519",
         "signer_authority": "VLandFuture Ed25519 Root Authority",
     }
+

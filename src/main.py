@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -12,6 +13,8 @@ from src.api.routes import router
 from src.config import get_settings
 from src.contracts.errors import DomainError, current_correlation_id
 from src.orchestrator.checkpointer import CheckpointManager, configure_app_checkpointer
+
+logger = logging.getLogger(__name__)
 
 
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
@@ -71,6 +74,12 @@ async def lifespan(app: FastAPI):
         app.state.checkpointer = saver
         app.state.checkpoint_manager = manager
         print("Checkpointing: AsyncPostgresSaver (persistent) enabled")
+    elif settings.checkpoint_db_uri and not settings.use_postgres_checkpointer:
+        logger.warning(
+            "CHECKPOINT_DB_URI is configured but USE_POSTGRES_CHECKPOINTER is false. "
+            "Persistent checkpointing is DISABLED. Operating with in-memory MemorySaver."
+        )
+        print("Checkpointing: MemorySaver (in-memory) — dùng cho dev/test offline")
     else:
         if settings.app_env == "production":
             print(

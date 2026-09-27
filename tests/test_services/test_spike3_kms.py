@@ -137,3 +137,14 @@ async def test_atomic_approval_lifecycle() -> None:
         assert outbox_items[0].aggregate_id == "Q-TEST-001"
         assert outbox_items[0].event_type == "OFFICIAL_QUOTE_ISSUED"
         assert outbox_items[0].status == "PENDING"
+
+        # Verify: Cannot reject an already APPROVED quote
+        with pytest.raises(DomainError) as exc_rej:
+            await service.execute_rejection(
+                db_session=session,
+                quote_id="Q-TEST-001",
+                approver_id="manager_carol",
+                reason="Changed mind after approval",
+            )
+        assert exc_rej.value.error_code == ErrorCode.INVALID_STATE_TRANSITION
+

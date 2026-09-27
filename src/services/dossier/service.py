@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.contracts.common import mask_phone
 from src.contracts.dossier import LeadTemperature
 from src.contracts.enums import LeadDossierStatus, PreSalesSessionStatus
 from src.contracts.errors import DomainError, ErrorCode
@@ -31,14 +32,6 @@ SESSION_TTL_SECONDS = 1800  # TTL phiên chat Pre-Sales (30 phút)
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
-
-
-def mask_phone(phone: str) -> str:
-    """Che số điện thoại bảo mật: giữ 2 số đầu + 4 số cuối."""
-    phone = (phone or "").strip()
-    if len(phone) >= 6:
-        return phone[:2] + "*" * (len(phone) - 6) + phone[-4:]
-    return "*" * len(phone)
 
 
 def classify_lead_temperature(own_funds_vnd: int, total_contract_price_vnd: int) -> LeadTemperature:

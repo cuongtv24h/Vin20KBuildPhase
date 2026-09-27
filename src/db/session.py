@@ -44,3 +44,12 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             yield session
         finally:
             await session.close()
+
+
+async def init_db() -> None:
+    """Khởi tạo toàn bộ schema cơ sở dữ liệu (drop & create all)."""
+    from src.db.models import Base
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+

@@ -72,6 +72,7 @@ def rank_scenarios_by_objective(
             "rank": rank,
             "scenario_code": sc.scenario_code.value,
             "scenario_name": sc.scenario_name,
+            "total_contract_price_vnd": sc.total_contract_price_vnd,
             "net_price_vnd": sc.net_price_vnd,
             "initial_cash_outflow_vnd": sc.initial_cash_outflow_vnd,
             "monthly_burden_vnd": sc.monthly_burden_vnd,

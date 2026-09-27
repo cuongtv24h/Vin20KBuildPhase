@@ -12,6 +12,7 @@ Designed to be platform-agnostic:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import socket
@@ -72,17 +73,17 @@ class PricingClient:
         """
         if not self.force_mock:
             try:
-                result = await self._call_uds(pricing_input)
-                if result is not None:
-                    return result
+                sidecar_res = await asyncio.to_thread(self._sync_call_uds_sidecar, pricing_input)
+                if sidecar_res is not None:
+                    return sidecar_res
             except Exception:
                 # Socket offline or unsupported on current OS -> fallback to in-process math
                 pass
 
         return self._calculate_deterministic(pricing_input)
 
-    async def _call_uds(self, pricing_input: PricingInput) -> PricingResult | None:
-        """Attempt to call the Pricing Sidecar via Unix Domain Socket."""
+    def _sync_call_uds_sidecar(self, pricing_input: PricingInput) -> PricingResult | None:
+        """Attempt to call the Pricing Sidecar via Unix Domain Socket synchronously in a worker thread."""
         if not hasattr(socket, "AF_UNIX"):
             return None
 
@@ -115,6 +116,11 @@ class PricingClient:
             return PricingResult(**raw_dict)
         finally:
             sock.close()
+
+    async def _call_uds(self, pricing_input: PricingInput) -> PricingResult | None:
+        """Async wrapper for backward compatibility."""
+        return await asyncio.to_thread(self._sync_call_uds_sidecar, pricing_input)
+
 
     def _calculate_deterministic(self, pricing_input: PricingInput) -> PricingResult:
         """
