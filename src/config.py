@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./data/app.db"
 
+    # LangGraph persistent checkpointing (INV-RT-04 — Spike 2)
+    # CHECKPOINT_DB_URI: DSN psycopg (postgresql://) cho AsyncPostgresSaver.
+    # Trống => CheckpointManager chỉ có MemorySaver (test/dev offline).
+    checkpoint_db_uri: str | None = None
+    # USE_POSTGRES_CHECKPOINTER: opt-in tường minh — khi false (mặc định)
+    # app chạy MemorySaver ngay cả khi CHECKPOINT_DB_URI đã cấu hình.
+    use_postgres_checkpointer: bool = False
+
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
 

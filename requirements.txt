@@ -16,10 +16,13 @@ sse-starlette>=2.1.0  # C-01/C-09: SSE stream (quotes/pre-sales events, Last-Eve
 langchain>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0  # Spike 2: AsyncPostgresSaver persistent checkpointing
 
 # ---- Persistence: Supabase PostgreSQL 16 + pgvector (TD-4.2 — C-02/C-03/C-07) ----
 sqlalchemy[asyncio]>=2.0.36  # async engine + AsyncPostgresSaver checkpoint (Spike 2)
+aiosqlite>=0.20.0  # async SQLite driver cho dev/test offline (Spike 2)
 asyncpg>=0.30.0  # driver PostgreSQL async (quản lý connection pool)
+psycopg[binary,pool]>=3.2.0  # driver sync/pool cho LangGraph AsyncPostgresSaver
 alembic>=1.14.0  # migration schema (src/db/migrations/)
 pgvector>=0.3.6  # dtype vector cho time-travel semantic search (HNSW, 1536 dims)
 
@@ -28,6 +31,7 @@ redis>=5.2.0
 arq>=0.26.1  # task queue bất đồng bộ (src/worker/)
 
 # ---- Bảo mật & Ký số (C-05: HITL Ed25519 — RFC 8032) ----
+cryptography>=42.0.0  # Spike 3: Ed25519 asymmetric signing & verification
 pynacl>=1.5.0  # Ed25519 verify/dev-sign; production ký qua KMS server (SIGNING_KMS_URL)
 
 # ---- PDF Báo giá (worker: render + mã QR kiểm thực độc lập) ----
