@@ -22,7 +22,9 @@ import type {
   Quote,
   QuoteAccepted,
   QuoteAudit,
+  QuoteCreatePayload,
   QuoteCreateRequest,
+  QuoteCreateResult,
   QuoteEvidence,
   QuoteListParams,
   QuotePdf,
@@ -34,6 +36,7 @@ import type {
 } from './contracts'
 import { buildPath, ENDPOINTS, type EndpointName } from './endpoints'
 import { http, type HttpRequest } from './http'
+import { normalizeQuote } from './normalizeQuote'
 
 /** Tuỳ chọn cho lệnh ghi: khoá idempotency ổn định (hook giữ qua các lần retry) + OCC. */
 export interface CommandOptions {
@@ -68,10 +71,25 @@ export const api = {
   },
 
   quotes: {
-    list: (params: QuoteListParams = {}) =>
-      call<Quote[]>('quoteList', {}, { query: { status: params.status?.join(','), source_dossier_id: params.source_dossier_id } }),
-    get: (quoteId: string, version?: number) => call<Quote>('quoteDetail', { quote_id: quoteId }, { query: { version } }),
-    create: (body: QuoteCreateRequest, o: CommandOptions = {}) => call<QuoteAccepted>('quoteCreate', {}, { json: body, ...o }),
+    /**
+     * Backend thật trả `{ total, limit, offset, items }` (không phải mảng trần) và mỗi item ở
+     * dạng phẳng — chuẩn hoá qua `normalizeQuote` để khớp shape `Quote[]` các màn hình đang dùng.
+     */
+    list: async (params: QuoteListParams = {}) => {
+      const res = await call<Quote[] | { items: Record<string, unknown>[] }>(
+        'quoteList',
+        {},
+        { query: { status: params.status?.join(','), source_dossier_id: params.source_dossier_id } },
+      )
+      const items = Array.isArray(res) ? res : res.items
+      return items.map((q) => normalizeQuote(q as unknown as Record<string, unknown>))
+    },
+    get: async (quoteId: string, version?: number) => {
+      const res = await call<Record<string, unknown>>('quoteDetail', { quote_id: quoteId }, { query: { version } })
+      return normalizeQuote(res)
+    },
+    /** POST /api/v1/quotes thật — đồng bộ, trả về hồ sơ đầy đủ ngay (không phải 202 + SSE). */
+    create: (body: QuoteCreatePayload, o: CommandOptions = {}) => call<QuoteCreateResult>('quoteCreate', {}, { json: body, ...o }),
     newVersion: (quoteId: string, body: QuoteCreateRequest, o: VersionedCommandOptions) =>
       call<QuoteAccepted>('quoteNewVersion', { quote_id: quoteId }, { json: body, idempotencyKey: o.idempotencyKey, ifMatchVersion: o.expectedVersion }),
     submit: (quoteId: string, o: VersionedCommandOptions) =>

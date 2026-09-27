@@ -298,6 +298,43 @@ export interface QuoteAccepted {
   stream_url: string
 }
 
+/**
+ * Body thật của POST /api/v1/quotes (FastAPI `CreateQuoteRequest`, src/api/endpoints/quotes.py).
+ * KHÔNG dùng chung shape với `TransactionContext` (đề xuất cũ, chưa khớp backend hiện có).
+ */
+export type BackendObjective = 'MIN_NET_PRICE' | 'MIN_INITIAL_CASH' | 'MIN_MONTHLY_BURDEN' | 'MIN_TOTAL_CASH_OUTFLOW' | 'MAX_BENEFIT_VALUE' | 'EARLY_HANDOVER'
+
+export interface QuoteCreatePayload {
+  project_id: string
+  unit_code: string
+  listed_price_before_tax_vnd: number
+  deposit_amount_vnd?: number
+  own_funds_vnd?: number
+  monthly_capacity_vnd?: number
+  objective?: BackendObjective
+  tenant_id?: string
+}
+
+/** Response thật của POST/GET /api/v1/quotes (đồng bộ, 201) — không có scenarios/stream_url. */
+export interface QuoteCreateResult {
+  quote_id: string
+  tenant_id: string
+  quote_version: number
+  status: string
+  approval_status: string
+  pdf_status: string | null
+  unit_code: string
+  total_contract_price_vnd: number | null
+  signature: string | null
+  snapshot_hash: string | null
+  pdf_url: string | null
+  created_by: string
+  approved_by: string | null
+  created_at: string | null
+  updated_at: string | null
+  snapshot_payload: Record<string, unknown> | null
+}
+
 /** TD-4.1 §3.1 abstention (FC-02/07/09, AC-RT-02). */
 export interface Abstention {
   reason_code: ErrorCode

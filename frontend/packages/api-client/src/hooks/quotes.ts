@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../client'
-import type { PdfStatus, Quote, QuoteCreateRequest, QuoteListParams } from '../contracts'
+import type { PdfStatus, Quote, QuoteCreatePayload, QuoteCreateRequest, QuoteListParams } from '../contracts'
 import { isStaleVersion } from '../errors'
 import { queryKeys, useCommand } from './core'
 
@@ -47,7 +47,7 @@ export const useQuotePdf = (quoteId: string | undefined, enabled: boolean) =>
 const quoteInvalidations = (quoteId: string) => [queryKeys.quoteRoot(quoteId), ['quotes', 'list'], queryKeys.audit(quoteId), ['leads']]
 
 export const useCreateQuote = () =>
-  useCommand((body: QuoteCreateRequest, key) => api.quotes.create(body, { idempotencyKey: key }), {
+  useCommand((body: QuoteCreatePayload, key) => api.quotes.create(body, { idempotencyKey: key }), {
     invalidate: () => [['quotes', 'list']],
   })
 
