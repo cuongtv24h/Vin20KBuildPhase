@@ -44,19 +44,31 @@ class TestScenarioTypeEnum:
 
 
 class TestOptimizationObjectiveEnum:
-    """Verify 5 business optimization objectives."""
+    """Verify Canonical 6 business optimization objectives (PRD v2.4 / TD-4.3 / ADR-021)."""
 
     def test_objectives_count_and_values(self):
-        assert len(OptimizationObjective) == 5
+        assert len(OptimizationObjective) == 6
         expected = {
             "MIN_NET_PRICE",
-            "MIN_CONTRACT_PRICE",
-            "MIN_INITIAL_OUTFLOW",
-            "MIN_CASH_OUTFLOW_TO_HANDOVER",
+            "MIN_INITIAL_CASH",
+            "MIN_MONTHLY_BURDEN",
+            "MIN_TOTAL_CASH_OUTFLOW",
             "MAX_BENEFIT_VALUE",
+            "EARLY_HANDOVER",
         }
         actual = {obj.value for obj in OptimizationObjective}
         assert actual == expected
+
+    def test_backward_compatibility_aliases(self):
+        # Attribute-level aliases
+        assert OptimizationObjective.MIN_INITIAL_OUTFLOW == OptimizationObjective.MIN_INITIAL_CASH
+        assert OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER == OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW
+        assert OptimizationObjective.MIN_CONTRACT_PRICE == OptimizationObjective.MIN_NET_PRICE
+
+        # Value-level lookup aliases via _missing_
+        assert OptimizationObjective("MIN_INITIAL_OUTFLOW") == OptimizationObjective.MIN_INITIAL_CASH
+        assert OptimizationObjective("MIN_CASH_OUTFLOW_TO_HANDOVER") == OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW
+        assert OptimizationObjective("MIN_CONTRACT_PRICE") == OptimizationObjective.MIN_NET_PRICE
 
     def test_string_representation(self):
         for obj in OptimizationObjective:

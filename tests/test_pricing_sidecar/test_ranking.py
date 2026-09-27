@@ -88,53 +88,72 @@ class TestObjectiveRanking:
         assert ranked[1].scenario_type == ScenarioType.STANDARD_PROGRESS
         assert ranked[2].scenario_type == ScenarioType.BANK_LOAN_HTLS
 
-    def test_rank_min_contract_price(self, standard_canonical_suite: list[ScenarioCalculationResult]) -> None:
-        result = recommend_best_scenario(
-            scenarios=standard_canonical_suite,
-            objective=OptimizationObjective.MIN_CONTRACT_PRICE,
-        )
-        assert result.recommended_scenario == ScenarioType.EARLY_95
-        assert result.selected_objective == OptimizationObjective.MIN_CONTRACT_PRICE
-
-        ranked = rank_scenarios_by_objective(standard_canonical_suite, OptimizationObjective.MIN_CONTRACT_PRICE)
-        assert ranked[0].final_contract_price == 3_606_400_000
-        assert ranked[1].final_contract_price == 3_920_000_000
-
-    def test_rank_min_initial_outflow(self, standard_canonical_suite: list[ScenarioCalculationResult]) -> None:
+    def test_rank_min_initial_cash(self, standard_canonical_suite: list[ScenarioCalculationResult]) -> None:
         # Both PA-CHUDONG and PA-VAY have initial cash outflow = 577,500,000 VND
         # PA-NHANH has initial cash outflow = 3,364,900,000 VND
         result = recommend_best_scenario(
             scenarios=standard_canonical_suite,
-            objective=OptimizationObjective.MIN_INITIAL_OUTFLOW,
+            objective=OptimizationObjective.MIN_INITIAL_CASH,
         )
         # Winner must be PA-CHUDONG due to tie-break canonical order 1 vs 3
         assert result.recommended_scenario == ScenarioType.STANDARD_PROGRESS
         assert result.is_tie_break_applied is True
         assert result.tiebreak_rule_id == TIEBREAK_RULE_CANONICAL_ORDER
 
-        ranked = rank_scenarios_by_objective(standard_canonical_suite, OptimizationObjective.MIN_INITIAL_OUTFLOW)
+        ranked = rank_scenarios_by_objective(standard_canonical_suite, OptimizationObjective.MIN_INITIAL_CASH)
         assert ranked[0].scenario_type == ScenarioType.STANDARD_PROGRESS
         assert ranked[1].scenario_type == ScenarioType.BANK_LOAN_HTLS
         assert ranked[2].scenario_type == ScenarioType.EARLY_95
 
-    def test_rank_min_cash_outflow_to_handover(self, standard_canonical_suite: list[ScenarioCalculationResult]) -> None:
-        # PA-VAY customer cash outflow until handover = 1,246,000,000 VND (30% equity + 2% kpbt)
-        # PA-NHANH = 3,606,400,000 VND
-        # PA-CHUDONG = 3,724,000,000 VND (100% equity prior to recon + 2% kpbt)
+    def test_rank_min_monthly_burden(self, standard_canonical_suite: list[ScenarioCalculationResult]) -> None:
+        # PA-VAY monthly burden is lowest (172,083,333 VND/tháng over 6 months to handover)
+        # PA-CHUDONG = 248,500,000 VND/tháng over 15 months to handover
+        # PA-NHANH = 571,550,000 VND/tháng over 6 months to handover
         result = recommend_best_scenario(
             scenarios=standard_canonical_suite,
-            objective=OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER,
+            objective=OptimizationObjective.MIN_MONTHLY_BURDEN,
+        )
+        assert result.recommended_scenario == ScenarioType.BANK_LOAN_HTLS
+        assert result.is_tie_break_applied is False
+        assert result.selected_objective == OptimizationObjective.MIN_MONTHLY_BURDEN
+
+        ranked = rank_scenarios_by_objective(standard_canonical_suite, OptimizationObjective.MIN_MONTHLY_BURDEN)
+        assert ranked[0].scenario_type == ScenarioType.BANK_LOAN_HTLS
+        assert ranked[1].scenario_type == ScenarioType.STANDARD_PROGRESS
+        assert ranked[2].scenario_type == ScenarioType.EARLY_95
+
+    def test_rank_min_total_cash_outflow(self, standard_canonical_suite: list[ScenarioCalculationResult]) -> None:
+        result = recommend_best_scenario(
+            scenarios=standard_canonical_suite,
+            objective=OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW,
         )
         assert result.recommended_scenario == ScenarioType.BANK_LOAN_HTLS
         assert result.is_tie_break_applied is False
 
         ranked = rank_scenarios_by_objective(
             standard_canonical_suite,
-            OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER,
+            OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW,
         )
         assert ranked[0].scenario_type == ScenarioType.BANK_LOAN_HTLS
         assert ranked[0].customer_cash_outflow_until_handover == 1_032_500_000
         assert ranked[1].scenario_type == ScenarioType.EARLY_95
+        assert ranked[2].scenario_type == ScenarioType.STANDARD_PROGRESS
+
+    def test_rank_early_handover(self, standard_canonical_suite: list[ScenarioCalculationResult]) -> None:
+        # PA-NHANH and PA-VAY both have handover at 180 days; PA-CHUDONG at 450 days
+        # Secondary tie-break (contract price): PA-NHANH (3.6064B) < PA-VAY (3.92B)
+        result = recommend_best_scenario(
+            scenarios=standard_canonical_suite,
+            objective=OptimizationObjective.EARLY_HANDOVER,
+        )
+        assert result.recommended_scenario == ScenarioType.EARLY_95
+        assert result.is_tie_break_applied is True
+        assert result.tiebreak_rule_id == TIEBREAK_RULE_CONTRACT_PRICE
+        assert result.selected_objective == OptimizationObjective.EARLY_HANDOVER
+
+        ranked = rank_scenarios_by_objective(standard_canonical_suite, OptimizationObjective.EARLY_HANDOVER)
+        assert ranked[0].scenario_type == ScenarioType.EARLY_95
+        assert ranked[1].scenario_type == ScenarioType.BANK_LOAN_HTLS
         assert ranked[2].scenario_type == ScenarioType.STANDARD_PROGRESS
 
     def test_rank_max_benefit_value(
@@ -329,14 +348,23 @@ class TestRecommendationResultAndRationale:
             recommend_best_scenario(scenarios=[], objective=OptimizationObjective.MIN_NET_PRICE)
 
     def test_get_objective_metric_value_helper(self, canonical_chudong: ScenarioCalculationResult) -> None:
+        # Canonical 6 objectives
         assert get_objective_metric_value(canonical_chudong, OptimizationObjective.MIN_NET_PRICE) == 3_500_000_000
-        assert get_objective_metric_value(canonical_chudong, OptimizationObjective.MIN_CONTRACT_PRICE) == 3_920_000_000
+        assert get_objective_metric_value(canonical_chudong, OptimizationObjective.MIN_INITIAL_CASH) == 577_500_000
+        assert get_objective_metric_value(canonical_chudong, OptimizationObjective.MIN_MONTHLY_BURDEN) == 248_500_000
+        assert (
+            get_objective_metric_value(canonical_chudong, OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW)
+            == 3_727_500_000
+        )
+        assert get_objective_metric_value(canonical_chudong, OptimizationObjective.MAX_BENEFIT_VALUE) == 0
+        assert get_objective_metric_value(canonical_chudong, OptimizationObjective.EARLY_HANDOVER) == 450
+
+        # Backward compatibility aliases
         assert get_objective_metric_value(canonical_chudong, OptimizationObjective.MIN_INITIAL_OUTFLOW) == 577_500_000
         assert (
             get_objective_metric_value(canonical_chudong, OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER)
             == 3_727_500_000
         )
-        assert get_objective_metric_value(canonical_chudong, OptimizationObjective.MAX_BENEFIT_VALUE) == 0
 
 
 # ===========================================================================

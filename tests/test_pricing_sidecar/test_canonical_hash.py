@@ -261,7 +261,7 @@ class TestFCSSection8SnapshotIntegration:
 
         rec = recommend_best_scenario(
             scenarios=scenario_results,
-            objective=OptimizationObjective.MIN_INITIAL_OUTFLOW,
+            objective=OptimizationObjective.MIN_INITIAL_CASH,
         )
 
         payload = build_pricing_snapshot_payload(
@@ -278,7 +278,7 @@ class TestFCSSection8SnapshotIntegration:
         assert payload["input_context"]["deposit_amount_vnd"] == 100000000
         assert len(payload["scenario_summaries"]) == 3
         assert payload["recommended_scenario"] == "STANDARD_PROGRESS"
-        assert payload["objective"] == "MIN_INITIAL_OUTFLOW"
+        assert payload["objective"] == "MIN_INITIAL_CASH"
 
     def test_create_pricing_calculation_output_factory(self, standard_input: PricingCalculationInput) -> None:
         res_chudong = calculate_canonical_scenario(

@@ -29,13 +29,32 @@ class ScenarioType(StrEnum):
 
 
 class OptimizationObjective(StrEnum):
-    """5 Business Optimization Objectives (PRD v2.3 / FCS v2.6 §7)."""
+    """Canonical 6 Business Optimization Objectives (PRD v2.4 / TD-4.3 / ADR-021)."""
 
     MIN_NET_PRICE = "MIN_NET_PRICE"
-    MIN_CONTRACT_PRICE = "MIN_CONTRACT_PRICE"
-    MIN_INITIAL_OUTFLOW = "MIN_INITIAL_OUTFLOW"
-    MIN_CASH_OUTFLOW_TO_HANDOVER = "MIN_CASH_OUTFLOW_TO_HANDOVER"
+    MIN_INITIAL_CASH = "MIN_INITIAL_CASH"
+    MIN_MONTHLY_BURDEN = "MIN_MONTHLY_BURDEN"
+    MIN_TOTAL_CASH_OUTFLOW = "MIN_TOTAL_CASH_OUTFLOW"
     MAX_BENEFIT_VALUE = "MAX_BENEFIT_VALUE"
+    EARLY_HANDOVER = "EARLY_HANDOVER"
+
+    # Aliases for backward compatibility with v1 / legacy callers:
+    MIN_INITIAL_OUTFLOW = "MIN_INITIAL_CASH"
+    MIN_CASH_OUTFLOW_TO_HANDOVER = "MIN_TOTAL_CASH_OUTFLOW"
+    MIN_CONTRACT_PRICE = "MIN_NET_PRICE"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "OptimizationObjective | None":
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            alias_map = {
+                "MIN_INITIAL_OUTFLOW": cls.MIN_INITIAL_CASH,
+                "MIN_CASH_OUTFLOW_TO_HANDOVER": cls.MIN_TOTAL_CASH_OUTFLOW,
+                "MIN_CONTRACT_PRICE": cls.MIN_NET_PRICE,
+            }
+            if normalized in alias_map:
+                return alias_map[normalized]
+        return None
 
 
 class BenefitCategory(StrEnum):

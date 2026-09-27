@@ -30,18 +30,20 @@ TIEBREAK_RULE_CANONICAL_ORDER: str = "TIEBREAK-CANONICAL-ORDER-v1"
 
 OBJECTIVE_LABELS: dict[OptimizationObjective, str] = {
     OptimizationObjective.MIN_NET_PRICE: "Giá Net trước thuế thấp nhất (MIN_NET_PRICE)",
-    OptimizationObjective.MIN_CONTRACT_PRICE: "Tổng Giá trị HĐMB thấp nhất (MIN_CONTRACT_PRICE)",
-    OptimizationObjective.MIN_INITIAL_OUTFLOW: "Dòng tiền ban đầu Đợt 1 thấp nhất (MIN_INITIAL_OUTFLOW)",
-    OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER: "Tổng vốn tự có nộp đến nhận bàn giao thấp nhất (MIN_CASH_OUTFLOW_TO_HANDOVER)",
+    OptimizationObjective.MIN_INITIAL_CASH: "Dòng tiền ban đầu Đợt 1 thấp nhất (MIN_INITIAL_CASH)",
+    OptimizationObjective.MIN_MONTHLY_BURDEN: "Áp lực chi trả trung bình hàng tháng nhẹ nhất (MIN_MONTHLY_BURDEN)",
+    OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW: "Tổng vốn tự có nộp đến nhận bàn giao thấp nhất (MIN_TOTAL_CASH_OUTFLOW)",
     OptimizationObjective.MAX_BENEFIT_VALUE: "Tổng giá trị ưu đãi nhận được cao nhất (MAX_BENEFIT_VALUE)",
+    OptimizationObjective.EARLY_HANDOVER: "Tiến độ nhận bàn giao nhà sớm nhất (EARLY_HANDOVER)",
 }
 
 OBJECTIVE_METRIC_NAMES: dict[OptimizationObjective, str] = {
     OptimizationObjective.MIN_NET_PRICE: "Giá Net trước thuế",
-    OptimizationObjective.MIN_CONTRACT_PRICE: "Tổng Giá trị HĐMB",
-    OptimizationObjective.MIN_INITIAL_OUTFLOW: "Dòng tiền ban đầu Đợt 1",
-    OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER: "Vốn tự có nộp đến bàn giao",
+    OptimizationObjective.MIN_INITIAL_CASH: "Dòng tiền ban đầu Đợt 1",
+    OptimizationObjective.MIN_MONTHLY_BURDEN: "Áp lực chi trả trung bình hàng tháng",
+    OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW: "Tổng vốn tự có nộp đến bàn giao",
     OptimizationObjective.MAX_BENEFIT_VALUE: "Tổng giá trị ưu đãi",
+    OptimizationObjective.EARLY_HANDOVER: "Thời gian đến khi bàn giao",
 }
 
 
@@ -61,26 +63,52 @@ def get_objective_metric_value(
     scenario: ScenarioCalculationResult,
     objective: OptimizationObjective,
 ) -> int:
-    """Trích xuất chỉ số tài chính nguyên VNĐ tương ứng với hàm mục tiêu kinh doanh.
+    """Trích xuất chỉ số tài chính nguyên VNĐ hoặc số ngày tương ứng với hàm mục tiêu kinh doanh.
 
     Args:
         scenario: Kết quả tính toán kịch bản tài chính.
-        objective: Hàm mục tiêu kinh doanh PRD v2.3 / FCS v2.6 §7.
+        objective: Hàm mục tiêu kinh doanh PRD v2.4 / TD-4.3 / ADR-021.
 
     Returns:
-        int: Giá trị tiền tệ nguyên VNĐ của chỉ số mục tiêu.
+        int: Giá trị tiền tệ nguyên VNĐ hoặc số ngày (EARLY_HANDOVER) của chỉ số mục tiêu.
     """
     assert_no_float(scenario, objective)
+    if isinstance(objective, str) and not isinstance(objective, OptimizationObjective):
+        objective = OptimizationObjective(objective)
+
     if objective == OptimizationObjective.MIN_NET_PRICE:
         return scenario.net_price_before_vat
-    elif objective == OptimizationObjective.MIN_CONTRACT_PRICE:
-        return scenario.final_contract_price
-    elif objective == OptimizationObjective.MIN_INITIAL_OUTFLOW:
+    elif objective == OptimizationObjective.MIN_INITIAL_CASH:
         return scenario.initial_cash_outflow_vnd
-    elif objective == OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER:
+    elif objective == OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW:
         return scenario.customer_cash_outflow_until_handover
     elif objective == OptimizationObjective.MAX_BENEFIT_VALUE:
         return scenario.total_benefit_value_vnd
+    elif objective == OptimizationObjective.MIN_MONTHLY_BURDEN:
+        # Áp lực chi trả trung bình hàng tháng thấp nhất (tính trên khoảng thời gian đến nhận nhà)
+        handover_inst = next((inst for inst in scenario.cashflow_schedule if inst.is_handover_milestone), None)
+        if handover_inst and scenario.cashflow_schedule:
+            days = max(30, (handover_inst.due_date - scenario.cashflow_schedule[0].due_date).days + 15)
+        else:
+            canonical_days = {
+                ScenarioType.STANDARD_PROGRESS: 450,
+                ScenarioType.EARLY_95: 180,
+                ScenarioType.BANK_LOAN_HTLS: 180,
+            }
+            days = canonical_days.get(scenario.scenario_type, 360)
+        months = max(1, days // 30)
+        return scenario.customer_cash_outflow_until_handover // months
+    elif objective == OptimizationObjective.EARLY_HANDOVER:
+        # Ưu tiên tiến độ nhận nhà sớm nhất (số ngày đến bàn giao thấp hơn là tối ưu hơn)
+        handover_inst = next((inst for inst in scenario.cashflow_schedule if inst.is_handover_milestone), None)
+        if handover_inst and scenario.cashflow_schedule:
+            return max(1, (handover_inst.due_date - scenario.cashflow_schedule[0].due_date).days + 15)
+        canonical_days = {
+            ScenarioType.STANDARD_PROGRESS: 450,
+            ScenarioType.EARLY_95: 180,
+            ScenarioType.BANK_LOAN_HTLS: 180,
+        }
+        return canonical_days.get(scenario.scenario_type, 360)
     else:
         raise ValueError(f"UNSUPPORTED_OBJECTIVE: Mục tiêu '{objective}' không được hỗ trợ.")
 
@@ -148,16 +176,20 @@ def rank_scenarios_by_objective(
             primary_val = s.net_price_before_vat
             secondary_val = s.final_contract_price
             return (is_infeasible, primary_val, secondary_val, canonical_rank)
-        elif objective == OptimizationObjective.MIN_CONTRACT_PRICE:
-            primary_val = s.final_contract_price
-            secondary_val = s.net_price_before_vat
-            return (is_infeasible, primary_val, secondary_val, canonical_rank)
-        elif objective == OptimizationObjective.MIN_INITIAL_OUTFLOW:
+        elif objective == OptimizationObjective.MIN_INITIAL_CASH:
             primary_val = s.initial_cash_outflow_vnd
             secondary_val = s.final_contract_price
             return (is_infeasible, primary_val, secondary_val, canonical_rank)
-        elif objective == OptimizationObjective.MIN_CASH_OUTFLOW_TO_HANDOVER:
+        elif objective == OptimizationObjective.MIN_TOTAL_CASH_OUTFLOW:
             primary_val = s.customer_cash_outflow_until_handover
+            secondary_val = s.final_contract_price
+            return (is_infeasible, primary_val, secondary_val, canonical_rank)
+        elif objective == OptimizationObjective.MIN_MONTHLY_BURDEN:
+            primary_val = get_objective_metric_value(s, OptimizationObjective.MIN_MONTHLY_BURDEN)
+            secondary_val = s.final_contract_price
+            return (is_infeasible, primary_val, secondary_val, canonical_rank)
+        elif objective == OptimizationObjective.EARLY_HANDOVER:
+            primary_val = get_objective_metric_value(s, OptimizationObjective.EARLY_HANDOVER)
             secondary_val = s.final_contract_price
             return (is_infeasible, primary_val, secondary_val, canonical_rank)
         else:
@@ -181,7 +213,13 @@ def generate_quantitative_rationale(
     rec_type_code = recommended.scenario_type.canonical_code
     rec_val = get_objective_metric_value(recommended, objective)
     metric_label = OBJECTIVE_METRIC_NAMES.get(objective, objective.value)
-    rec_val_str = format_vnd(rec_val)
+
+    if objective == OptimizationObjective.EARLY_HANDOVER:
+        rec_val_str = f"{rec_val} ngày"
+    elif objective == OptimizationObjective.MIN_MONTHLY_BURDEN:
+        rec_val_str = f"{format_vnd(rec_val)}/tháng"
+    else:
+        rec_val_str = format_vnd(rec_val)
 
     rationale_parts: list[str] = [
         f"Phương án {recommended.scenario_name} ({rec_type_code}) là lựa chọn tối ưu nhất "
@@ -193,9 +231,30 @@ def generate_quantitative_rationale(
     for other in other_scenarios:
         other_code = other.scenario_type.canonical_code
         other_val = get_objective_metric_value(other, objective)
-        other_val_str = format_vnd(other_val)
 
-        if objective == OptimizationObjective.MAX_BENEFIT_VALUE:
+        if objective == OptimizationObjective.EARLY_HANDOVER:
+            other_val_str = f"{other_val} ngày"
+            diff_days = other_val - rec_val
+            if diff_days > 0:
+                comparisons.append(f"nhận nhà sớm hơn {other_code} ({other_val_str}) là {diff_days} ngày")
+            elif diff_days == 0:
+                comparisons.append(f"tiến độ bàn giao cùng thời điểm với {other_code} ({other_val_str})")
+            else:
+                comparisons.append(f"nhận nhà sau {other_code} ({other_val_str}) là {-diff_days} ngày")
+        elif objective == OptimizationObjective.MIN_MONTHLY_BURDEN:
+            other_val_str = f"{format_vnd(other_val)}/tháng"
+            diff_vnd = other_val - rec_val
+            if diff_vnd > 0:
+                pct_diff = (diff_vnd / other_val * 100) if other_val > 0 else 0
+                comparisons.append(
+                    f"tiết kiệm {format_vnd(diff_vnd)}/tháng (-{pct_diff:.2f}%) so với {other_code} ({other_val_str})"
+                )
+            elif diff_vnd == 0:
+                comparisons.append(f"tương đương về {metric_label} với {other_code} ({other_val_str})")
+            else:
+                comparisons.append(f"cao hơn {other_code} ({other_val_str})")
+        elif objective == OptimizationObjective.MAX_BENEFIT_VALUE:
+            other_val_str = format_vnd(other_val)
             diff_vnd = rec_val - other_val
             if diff_vnd > 0:
                 comparisons.append(f"vượt trội hơn {other_code} ({other_val_str}) là {format_vnd(diff_vnd)}")
@@ -205,6 +264,7 @@ def generate_quantitative_rationale(
                 comparisons.append(f"kém hơn {other_code} ({other_val_str})")
         else:
             # Các mục tiêu tối thiểu hóa chi phí (MIN_*)
+            other_val_str = format_vnd(other_val)
             diff_vnd = other_val - rec_val
             if diff_vnd > 0:
                 pct_diff = (diff_vnd / other_val * 100) if other_val > 0 else 0

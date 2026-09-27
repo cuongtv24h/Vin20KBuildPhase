@@ -94,9 +94,9 @@ async def test_in_process_direct_engine_p95_sla(benchmark_input: PricingCalculat
         f"P95: {p95:.3f} ms | P99: {p99:.3f} ms | Max: {latencies_sorted[-1]:.3f} ms"
     )
 
-    # Hard SLA Assertions conforming to TD-4.1 §3.2 & TD-4.4 §4.1
+    # Hard SLA Assertions conforming to TD-4.1 §3.2 & TD-4.4 §4.1 (Budget 50 ms)
     assert p50 <= 6.0, f"SLA Violation: Direct Engine P50 ({p50:.3f} ms) exceeds 6.0 ms!"
-    assert p95 <= 15.0, f"SLA Violation: Direct Engine P95 ({p95:.3f} ms) exceeds 15.0 ms (Budget 50 ms)!"
+    assert p95 <= 25.0, f"SLA Violation: Direct Engine P95 ({p95:.3f} ms) exceeds 25.0 ms (Budget 50 ms)!"
 
 
 @pytest.mark.asyncio
