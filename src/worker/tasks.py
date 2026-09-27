@@ -10,7 +10,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.contracts.enums import PdfStatus
 from src.db.repositories.outbox import OutboxRepository
@@ -89,12 +89,12 @@ def generate_official_quote_pdf(
         return pdf_path
 
 
-def process_outbox_batch(db: Session, limit: int = 10) -> int:
+async def process_outbox_batch(db: AsyncSession, limit: int = 10) -> int:
     """
     Polls pending outbox records and executes asynchronous tasks.
     Returns number of successfully processed events.
     """
-    pending_events = OutboxRepository.poll_pending(db, limit=limit)
+    pending_events = await OutboxRepository.poll_pending(db, limit=limit)
     processed_count = 0
 
     for item in pending_events:
@@ -117,22 +117,22 @@ def process_outbox_batch(db: Session, limit: int = 10) -> int:
                 )
 
                 # Update Quote Model
-                quote = QuoteRepository.get_by_id(db, quote_id)
+                quote = await QuoteRepository.get_by_id(db, quote_id)
                 if quote:
-                    quote.pdf_status = PdfStatus.GENERATED.value
+                    quote.pdf_status = PdfStatus.ISSUED.value
                     quote.pdf_url = pdf_path.replace("\\", "/")
-                    QuoteRepository.update_quote(db, quote)
+                    await QuoteRepository.update_quote(db, quote)
 
                 # Mark Outbox as PROCESSED
-                OutboxRepository.mark_processed(db, item.event_id)
+                await OutboxRepository.mark_processed(db, item.event_id)
                 processed_count += 1
             else:
                 # Other event types: mark processed
-                OutboxRepository.mark_processed(db, item.event_id)
+                await OutboxRepository.mark_processed(db, item.event_id)
                 processed_count += 1
 
         except Exception as ex:
             logger.error("Failed to process outbox event %s: %s", item.event_id, ex)
-            OutboxRepository.mark_failed(db, item.event_id, item.retry_count + 1)
+            await OutboxRepository.mark_failed(db, item.event_id, item.retry_count + 1)
 
     return processed_count

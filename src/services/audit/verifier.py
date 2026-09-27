@@ -27,18 +27,20 @@ class AuditChainVerifier:
         db_session: AsyncSession,
         quote_id: str,
         raise_on_error: bool = False,
+        events: list[QuoteAuditEventModel] | None = None,
     ) -> tuple[bool, str]:
         """
         Traverse the audit chain for quote_id from Genesis to Leaf.
         Returns (is_valid, message). If raise_on_error=True, raises DomainError on tamper.
         """
-        stmt = (
-            select(QuoteAuditEventModel)
-            .where(QuoteAuditEventModel.quote_id == quote_id)
-            .order_by(asc(QuoteAuditEventModel.event_seq))
-        )
-        result = await db_session.execute(stmt)
-        events = result.scalars().all()
+        if events is None:
+            stmt = (
+                select(QuoteAuditEventModel)
+                .where(QuoteAuditEventModel.quote_id == quote_id)
+                .order_by(asc(QuoteAuditEventModel.event_seq))
+            )
+            result = await db_session.execute(stmt)
+            events = list(result.scalars().all())
 
         if not events:
             return True, "EMPTY_CHAIN"

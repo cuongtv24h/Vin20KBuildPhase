@@ -30,6 +30,7 @@ def node_extract_constraints(state: PreSalesState) -> dict[str, Any]:
     Dữ liệu không hợp lệ bị loại bỏ an toàn (chưa tới ước tính), không bao giờ
     bị đẩy thẳng sang tính toán.
     """
+    raise_injection_if_needed(state)
     raw = dict(state.get("customer_constraints") or {})
     # Giữ lại những gì còn thiếu làm mặc định an toàn
     raw.setdefault("own_funds_vnd", 0)

@@ -15,7 +15,7 @@ from src.contracts.enums import (
     PdfStatus,
     QuoteWorkflowStatus,
 )
-from src.services.approval import KMSServerSigner
+from src.services.approval import KMSServerSigner, QuoteApprovalService
 from src.services.audit import AuditChainEngine
 
 
@@ -53,11 +53,13 @@ def await_manager_approval(state: OfficialQuoteState) -> dict:
     creator_id = state.get("creator_id", "SALES-001")
 
     # Enforce SoD: Creator cannot approve their own quote
-    if manager_id == creator_id:
+    try:
+        QuoteApprovalService.validate_separation_of_duties(creator_id, manager_id)
+    except Exception as e:
         return {
             "manager_decision": "REJECT",
             "is_blocked": True,
-            "blocked_reason": "SoD Violation: Quote creator cannot act as approver.",
+            "blocked_reason": f"SoD Violation: Quote creator cannot act as approver. ({e})",
             "workflow_status": QuoteWorkflowStatus.BLOCKED,
             "approval_status": ApprovalStatus.APPROVAL_FAILED,
         }

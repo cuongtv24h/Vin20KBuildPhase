@@ -170,10 +170,13 @@ class ComplianceGateService:
         message_text: str,
         recipient_phone: str,
         channel: str = "ZALO",
+        quote_id: str | None = None,
+        plan_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Cổng gửi tin duy nhất của Backend (F8). Chỉ cho phép gửi khi:
         - Có bản ghi compliance_checks với message_hash khớp.
+        - Khớp đúng quote_id / plan_id nếu được chỉ định (chống mượn hash).
         - Trạng thái KHÔNG phải UNSUPPORTED/PROHIBITED.
         - Nội dung gửi băm ra khớp đúng message_hash đã thẩm định.
         Nếu vi phạm → DomainError COMPLIANCE_SEND_BLOCKED (HTTP 403 ở tầng API).
@@ -189,12 +192,18 @@ class ComplianceGateService:
                 http_status=403,
             )
 
-        # Lấy bản ghi kiểm duyệt mới nhất khớp hash
+        # Lấy bản ghi kiểm duyệt mới nhất khớp hash và quote_id/plan_id nếu có
         from sqlalchemy import select
+
+        conditions = [ComplianceCheckModel.message_hash == message_hash]
+        if quote_id:
+            conditions.append(ComplianceCheckModel.quote_id == quote_id)
+        if plan_id:
+            conditions.append(ComplianceCheckModel.plan_id == plan_id)
 
         stmt = (
             select(ComplianceCheckModel)
-            .where(ComplianceCheckModel.message_hash == message_hash)
+            .where(*conditions)
             .order_by(ComplianceCheckModel.created_at.desc())
             .limit(1)
         )
@@ -202,7 +211,14 @@ class ComplianceGateService:
         if record is None:
             raise DomainError(
                 ErrorCode.COMPLIANCE_SEND_BLOCKED,
-                "Tin nhắn chưa được thẩm định tuân thủ F8.",
+                "Tin nhắn chưa được thẩm định tuân thủ F8 (hoặc không khớp quote/plan chỉ định).",
+                http_status=403,
+            )
+
+        if record.quote_id and quote_id and record.quote_id != quote_id:
+            raise DomainError(
+                ErrorCode.COMPLIANCE_SEND_BLOCKED,
+                f"Tin nhắn được thẩm định cho quote '{record.quote_id}', không khớp với quote '{quote_id}'.",
                 http_status=403,
             )
 

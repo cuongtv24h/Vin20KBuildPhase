@@ -43,7 +43,7 @@ def node_resolve_policy(state: PreSalesState) -> dict[str, Any]:
     return {
         "transaction_date": tx_date,
         "policy_snapshot_hash": snapshot_hash,
-        "status": "CALCULATING" if state.get("status") != "CALCULATING" else state["status"],
+        "status": "CALCULATING",
         "_interrupt_gate": None,
     }
 

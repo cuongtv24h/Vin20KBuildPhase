@@ -72,3 +72,12 @@ def sha256_hex(data: bytes | str) -> str:
     if isinstance(data, str):
         data = data.encode("utf-8")
     return hashlib.sha256(data).hexdigest()
+
+
+def mask_phone(phone: str) -> str:
+    """Che số điện thoại bảo mật: giữ 2 số đầu + 4 số cuối."""
+    cleaned = "".join(filter(str.isdigit, phone or ""))
+    if len(cleaned) >= 6:
+        return cleaned[:2] + "*" * (len(cleaned) - 6) + cleaned[-4:]
+    return "*" * len(cleaned)
+
