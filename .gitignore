@@ -61,3 +61,6 @@ out/
 .ai-log/archive/
 
 mydoc/
+.freebuff/
+.agents/
+scripts/

@@ -1,0 +1,144 @@
+"""
+API Dependencies for Security, Idempotency, OCC, and RBAC / SoD (C-01 / Phase 4).
+Owner: TechLead (cuongtv_02560)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import Header, HTTPException, Request, status
+
+from src.contracts.errors import ErrorCode
+
+
+@dataclass
+class Principal:
+    user_id: str
+    role: str
+    tenant_id: str
+
+    def has_role(self, *roles: str) -> bool:
+        return self.role.upper() in [r.upper() for r in roles]
+
+
+# In-memory storage for Idempotency Cache (per-process fallback for tests & local dev)
+_IDEMPOTENCY_STORE: dict[str, dict[str, Any]] = {}
+
+
+def clear_idempotency_store() -> None:
+    """Helper for testing: reset idempotency cache."""
+    _IDEMPOTENCY_STORE.clear()
+
+
+async def get_idempotency_key(
+    request: Request,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+) -> str | None:
+    """
+    Validates and enforces Idempotency-Key on mutating requests.
+    - If key is new: records payload hash.
+    - If key exists and payload matches: marks replay in request.state.
+    - If key exists and payload differs: raises 409 Conflict.
+    """
+    if not idempotency_key:
+        return None
+
+    body = await request.body()
+    payload_hash = hashlib.sha256(body).hexdigest()
+
+    cached = _IDEMPOTENCY_STORE.get(idempotency_key)
+    if cached is not None:
+        if cached["payload_hash"] != payload_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": ErrorCode.IDEMPOTENCY_KEY_REUSE_PAYLOAD_MISMATCH.value,
+                    "message": "Idempotency key reused with a different payload.",
+                },
+            )
+        request.state.idempotency_cached = cached
+    else:
+        # Reserve slot
+        _IDEMPOTENCY_STORE[idempotency_key] = {
+            "payload_hash": payload_hash,
+            "status_code": 200,
+            "response": None,
+        }
+        request.state.idempotency_cached = None
+
+    return idempotency_key
+
+
+def record_idempotency_result(idempotency_key: str | None, status_code: int, response_data: Any) -> None:
+    """Save finalized response for an Idempotency-Key."""
+    if not idempotency_key:
+        return
+    if idempotency_key in _IDEMPOTENCY_STORE:
+        _IDEMPOTENCY_STORE[idempotency_key]["status_code"] = status_code
+        _IDEMPOTENCY_STORE[idempotency_key]["response"] = response_data
+
+
+def parse_etag_version(if_match_header: str | None) -> int | None:
+    """Extract integer version from ETag format: W/"1", "1", 1."""
+    if not if_match_header:
+        return None
+    cleaned = if_match_header.strip()
+    match = re.search(r'(\d+)', cleaned)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def get_if_match_etag(if_match: str | None = Header(None, alias="If-Match")) -> int | None:
+    """Extract and parse ETag version from If-Match header."""
+    return parse_etag_version(if_match)
+
+
+def verify_occ(current_version: int, expected_version: int | None) -> None:
+    """
+    Enforces Optimistic Concurrency Control (OCC).
+    Raises 412 Precondition Failed if expected_version is provided and does not match current_version.
+    """
+    if expected_version is not None and expected_version != current_version:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail={
+                "code": ErrorCode.STALE_QUOTE_VERSION.value,
+                "message": (
+                    f"Optimistic Concurrency Control conflict: expected version {expected_version}, "
+                    f"but quote current version is {current_version}."
+                ),
+            },
+        )
+
+
+def get_current_principal(
+    x_user_id: str = Header("SALES-001", alias="X-User-Id"),
+    x_user_role: str = Header("SALES", alias="X-User-Role"),
+    x_tenant_id: str = Header("DEFAULT", alias="X-Tenant-Id"),
+) -> Principal:
+    """Extracts Principal actor from request headers for RBAC & SoD enforcement."""
+    return Principal(
+        user_id=x_user_id.strip(),
+        role=x_user_role.strip().upper(),
+        tenant_id=x_tenant_id.strip(),
+    )
+
+
+def enforce_sod(creator_id: str, approver_id: str) -> None:
+    """
+    Enforces Invariant #10 (Separation of Duties - SoD).
+    Quote creator cannot approve their own quote.
+    """
+    if creator_id == approver_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": ErrorCode.SOD_CREATOR_APPROVER_IDENTICAL.value,
+                "message": "Separation of Duties violation: quote creator cannot approve their own quote.",
+            },
+        )
