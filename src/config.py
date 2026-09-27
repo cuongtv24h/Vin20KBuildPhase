@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"
 
+    # Pricing Sidecar (Component C-06)
+    pricing_sidecar_socket: str = "./data/pricing.sock"
+    pricing_sidecar_host: str = "127.0.0.1"
+    pricing_sidecar_port: int = 8001
+    pricing_use_mock: bool = False
+    pricing_fallback_to_direct: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:

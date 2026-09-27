@@ -8,6 +8,7 @@ Validates the 6 financial sanity check invariants across calculated scenarios.
 from __future__ import annotations
 
 from src.contracts.pricing import PricingResult, ScenarioDetail
+from src.pricing_sidecar.contracts import CalculationStatus, ValidationReport
 
 
 class SanityValidationError(ValueError):
@@ -89,3 +90,35 @@ def validate_pricing_result_sanity(result: PricingResult) -> list[str]:
         all_errors.extend(errs)
 
     return all_errors
+
+
+def run_financial_sanity_gate(result: PricingResult | list[ScenarioDetail]) -> ValidationReport:
+    """
+    Cổng kiểm duyệt tài chính 6 Sanity Checks phục vụ Node N-11 của LangGraph StateGraph.
+    Trả về ValidationReport chuẩn tắc theo FCS v2.6.
+    """
+    if isinstance(result, PricingResult):
+        errors = validate_pricing_result_sanity(result)
+    else:
+        errors = []
+        for sc in result:
+            errors.extend(validate_scenario_sanity(sc))
+
+    is_valid = len(errors) == 0
+    return ValidationReport(
+        is_valid=is_valid,
+        status=CalculationStatus.VALID if is_valid else CalculationStatus.CALCULATION_FAILED,
+        invariants_checked=[
+            "Non-negative financial values",
+            "Total contract price reconciliation (Net + VAT + KPBT)",
+            "Payment schedule 100% reconciliation",
+            "Initial cash outflow strictly positive",
+            "Bank loan ratio within cap",
+            "Benefit value within threshold",
+        ],
+        error_message="; ".join(errors) if errors else None,
+        field_errors=[{"error": e} for e in errors],
+    )
+
+
+
