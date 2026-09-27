@@ -178,6 +178,18 @@ class QuoteApprovalService:
 
         self.validate_separation_of_duties(quote.created_by, approver_id)
 
+        # Guard: Cannot reject an already APPROVED or signed quote
+        if (
+            quote.approval_status == ApprovalStatus.APPROVED.value
+            or quote.status == QuoteWorkflowStatus.APPROVED.value
+            or quote.signature is not None
+        ):
+            raise DomainError(
+                ErrorCode.INVALID_STATE_TRANSITION,
+                f"Cannot reject quote '{quote_id}' that has already been approved and signed.",
+                details={"status": quote.status, "approval_status": quote.approval_status},
+            )
+
         now_utc = datetime.now(UTC)
         quote.approval_status = ApprovalStatus.REJECTED.value
         quote.status = QuoteWorkflowStatus.REJECTED.value

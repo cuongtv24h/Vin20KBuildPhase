@@ -341,7 +341,8 @@ async def test_outbox_worker_processes_approved_quotes(client: AsyncClient):
     )
 
     # 2. Run Outbox Worker
-    # Note: process_outbox_batch can be run against DB session
+    from src.worker.tasks import process_outbox_batch
+
     async with async_test_session_factory() as session:
         # Check outbox record exists
         stmt = select(TransactionalOutboxModel).where(
@@ -352,6 +353,13 @@ async def test_outbox_worker_processes_approved_quotes(client: AsyncClient):
         assert outbox_item is not None
         assert outbox_item.status == "PENDING"
 
-        # Mark processed
-        outbox_item.status = "PROCESSED"
-        await session.commit()
+        # Execute outbox batch processing
+        processed_count = await process_outbox_batch(session)
+        assert processed_count >= 1
+
+        # Check outbox record is now PROCESSED
+        res = await session.execute(stmt)
+        outbox_item = res.scalar_one_or_none()
+        assert outbox_item is not None
+        assert outbox_item.status == "PROCESSED"
+

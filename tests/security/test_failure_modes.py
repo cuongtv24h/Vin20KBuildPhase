@@ -337,4 +337,13 @@ async def test_fail_05_f8_gate_blocks_all_bypass_paths():
         assert exc_c.value.error_code == ErrorCode.COMPLIANCE_SEND_BLOCKED
         assert exc_c.value.http_status == 403
 
+        # (d) Mượn hash chéo: tin thẩm định cho Q-FAIL-05 nhưng gửi cho Q-OTHER
+        with pytest.raises(DomainError) as exc_d:
+            await gate.enforce_send(
+                db, ok.message_hash, "Giá căn này 3 tỷ theo [POL-BEVERLY-STANDARD-2026]",
+                recipient_phone="0912345678", quote_id="Q-OTHER",
+            )
+        assert exc_d.value.error_code == ErrorCode.COMPLIANCE_SEND_BLOCKED
+        assert exc_d.value.http_status == 403
+
     await engine.dispose()

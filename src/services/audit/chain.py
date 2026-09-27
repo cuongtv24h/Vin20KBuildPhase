@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import desc, select
+from sqlalchemy.exc import CompileError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.contracts.common import canonical_json_bytes, sha256_hex
@@ -80,7 +81,6 @@ class AuditChainEngine:
         Uses retry loop to handle concurrent event_seq collisions
         (guarded by unique index idx_quote_audit_seq).
         """
-        from sqlalchemy.exc import IntegrityError
 
         last_error: Exception | None = None
 
@@ -92,13 +92,18 @@ class AuditChainEngine:
                 .limit(1)
             )
 
-            # In PostgreSQL we can use with_for_update, in SQLite it's ignored
-            try:
-                stmt_locked = stmt.with_for_update()
-                res = await db_session.execute(stmt_locked)
-            except Exception:
-                # Fallback if dialect does not support with_for_update (e.g. SQLite)
+            # In PostgreSQL we can use with_for_update, in SQLite it's ignored or unsupported
+            bind = db_session.get_bind()
+            dialect_name = bind.dialect.name if bind else ""
+            if dialect_name == "sqlite":
                 res = await db_session.execute(stmt)
+            else:
+                try:
+                    stmt_locked = stmt.with_for_update()
+                    res = await db_session.execute(stmt_locked)
+                except (CompileError, OperationalError):
+                    # Fallback if dialect does not support with_for_update
+                    res = await db_session.execute(stmt)
 
             latest_event = res.scalars().first()
 
@@ -133,13 +138,13 @@ class AuditChainEngine:
                 payload_json=payload,
             )
 
-            db_session.add(audit_record)
             try:
-                await db_session.flush()
+                async with db_session.begin_nested():
+                    db_session.add(audit_record)
+                    await db_session.flush()
                 return audit_record
             except IntegrityError:
-                # Concurrent append produced same event_seq → rollback and retry
-                await db_session.rollback()
+                # Concurrent append produced same event_seq → savepoint automatically rolled back, retry
                 last_error = IntegrityError(
                     f"Concurrent event_seq collision for quote {quote_id}, "
                     f"attempt {attempt + 1}/{max_retries}",

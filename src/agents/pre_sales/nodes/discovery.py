@@ -9,6 +9,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from src.agents.pre_sales.nodes.constraints import raise_injection_if_needed
 from src.agents.pre_sales.state import PreSalesState
 
 SESSION_TTL_SECONDS = 1800  # TTL phiên chat Pre-Sales theo spec C-09
@@ -109,6 +110,7 @@ def node_collect_input(state: PreSalesState) -> dict[str, Any]:
     PS-02 — Input Collector: quét lời nhắn của khách, nhận diện trường ràng buộc
     đã cung cấp. Node chạy sau mỗi lần resume từ interrupt chờ tin nhắn.
     """
+    raise_injection_if_needed(state)
     message = state.get("last_customer_message", "") or ""
     collected = list(state.get("collected_fields", []))
     constraints: dict[str, Any] = dict(state.get("customer_constraints") or {})
