@@ -38,19 +38,9 @@ echo "==> [4/5] Xóa PDF tham khảo cũ (pre_sales_pdfs, test_pdfs)..."
 rm -rf "$PDF_DIR" "$TEST_PDF_DIR"
 
 export PYTHONIOENCODING=utf-8
-py -3 -c "
-import asyncio
-
-async def create_all():
-    from src.db.models import Base
-    from src.db.session import engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-
-asyncio.run(create_all())
-print('   Schema 14 tables recreated successfully.')
-" || echo "   (Canh bao: khong tai tao duoc schema - kiem tra Python env)"
+python3 -c "import asyncio; from src.db.session import init_db; asyncio.run(init_db()); print('   Schema 14 tables recreated successfully.')" 2>/dev/null || \
+py -3 -c "import asyncio; from src.db.session import init_db; asyncio.run(init_db()); print('   Schema 14 tables recreated successfully.')" 2>/dev/null || \
+echo "   (Canh bao: khong tai tao duoc schema - kiem tra Python env)"
 
 echo ""
 echo "✅ DEMO RESET HOÀN TẤT — môi trường demo đã tinh khôi."
