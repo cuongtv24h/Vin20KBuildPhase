@@ -5,10 +5,16 @@ Provides PricingClient bridge connecting to UDS Sidecar with deterministic in-pr
 FCS v2.6 6-sanity check validation, and ADR-021 6-objective ranking.
 """
 
+from src.services.pricing.adapters import adapt_structured_rule_to_benefit
 from src.services.pricing.client import (
     PricingCalculationError,
     PricingClient,
     get_pricing_client,
+)
+from src.services.pricing.evaluation import (
+    BenchmarkRunReport,
+    CaseBenchmarkResult,
+    run_benchmark_evaluation,
 )
 from src.services.pricing.optimizer import (
     filter_feasible_scenarios,
@@ -37,5 +43,10 @@ __all__ = [
     "rank_and_recommend",
     "generate_reference_plans",
     "filter_feasible_scenarios",
+    "run_benchmark_evaluation",
+    "BenchmarkRunReport",
+    "CaseBenchmarkResult",
+    "adapt_structured_rule_to_benefit",
 ]
+
 

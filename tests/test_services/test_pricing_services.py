@@ -155,3 +155,102 @@ async def test_pricing_engine_langgraph_tool(sample_pricing_input: PricingInput)
     res_tool = await pricing_engine_tool.ainvoke({"pricing_input": sample_pricing_input})
     assert res_tool.schema_version == "pricing-result.v1"
     assert res_tool.sanity_passed is True
+
+
+def test_adapt_structured_rule_to_benefit():
+    """Verify conversion from Dev 1 StructuredRuleDTO to Dev 2 BenefitApplicationRule."""
+    from decimal import Decimal
+
+    from src.contracts.policy import PolicyRuleStatus, StructuredRuleDTO
+    from src.pricing_sidecar.contracts import BenefitCategory, BenefitType, ValuationStatus
+    from src.services.pricing import adapt_structured_rule_to_benefit
+
+    # 1. Percentage discount rule
+    dto_pct = StructuredRuleDTO(
+        rule_id="RULE-DISC-01",
+        policy_id="POL-2026-VLF",
+        policy_version="v2.6",
+        clause_id="Điều 4.1",
+        rule_type="DISCOUNT",
+        condition_json={"op": "and", "rules": []},
+        benefit_formula={"type": "PERCENTAGE", "discount_rate": "0.0200", "price_deduction_authorized": True},
+        priority=1,
+        status=PolicyRuleStatus.APPROVED_FOR_USE,
+    )
+    rule_pct = adapt_structured_rule_to_benefit(dto_pct)
+    assert rule_pct.benefit_type == BenefitType.PERCENTAGE
+    assert rule_pct.category == BenefitCategory.CASH_DISCOUNT
+    assert rule_pct.discount_rate == Decimal("0.0200")
+    assert rule_pct.price_deduction_authorized is True
+
+    # 2. In-kind gift with approved valuation
+    dto_gift = StructuredRuleDTO(
+        rule_id="RULE-GIFT-01",
+        policy_id="POL-2026-VLF",
+        policy_version="v2.6",
+        clause_id="Điều 5.2",
+        rule_type="GIFT",
+        condition_json={},
+        benefit_formula={"type": "IN_KIND", "fixed_deduction_vnd": 50_000_000, "valuation_status": "APPROVED", "price_deduction_authorized": True},
+        priority=2,
+        status=PolicyRuleStatus.APPROVED_FOR_USE,
+    )
+    rule_gift = adapt_structured_rule_to_benefit(dto_gift)
+    assert rule_gift.benefit_type == BenefitType.IN_KIND
+    assert rule_gift.category == BenefitCategory.IN_KIND_GIFT
+    assert rule_gift.valuation_status == ValuationStatus.APPROVED
+    assert rule_gift.fixed_deduction_vnd == 50_000_000
+
+
+@pytest.mark.asyncio
+async def test_e2e_official_quote_nodes_flow():
+    """Verify seamless execution across OfficialQuoteStateGraph Nodes N-09, N-10A, N-10B, N-11, N-12."""
+    from src.agents.official_quote.nodes.pricing import (
+        call_pricing_engine,
+        prepare_pricing_input,
+        tool_guardrail_pricing,
+        validate_financial_sanity,
+    )
+    from src.agents.official_quote.nodes.ranking import rank_scenarios
+    from src.agents.official_quote.state import OfficialQuoteState
+    from src.contracts.enums import QuoteWorkflowStatus
+
+    state: OfficialQuoteState = {
+        "quote_id": "Q-2026-03-TEST",
+        "quote_version": 1,
+        "project_id": "PROJECT-VHM-GP",
+        "unit_code": "A-12-05",
+        "listed_price_before_tax_vnd": 3_500_000_000,
+        "transaction_date": "2026-03-15",
+        "own_funds_vnd": 1_000_000_000,
+        "monthly_capacity_vnd": 50_000_000,
+        "objective": OptimizationObjective.MIN_MONTHLY_BURDEN,
+    }
+
+    # N-09: Prepare input
+    out_09 = prepare_pricing_input(state)
+    state.update(out_09)
+    assert state["workflow_status"] == QuoteWorkflowStatus.CALCULATING
+
+    # N-10A: Guardrail
+    out_10a = tool_guardrail_pricing(state)
+    state.update(out_10a)
+    assert state["is_blocked"] is False
+
+    # N-10B: Pricing Engine call
+    out_10b = await call_pricing_engine(state)
+    state.update(out_10b)
+    assert "pricing_result" in state
+    assert state["pricing_result"]["sanity_passed"] is True
+
+    # N-11: Financial Sanity Gate
+    out_11 = validate_financial_sanity(state)
+    state.update(out_11)
+    assert state["sanity_passed"] is True
+
+    # N-12: Scenario Ranking
+    out_12 = rank_scenarios(state)
+    state.update(out_12)
+    assert state["recommended_scenario_code"] == "PA-VAY"
+    assert len(state["ranking_summary"]) == 3
+

@@ -8,18 +8,30 @@ from __future__ import annotations
 import base64
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.services.approval import KMSServerSigner
+from src.services.pricing.evaluation import (
+    BenchmarkRunReport,
+    run_benchmark_evaluation,
+)
 
 router = APIRouter(tags=["evaluation"])
+
+# In-memory storage for benchmark runs history
+_BENCHMARK_RUNS_CACHE: dict[str, BenchmarkRunReport] = {}
 
 
 class VerifySignatureRequest(BaseModel):
     snapshot_hash: str
     signature_b64: str
     public_key_b64: str | None = None
+
+
+class BenchmarkRunRequest(BaseModel):
+    benchmark_suite: str = "golden_scenarios_17"
+    case_ids: list[str] | None = None
 
 
 @router.get("/.well-known/jwks.json")
@@ -80,3 +92,47 @@ async def verify_signature_endpoint(req: VerifySignatureRequest) -> dict[str, An
         "is_valid": is_valid,
         "algorithm": "Ed25519",
     }
+
+
+@router.post("/api/v1/evaluation/benchmark-runs", response_model=BenchmarkRunReport)
+async def trigger_benchmark_run(req: BenchmarkRunRequest | None = None) -> BenchmarkRunReport:
+    """
+    Trigger automated execution of Golden Benchmark Test Suite (17 vectors FCS v2.6).
+    Evaluates Zero-Delta AC-FIN-01, checks all financial invariants, and tracks P50/P95 latencies.
+    """
+    case_ids = req.case_ids if req else None
+    report = run_benchmark_evaluation(case_ids=case_ids)
+    _BENCHMARK_RUNS_CACHE[report.run_id] = report
+    return report
+
+
+@router.get("/api/v1/evaluation/benchmark-runs/{run_id}", response_model=BenchmarkRunReport)
+async def get_benchmark_run(run_id: str) -> BenchmarkRunReport:
+    """Retrieve historical benchmark run results by run_id."""
+    report = _BENCHMARK_RUNS_CACHE.get(run_id)
+    if not report:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Benchmark run with id '{run_id}' not found.",
+        )
+    return report
+
+
+@router.get("/api/v1/evaluation/benchmark-runs")
+async def list_benchmark_runs() -> list[dict[str, Any]]:
+    """List summary of all executed benchmark runs."""
+    return [
+        {
+            "run_id": r.run_id,
+            "benchmark_suite": r.benchmark_suite,
+            "executed_at": r.executed_at,
+            "total_cases": r.total_cases,
+            "passed_cases": r.passed_cases,
+            "accuracy_rate": r.accuracy_rate,
+            "latency_p50_ms": r.latency_p50_ms,
+            "latency_p95_ms": r.latency_p95_ms,
+            "ac_fin_01_passed": r.ac_fin_01_passed,
+        }
+        for r in _BENCHMARK_RUNS_CACHE.values()
+    ]
+

@@ -58,6 +58,24 @@ class OptimizationObjective(StrEnum):
     MAX_BENEFIT_VALUE = "MAX_BENEFIT_VALUE"
     EARLY_HANDOVER = "EARLY_HANDOVER"
 
+    # Backward compatibility aliases
+    MIN_INITIAL_OUTFLOW = "MIN_INITIAL_CASH"
+    MIN_CASH_OUTFLOW_TO_HANDOVER = "MIN_TOTAL_CASH_OUTFLOW"
+    MIN_CONTRACT_PRICE = "MIN_NET_PRICE"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_upper = value.upper()
+            mapping = {
+                "MIN_INITIAL_OUTFLOW": cls.MIN_INITIAL_CASH,
+                "MIN_CASH_OUTFLOW_TO_HANDOVER": cls.MIN_TOTAL_CASH_OUTFLOW,
+                "MIN_CONTRACT_PRICE": cls.MIN_NET_PRICE,
+            }
+            if val_upper in mapping:
+                return mapping[val_upper]
+        return super()._missing_(value)
+
 
 class PolicyDecisionStatus(StrEnum):
     """Trạng thái thẩm định hiệu lực và tương thích chính sách."""
