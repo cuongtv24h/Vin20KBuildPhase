@@ -3,6 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.endpoints.compliance import messages_router
+from src.api.endpoints.compliance import router as compliance_router
+from src.api.endpoints.policies import router as policies_router
 from src.api.pricing_mock import router as pricing_router
 from src.api.routes import router
 from src.config import get_settings
@@ -17,8 +20,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI20K Agent",
-    description="AI Agent built with LangGraph",
+    title="PricePolicy AI Agent",
+    description="Enterprise PricePolicy AI Agent (BDS020-06)",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -33,6 +36,9 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(compliance_router, prefix="/api/v1")
+app.include_router(messages_router, prefix="/api/v1")
+app.include_router(policies_router, prefix="/api/v1")
 app.include_router(pricing_router, prefix="/api/v1/pricing", tags=["Pricing Engine Mock"])
 
 

@@ -6,6 +6,7 @@ class ProvenanceTracker:
     Theo dõi nguồn gốc tài liệu (Source Document là Source of Truth).
     Lưu trữ và verify hash của bản gốc, phiên bản, project/channel.
     """
+
     def __init__(self):
         self.active_versions = {}
 

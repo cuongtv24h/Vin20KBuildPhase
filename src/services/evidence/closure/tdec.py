@@ -1,4 +1,5 @@
 """Temporal Dual-Polarity Evidence Closure (TDEC)."""
+
 from __future__ import annotations
 
 import logging
@@ -8,12 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class TDECClosure:
-    """D1-3: Typed policy edges + TDEC closure.
-
-    Đóng gói bằng chứng (closure) có giới hạn:
-    - Bắt trọn vẹn footnote, prerequisite, và conflict partner.
-    - Giới hạn 1-2 hops để bảo vệ latency và tránh nổ không gian tìm kiếm.
-    """
+    """Graph closure expansion over typed policy edges (prerequisites, footnotes, exclusions)."""
 
     def __init__(self, max_hops: int = 1, max_atoms_cap: int = 25):
         self.max_hops = max_hops
@@ -45,8 +41,7 @@ class TDECClosure:
 
         # Chỉ xét các edge đã được APPROVED_FOR_USE
         valid_edges = [
-            e for e in available_edges
-            if e.get("validation_status", "APPROVED_FOR_USE") == "APPROVED_FOR_USE"
+            e for e in available_edges if e.get("validation_status", "APPROVED_FOR_USE") == "APPROVED_FOR_USE"
         ]
 
         for hop in range(self.max_hops):
@@ -64,12 +59,14 @@ class TDECClosure:
 
                     # Nếu là quan hệ EXCLUDES -> Ghi nhận xung đột
                     if edge_type == "EXCLUDES":
-                        detected_conflicts.append({
-                            "source_atom_id": src_id,
-                            "target_atom_id": tgt_id,
-                            "relation": "EXCLUDES",
-                            "reason": edge.get("description", "Quy tắc loại trừ không áp dụng đồng thời"),
-                        })
+                        detected_conflicts.append(
+                            {
+                                "source_atom_id": src_id,
+                                "target_atom_id": tgt_id,
+                                "relation": "EXCLUDES",
+                                "reason": edge.get("description", "Quy tắc loại trừ không áp dụng đồng thời"),
+                            }
+                        )
 
                 # Nếu cả 2 atom đã nằm trong closure và có edge EXCLUDES
                 elif src_id in closure_ids and tgt_id in closure_ids and edge_type == "EXCLUDES":
@@ -100,12 +97,14 @@ class TDECClosure:
                 closed_atoms.append(atom_lookup[atom_id])
             else:
                 # Placeholder atom nếu chưa load đầy đủ
-                closed_atoms.append({
-                    "atom_id": atom_id,
-                    "canonical_text": f"Atom {atom_id} loaded via closure edge",
-                    "retrieval_text": f"Atom {atom_id}",
-                    "content_hash": "placeholder_hash",
-                    "atom_type": "CLAUSE",
-                })
+                closed_atoms.append(
+                    {
+                        "atom_id": atom_id,
+                        "canonical_text": f"Atom {atom_id} loaded via closure edge",
+                        "retrieval_text": f"Atom {atom_id}",
+                        "content_hash": "placeholder_hash",
+                        "atom_type": "CLAUSE",
+                    }
+                )
 
         return closed_atoms, applied_edges, detected_conflicts

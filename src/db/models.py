@@ -1,4 +1,5 @@
 """SQLAlchemy ORM Models for PricePolicy Multi-Tier Database."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -27,6 +28,7 @@ class Base(DeclarativeBase):
 
 class PolicyModel(Base):
     """Văn bản chính sách tổng thể."""
+
     __tablename__ = "policies"
 
     policy_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -41,15 +43,20 @@ class PolicyModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    atoms: Mapped[list[PolicyAtomModel]] = relationship("PolicyAtomModel", back_populates="policy", cascade="all, delete-orphan")
+    atoms: Mapped[list[PolicyAtomModel]] = relationship(
+        "PolicyAtomModel", back_populates="policy", cascade="all, delete-orphan"
+    )
 
 
 class PolicyAtomModel(Base):
     """Nguyên tử chính sách & Vector Store."""
+
     __tablename__ = "policy_atoms"
 
     atom_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    policy_id: Mapped[str] = mapped_column(String(64), ForeignKey("policies.policy_id", ondelete="CASCADE"), nullable=False)
+    policy_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("policies.policy_id", ondelete="CASCADE"), nullable=False
+    )
     atom_type: Mapped[str] = mapped_column(String(32), nullable=False)  # CLAUSE, TABLE_ROW, FOOTNOTE, DEFINITION
 
     chapter: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -89,12 +96,19 @@ class PolicyAtomModel(Base):
 
 class PolicyEdgeModel(Base):
     """Đồ thị quan hệ quy tắc chính sách phục vụ TDEC Closure."""
+
     __tablename__ = "policy_edges"
 
     edge_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    source_atom_id: Mapped[str] = mapped_column(String(64), ForeignKey("policy_atoms.atom_id", ondelete="CASCADE"), nullable=False)
-    target_atom_id: Mapped[str] = mapped_column(String(64), ForeignKey("policy_atoms.atom_id", ondelete="CASCADE"), nullable=False)
-    edge_type: Mapped[str] = mapped_column(String(32), nullable=False)  # REQUIRES, EXCLUDES, SUPERSEDES, REFERENCES, TABLE_HAS_FOOTNOTE
+    source_atom_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("policy_atoms.atom_id", ondelete="CASCADE"), nullable=False
+    )
+    target_atom_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("policy_atoms.atom_id", ondelete="CASCADE"), nullable=False
+    )
+    edge_type: Mapped[str] = mapped_column(
+        String(32), nullable=False
+    )  # REQUIRES, EXCLUDES, SUPERSEDES, REFERENCES, TABLE_HAS_FOOTNOTE
     source_authority: Mapped[str] = mapped_column(String(64), nullable=False, default="CANONICAL_RULE")
     validation_status: Mapped[str] = mapped_column(String(32), nullable=False, default="APPROVED_FOR_USE")
     reviewed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -105,6 +119,7 @@ class PolicyEdgeModel(Base):
 
 class EvidenceBundleModel(Base):
     """Lưu trữ chứng từ mật mã EvidenceBundle phục vụ Pricing Engine & Audit."""
+
     __tablename__ = "evidence_bundles"
 
     bundle_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -119,6 +134,7 @@ class EvidenceBundleModel(Base):
 
 class AbstentionCertificateModel(Base):
     """Lưu trữ chứng từ từ chối kết luận AbstentionCertificate."""
+
     __tablename__ = "abstention_certificates"
 
     certificate_id: Mapped[str] = mapped_column(String(64), primary_key=True)

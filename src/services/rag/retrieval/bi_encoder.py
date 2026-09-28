@@ -1,4 +1,5 @@
 """Local Bi-Encoder for Stage 1 Dense Vector Generation."""
+
 from __future__ import annotations
 
 import hashlib
@@ -25,6 +26,7 @@ class LocalBiEncoder:
         try:
             import torch
             from sentence_transformers import SentenceTransformer
+
             device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
             logger.info("Initializing SentenceTransformer '%s' on device '%s'...", self.model_name, device)
             self._st_model = SentenceTransformer(self.model_name, device=device)

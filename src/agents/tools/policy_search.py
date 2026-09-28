@@ -50,7 +50,7 @@ def search_policy(query: str, as_of_date: str | None = None, top_k: int = 5) -> 
         if not clauses:
             return f"Không tìm thấy điều khoản chính sách nào phù hợp với câu hỏi: '{query}' tại thời điểm {as_of_date or 'hiện tại'}."
 
-        output_lines = [f"=== KẾT QUẢ TRA CỨU CHÍNH SÁCH ({len(clauses)} điều khoản) ==="]
+        output_lines = [f"Tìm thấy {len(clauses)} điều khoản phù hợp:"]
         for idx, clause in enumerate(clauses, 1):
             coord = f"[{clause.policy_id} - {clause.article or ''} {clause.clause or ''}]".strip()
             score_str = f"Score: {clause.score:.3f}" if clause.score else ""
@@ -61,3 +61,13 @@ def search_policy(query: str, as_of_date: str | None = None, top_k: int = 5) -> 
     except Exception as e:
         logger.error(f"Error in search_policy tool: {e}", exc_info=True)
         return f"Lỗi khi tra cứu chính sách: {str(e)}"
+
+
+# Alias per CodeBaseIndex.md Section 4.2
+policy_time_travel_search = search_policy
+
+__all__ = [
+    "get_rag_service",
+    "search_policy",
+    "policy_time_travel_search",
+]

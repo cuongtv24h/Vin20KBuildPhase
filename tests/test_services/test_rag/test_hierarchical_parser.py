@@ -146,4 +146,3 @@ def test_atomizer_table_and_footnote():
     assert "Căn hộ: A-01 | Diện tích: 75m2 | Đơn giá: 45 triệu/m2" in table_atoms[0]["canonical_text"]
     assert table_atoms[0]["table_coordinates"] == "row_1"
     assert "2% phí bảo trì" in fn_atoms[0]["canonical_text"]
-

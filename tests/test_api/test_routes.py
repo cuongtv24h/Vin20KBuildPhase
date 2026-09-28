@@ -51,4 +51,3 @@ async def test_pricing_mock_accepts_verified_bundle(client):
     response = await client.post("/api/v1/pricing/calculate", json=payload)
     assert response.status_code == 200
     assert response.json()["status"] == "success"
-

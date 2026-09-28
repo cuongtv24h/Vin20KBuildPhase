@@ -1,4 +1,5 @@
 """Hard Temporal and Scope Pre-Filter for Policy Atoms."""
+
 from __future__ import annotations
 
 import logging

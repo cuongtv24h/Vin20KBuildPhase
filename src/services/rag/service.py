@@ -1,11 +1,4 @@
-"""Unified Policy RAG Service.
-
-Serves as the high-level facade for the Core RAG module, orchestrating:
-1. Hierarchical document ingestion & metadata enrichment.
-2. Temporal time-travel retrieval.
-3. 3-Tier mutual exclusion pruning & TDEC graph closure.
-4. Cryptographic zero-hallucination evidence binding & EvidenceBundle emission.
-"""
+"""Policy retrieval and evidence compilation service."""
 
 from __future__ import annotations
 
@@ -42,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class PolicyRAGService:
-    """Enterprise RAG Service facade for PricePolicy AI Agent."""
+    """Coordinates policy ingestion, time-travel retrieval, graph closure, and evidence verification."""
 
     def __init__(
         self,
@@ -62,9 +55,7 @@ class PolicyRAGService:
             policies_json_path=policies_json if policies_json.exists() else None,
             exclusions_json_path=exclusions_json if exclusions_json.exists() else None,
         )
-        self.pruner = MutualExclusionPruner(
-            exclusions_path=exclusions_json if exclusions_json.exists() else None
-        )
+        self.pruner = MutualExclusionPruner(exclusions_path=exclusions_json if exclusions_json.exists() else None)
         self.vector_manager = PGVectorStoreManager(settings=self.settings)
 
         # Initialize PEC-RAG & Two-Stage components
@@ -87,18 +78,20 @@ class PolicyRAGService:
         self.raw_atoms = []
         for n in nodes:
             meta = n.metadata or {}
-            self.raw_atoms.append({
-                "atom_id": n.id_,
-                "policy_id": meta.get("policy_id", "POL-UNKNOWN"),
-                "canonical_text": n.text,
-                "retrieval_text": f"[{meta.get('policy_name', '')}] {n.text}",
-                "content_hash": meta.get("content_hash", "hash"),
-                "valid_from": meta.get("valid_from", "2026-01-01"),
-                "valid_to": meta.get("valid_to", "2026-12-31"),
-                "customer_tiers": meta.get("applicable_units", ["ALL"]),
-                "service_codes": ["ALL"],
-                "atom_type": "CLAUSE",
-            })
+            self.raw_atoms.append(
+                {
+                    "atom_id": n.id_,
+                    "policy_id": meta.get("policy_id", "POL-UNKNOWN"),
+                    "canonical_text": n.text,
+                    "retrieval_text": f"[{meta.get('policy_name', '')}] {n.text}",
+                    "content_hash": meta.get("content_hash", "hash"),
+                    "valid_from": meta.get("valid_from", "2026-01-01"),
+                    "valid_to": meta.get("valid_to", "2026-12-31"),
+                    "customer_tiers": meta.get("applicable_units", ["ALL"]),
+                    "service_codes": ["ALL"],
+                    "atom_type": "CLAUSE",
+                }
+            )
 
     def load_edges(self, edges: list[dict[str, Any]]) -> None:
         """Register policy edges into service for TDEC closure."""
@@ -159,20 +152,52 @@ class PolicyRAGService:
 
         return evidences, decisions
 
+    def retrieve(
+        self,
+        query: str,
+        as_of_date: str | date | None = None,
+        top_k: int = 5,
+        customer_tier: str | None = None,
+        service_code: str | None = None,
+    ) -> list[RetrievedClause]:
+        """Convenience method for direct clause retrieval with time-travel filter."""
+        if isinstance(as_of_date, str) and as_of_date.strip():
+            try:
+                tx_date = date.fromisoformat(as_of_date.strip())
+            except ValueError:
+                tx_date = date.today()
+        elif isinstance(as_of_date, date):
+            tx_date = as_of_date
+        else:
+            tx_date = date.today()
+
+        if not self._retriever:
+            if self.nodes:
+                self._retriever = TimeTravelPolicyRetriever(nodes=self.nodes)
+            else:
+                logger.warning("No retriever or nodes available in PolicyRAGService")
+                return []
+
+        time_filter = TimeTravelFilter(
+            transaction_date=tx_date,
+            customer_tier=customer_tier,
+            service_code=service_code,
+        )
+        return self._retriever.retrieve(
+            query=query,
+            time_filter=time_filter,
+            top_k=top_k,
+        )
+
     def compile_and_retrieve_bundle(
         self,
         policy_query: PolicyQuery,
         candidate_pool: list[dict[str, Any]] | None = None,
     ) -> tuple[EvidenceBundle | None, AbstentionCertificate | None]:
-        """PEC-RAG Full Pipeline:
-        1. Two-Stage Dual-Polarity Retrieval (Why & Why-not lanes)
-        2. TDEC Graph Closure (1-2 hops expansion)
-        3. 7-point Evidence Verification
-        4. EvidenceBundle or AbstentionCertificate emission
-        """
+        """Runs dual-polarity seed retrieval, graph closure, and evidence verification."""
         pool = candidate_pool if candidate_pool is not None else self.raw_atoms
 
-        # 1. Two-Stage Dual-Polarity Retrieval
+        # Seed retrieval across positive and negative poles
         pos_seeds, neg_seeds = self.dual_retriever.retrieve_seeds(
             query=policy_query,
             candidate_pool=pool,
@@ -180,7 +205,7 @@ class PolicyRAGService:
             fine_top_n=5,
         )
 
-        # 2. TDEC Graph Closure
+        # Graph closure over typed policy edges
         atom_lookup = {a["atom_id"]: a for a in pool if "atom_id" in a}
         closed_atoms, applied_edges, conflicts = self.tdec_closure.expand_closure(
             positive_seeds=pos_seeds,
@@ -189,7 +214,7 @@ class PolicyRAGService:
             atom_lookup=atom_lookup,
         )
 
-        # 3. Evidence Verification & Emission
+        # Evidence verification and artifact emission
         bundle, cert = self.evidence_verifier.verify_and_emit(
             query_text=policy_query.query_text,
             transaction_date=policy_query.transaction_date,

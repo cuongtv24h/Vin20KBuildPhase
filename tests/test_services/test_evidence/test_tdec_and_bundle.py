@@ -1,4 +1,5 @@
 """Unit tests for Policy Atomizer, TDEC Closure, and EvidenceBundle Emission."""
+
 from __future__ import annotations
 
 from src.models.pec_contracts import (

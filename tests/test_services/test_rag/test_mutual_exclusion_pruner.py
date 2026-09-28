@@ -9,7 +9,8 @@ from src.services.rag.retriever.pruner import MutualExclusionPruner
 def test_hard_exclusion_pruning(tmp_path):
     # Setup temporary exclusion rule file
     rules_json = tmp_path / "mutual_exclusions.json"
-    rules_json.write_text("""[
+    rules_json.write_text(
+        """[
       {
         "conflict_id": "CONF-01",
         "tier": "TIER_1_HARD",
@@ -34,7 +35,9 @@ def test_hard_exclusion_pruning(tmp_path):
         "condition": "Cần Tổng Giám Đốc phê duyệt",
         "action": "SAFE_ABSTAIN"
       }
-    ]""", encoding="utf-8")
+    ]""",
+        encoding="utf-8",
+    )
 
     pruner = MutualExclusionPruner(exclusions_path=rules_json)
 
@@ -78,7 +81,8 @@ def test_hard_exclusion_pruning(tmp_path):
 
 def test_conditional_and_ambiguous_pruning(tmp_path):
     rules_json = tmp_path / "mutual_exclusions.json"
-    rules_json.write_text("""[
+    rules_json.write_text(
+        """[
       {
         "conflict_id": "CONF-02",
         "tier": "TIER_2_CONDITIONAL",
@@ -95,7 +99,9 @@ def test_conditional_and_ambiguous_pruning(tmp_path):
         "condition": "Cần Tổng Giám Đốc phê duyệt",
         "action": "SAFE_ABSTAIN"
       }
-    ]""", encoding="utf-8")
+    ]""",
+        encoding="utf-8",
+    )
 
     pruner = MutualExclusionPruner(exclusions_path=rules_json)
 

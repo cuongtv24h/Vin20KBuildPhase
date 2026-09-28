@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class ClaimVerificationResult(BaseModel):
     """Result of claim verification against policy evidence."""
+
     claim_id: str
     claim_text: str
     is_verified: bool

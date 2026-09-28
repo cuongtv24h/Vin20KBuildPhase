@@ -52,27 +52,15 @@ class PolicyMetadataEnricher:
         canonical = self.policies_lookup.get(unit.policy_id, {})
 
         # Parse valid_from / valid_to
-        valid_from_str = (
-            canonical.get("effective_from")
-            or unit.raw_frontmatter.get("effective_from")
-            or "2026-01-01"
-        )
-        valid_to_str = (
-            canonical.get("effective_to")
-            or unit.raw_frontmatter.get("effective_to")
-            or "2026-12-31"
-        )
+        valid_from_str = canonical.get("effective_from") or unit.raw_frontmatter.get("effective_from") or "2026-01-01"
+        valid_to_str = canonical.get("effective_to") or unit.raw_frontmatter.get("effective_to") or "2026-12-31"
 
         valid_from_date = self._parse_date(valid_from_str, default=date(2026, 1, 1))
         valid_to_date = self._parse_date(valid_to_str, default=date(2026, 12, 31))
 
         # Scope and applicable units
         scope = canonical.get("scope", {})
-        applicable_units = (
-            scope.get("applicable_units")
-            or unit.raw_frontmatter.get("applicable_units")
-            or ["ALL"]
-        )
+        applicable_units = scope.get("applicable_units") or unit.raw_frontmatter.get("applicable_units") or ["ALL"]
         if isinstance(applicable_units, str):
             applicable_units = [applicable_units]
 

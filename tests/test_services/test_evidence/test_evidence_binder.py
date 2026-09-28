@@ -40,7 +40,10 @@ def test_evidence_binding_and_integrity_check():
     assert evidence.coordinate.clause == "Khoản 1"
     assert evidence.coordinate.point == "Điểm a"
     assert evidence.coordinate.line_span == (15, 16)
-    assert evidence.coordinate.citation_path == "POL-2026-VLF-EARLY > Chương I > Điều 2: Mức Ưu đãi Chiết khấu > Khoản 1 > Điểm a"
+    assert (
+        evidence.coordinate.citation_path
+        == "POL-2026-VLF-EARLY > Chương I > Điều 2: Mức Ưu đãi Chiết khấu > Khoản 1 > Điểm a"
+    )
 
     # 2. Verify verbatim text extraction
     assert evidence.verbatim_text == text

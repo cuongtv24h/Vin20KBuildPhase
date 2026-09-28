@@ -1,4 +1,5 @@
 """Database package for PricePolicy AI."""
+
 from src.db.models import (
     AbstentionCertificateModel,
     Base,

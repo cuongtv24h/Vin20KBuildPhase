@@ -1,4 +1,5 @@
 """Abstention Certificate Generator for Safe Governance."""
+
 from __future__ import annotations
 
 import hashlib

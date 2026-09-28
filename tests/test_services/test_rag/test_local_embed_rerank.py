@@ -1,4 +1,5 @@
 """Unit tests for Local Bi-Encoder, Cross-Encoder Re-ranker, and Hybrid RRF."""
+
 from __future__ import annotations
 
 from src.services.rag.retrieval.bi_encoder import LocalBiEncoder

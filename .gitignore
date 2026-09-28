@@ -1,5 +1,5 @@
 # ==============================================================================
-# ENTERPRISE 8-LAYER GITIGNORE FOR RAG & AI AGENT (PRICEPOLICY P-096)
+# ENTERPRISE GITIGNORE FOR PRICEPOLICY AI AGENT (P-096)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -16,11 +16,13 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
+!**/src/lib/
+!frontend/src/lib/
 parts/
 sdist/
-var/
+/var/
 wheels/
 share/python-wheels/
 *.egg-info/
@@ -160,19 +162,68 @@ Thumbs.db
 *.sublime-project
 *.sublime-workspace
 
+# AI Editors Local Workspace Caches & Sessions (Preserve BTC hooks & configs)
+.claude/*
+!.claude/settings.json
+.cursor/*
+!.cursor/hooks.json
+.gemini/*
+!.gemini/settings.json
+.codex/*
+!.codex/hooks.json
+.agents/*
+!.agents/hooks.json
+!.agents/rules/
+!.agents/workflows/
+
 # ------------------------------------------------------------------------------
-# LAYER 8: Testing, CI/CD, Coverage & Build Artifacts
+# LAYER 8: Testing, CI/CD, Linters & Coverage
 # ------------------------------------------------------------------------------
 .tox/
 .nox/
 .coverage
 .coverage.*
 .cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
-.pytest_cache/
 htmlcov/
 docker-compose.override.yml
+
+# ------------------------------------------------------------------------------
+# LAYER 9: Frontend & Node.js Artifacts
+# ------------------------------------------------------------------------------
+node_modules/
+*/node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.next/
+out/
+dist/
+dist-ssr/
+*.local
+
+# ------------------------------------------------------------------------------
+# LAYER 10: Unix Domain Sockets & IPC (Pricing Sidecar)
+# ------------------------------------------------------------------------------
+*.sock
+*.socket
+engine.sock
+pricing.sock
+/var/run/
+
+# ------------------------------------------------------------------------------
+# LAYER 11: Temporary & Scratch Files
+# ------------------------------------------------------------------------------
+scratch/
+tmp/
+temp/
+*.tmp

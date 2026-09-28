@@ -1,4 +1,5 @@
 """Database Session and Connection Management."""
+
 from __future__ import annotations
 
 import logging
@@ -12,6 +13,7 @@ from src.config import get_settings
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
 
 def get_clean_database_url(url: str | None = None) -> str:
     """Ensure database URL has proper async driver and encoded credentials."""

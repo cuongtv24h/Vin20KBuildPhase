@@ -10,6 +10,7 @@ class PolicyAtomType(StrEnum):
     FOOTNOTE = "FOOTNOTE"
     DEFINITION = "DEFINITION"
 
+
 class PolicyEdgeType(StrEnum):
     REQUIRES = "REQUIRES"
     EXCLUDES = "EXCLUDES"
@@ -17,14 +18,17 @@ class PolicyEdgeType(StrEnum):
     REFERENCES = "REFERENCES"
     TABLE_HAS_FOOTNOTE = "TABLE_HAS_FOOTNOTE"
 
+
 class EvidenceDecisionStatus(StrEnum):
     VERIFIED = "VERIFIED"
     ABSTAINED = "ABSTAINED"
+
 
 class RetrievalRoute(StrEnum):
     T0_EXACT = "T0_EXACT"
     T1_HYBRID = "T1_HYBRID"
     T2_RERANKED = "T2_RERANKED"
+
 
 class PolicyAtom(BaseModel):
     atom_id: str
@@ -36,6 +40,7 @@ class PolicyAtom(BaseModel):
     section: str | None = None
     table_coordinates: str | None = None
 
+
 class PolicyEdge(BaseModel):
     edge_id: str
     source_atom_id: str
@@ -46,16 +51,19 @@ class PolicyEdge(BaseModel):
     reviewed_by: str | None = None
     edge_version: str
 
+
 class EvidenceItem(BaseModel):
     atom_id: str
     canonical_text: str
     similarity_score: float | None = None
     applied_via_edge: str | None = None
 
+
 class PolicyQuery(BaseModel):
     query_text: str
     transaction_date: str
     project_scope: str | None = None
+
 
 class RetrievalTrace(BaseModel):
     route: RetrievalRoute
@@ -64,9 +72,11 @@ class RetrievalTrace(BaseModel):
     closure_edge_ids: list[str] = Field(default_factory=list)
     closure_hops: int = 1
 
+
 class ConflictReport(BaseModel):
     status: str
     pairs: list[Any] = Field(default_factory=list)
+
 
 class EvidenceBundle(BaseModel):
     schema_version: str = "evidence-bundle.v1"
@@ -84,6 +94,7 @@ class EvidenceBundle(BaseModel):
     retrieval_trace: RetrievalTrace
     canonical_bundle_hash: str
 
+
 class AbstentionCertificate(BaseModel):
     schema_version: str = "abstention-certificate.v1"
     decision_status: EvidenceDecisionStatus = EvidenceDecisionStatus.ABSTAINED
@@ -96,9 +107,11 @@ class AbstentionCertificate(BaseModel):
     recommended_human_action: str
     canonical_certificate_hash: str
 
+
 class ResolvedPolicySnapshot(BaseModel):
     snapshot_hash: str
     active_policies: list[str] = Field(default_factory=list)
+
 
 class EvidenceBundleRef(BaseModel):
     bundle_id: str
@@ -106,7 +119,9 @@ class EvidenceBundleRef(BaseModel):
     decision_status: str
     resolved_policy_snapshot_hash: str
 
+
 class PricingRequest(BaseModel):
     """Payload representing a call to the Pricing Engine."""
+
     evidence_bundle_ref: EvidenceBundleRef
     # Trong thực tế sẽ có thêm các trường về account, balance... ở đây

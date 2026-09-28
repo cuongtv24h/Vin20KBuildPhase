@@ -1,4 +1,5 @@
 """Hybrid Fusion using Reciprocal Rank Fusion (RRF)."""
+
 from __future__ import annotations
 
 from typing import Any

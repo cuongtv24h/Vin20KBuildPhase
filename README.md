@@ -11,7 +11,7 @@
 
 ---
 
-## 📌 1. Bài Toán & Bối Cảnh Thực Tế (Problem Statement)
+## 1. Bài Toán & Bối Cảnh Thực Tế (Problem Statement)
 
 Tại các chủ đầu tư bất động sản cao cấp, các văn bản chính sách bán hàng (`POL-01` đến `POL-10`) liên tục được cập nhật theo từng đợt mở bán, chương trình kích cầu hoặc nhóm đối tượng khách hàng:
 1. **Ma trận chiết khấu phức tạp:** Khách hàng thanh toán sớm, vay ngân hàng hỗ trợ lãi suất 0%, quà tặng nội thất, ưu đãi cư dân... có mối quan hệ phụ thuộc (Prerequisite) hoặc loại trừ lẫn nhau (Mutual Exclusion).
@@ -20,18 +20,18 @@ Tại các chủ đầu tư bất động sản cao cấp, các văn bản chín
 
 ---
 
-## 💡 2. Giải Pháp Toàn Diện (Our Solution)
+## 2. Giải Pháp Toàn Diện (Our Solution)
 
 PricePolicy P-096 triển khai kiến trúc **Enterprise AI Orchestrator kết hợp Sidecar Tính Toán Tất Định**:
 
-* 🛡️ **PEC-RAG Core (C-02 & C-03):** Time-Travel Policy Retrieval lọc SQL cứng loại bỏ 100% rò rỉ thời gian, kết hợp Dual-Polarity (Truy xuất song song Cực Dương "Tại sao được" và Cực Âm "Tại sao không").
-* 🔍 **Evidence Verification & TDEC 1-Hop Closure (C-04):** Mở rộng đồ thị phụ thuộc 1-hop thu gom điều kiện tiên quyết và cặp quy tắc loại trừ. Gắn mỏ neo chứng cứ cấp câu với tọa độ SHA-256 chống giả mạo (Anti-Tamper), phát hành `EvidenceBundle` (Verified) hoặc `AbstentionCertificate` (Từ chối an toàn).
-* ⚖️ **Compliance Gate (C-11 / F8):** Chốt chặn an toàn phát ngôn 3 Checkpoint (`ON_DRAFT`, `DEBOUNCE`, `FINAL_SEND`) $\times$ 4 Tier (`SUPPORTED`, `CONDITIONAL`, `UNSUPPORTED`, `PROHIBITED`) theo chuẩn POL-08.
-* ⚡ **High-Performance Vector DB:** Lưu trữ nhúng ngữ nghĩa trên PostgreSQL + `pgvector` với chỉ mục HNSW (`dims=1536`), độ trễ truy xuất < 2.5ms.
+* **PEC-RAG Core (C-02 & C-03):** Time-Travel Policy Retrieval lọc SQL cứng loại bỏ 100% rò rỉ thời gian, kết hợp Dual-Polarity (Truy xuất song song Cực Dương "Tại sao được" và Cực Âm "Tại sao không").
+* **Evidence Verification & TDEC 1-Hop Closure (C-04):** Mở rộng đồ thị phụ thuộc 1-hop thu gom điều kiện tiên quyết và cặp quy tắc loại trừ. Gắn mỏ neo chứng cứ cấp câu với tọa độ SHA-256 chống giả mạo (Anti-Tamper), phát hành `EvidenceBundle` (Verified) hoặc `AbstentionCertificate` (Từ chối an toàn).
+* **Compliance Gate (C-11 / F8):** Chốt chặn an toàn phát ngôn 3 Checkpoint (`ON_DRAFT`, `DEBOUNCE`, `FINAL_SEND`) $\times$ 4 Tier (`SUPPORTED`, `CONDITIONAL`, `UNSUPPORTED`, `PROHIBITED`) theo chuẩn POL-08.
+* **High-Performance Vector DB:** Lưu trữ nhúng ngữ nghĩa trên PostgreSQL + `pgvector` với chỉ mục HNSW (`dims=1536`), độ trễ truy xuất < 2.5ms.
 
 ---
 
-## 🏛️ 3. Sơ Đồ Kiến Trúc Hệ Thống (Architecture Overview)
+## 3. Sơ Đồ Kiến Trúc Hệ Thống (Architecture Overview)
 
 ```mermaid
 graph TB
@@ -67,7 +67,7 @@ graph TB
 
 ---
 
-## 📁 4. Cấu Trúc Thư Mục Chuẩn Hóa (Codebase Map)
+## 4. Cấu Trúc Thư Mục Chuẩn Hóa (Codebase Map)
 
 Tuân thủ tuyệt đối quy hoạch phân công kiến trúc [`CODEBASE_MAP.md`](file:///Users/mac/AITC/PROJECT/report/TeamDocs/CODEBASE_MAP.md):
 
@@ -109,7 +109,7 @@ P-096/
 
 ---
 
-## 🚀 5. Hướng Dẫn Cài Đặt & Chạy Hệ Thống (Quickstart)
+## 5. Hướng Dẫn Cài Đặt & Chạy Hệ Thống (Quickstart)
 
 ### Yêu cầu tiên quyết
 - Python 3.11+
@@ -151,7 +151,7 @@ uvicorn src.main:app --reload --port 8000
 
 ---
 
-## 🧪 6. Kiểm Thử & Đo Lường Chất Lượng (Quality & Eval)
+## 6. Kiểm Thử & Đo Lường Chất Lượng (Quality & Eval)
 
 ### Chạy Toàn Bộ Test Suite (32/32 Passed in 1.70s)
 ```bash
@@ -176,7 +176,7 @@ python scripts/run_eval.py
 
 ---
 
-## 👥 7. Đội Ngũ Phát Triển (Team P-096)
+## 7. Đội Ngũ Phát Triển (Team P-096)
 
 | Thành viên | Vai trò | Phân công phụ trách chính |
 | :--- | :--- | :--- |

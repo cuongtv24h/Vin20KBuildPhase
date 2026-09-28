@@ -1,4 +1,5 @@
 """Policy Atomizer & Compiler for D1-1 Ingestion."""
+
 from __future__ import annotations
 
 import hashlib
@@ -10,14 +11,7 @@ from src.services.rag.retrieval.bi_encoder import LocalBiEncoder
 
 
 class PolicyAtomizer:
-    """D1-1: Policy Compiler.
-
-    Phân tách tài liệu chính sách thành các PolicyAtom có cấu trúc phân cấp:
-    - CLAUSE (Điều/Khoản)
-    - TABLE_ROW (Dòng bảng biểu)
-    - FOOTNOTE (Ghi chú chân trang/điều khoản)
-    - DEFINITION (Định nghĩa thuật ngữ)
-    """
+    """Parses markdown policy documents into structured atomic units (clauses, table rows, footnotes)."""
 
     def __init__(self, bi_encoder: LocalBiEncoder | None = None):
         self.bi_encoder = bi_encoder or LocalBiEncoder()

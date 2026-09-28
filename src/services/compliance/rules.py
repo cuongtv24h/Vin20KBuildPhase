@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class ProhibitedPattern(BaseModel):
     """A pattern defining prohibited phrase or promise."""
+
     pattern_id: str
     regex: str
     category: str = Field(..., description="PROFIT_GUARANTEE, LOAN_GUARANTEE, UNAUTHORIZED_DISCOUNT")

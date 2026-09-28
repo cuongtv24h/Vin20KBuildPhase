@@ -10,12 +10,12 @@ Toàn bộ các chỉ số được đo lường tự động thông qua bộ k�
 
 | Chỉ số (Metric) | Tiêu chuẩn BTC | Kết quả Đạt được | Đánh giá | Ý nghĩa Nghiệp vụ |
 | :--- | :---: | :---: | :---: | :--- |
-| **Time-Travel Leakage** | 0.0% | **0.00%** | ✅ Hoàn hảo | 100% không rò rỉ chính sách tương lai hoặc chính sách quá hạn |
-| **Clause-Level Recall@k** | ≥ 95.0% | **100.00%** | ✅ Hoàn hảo | Tìm kiếm chính xác từng điều khoản, khoản mục quy phạm |
-| **Conflict Completeness** | ≥ 95.0% | **100.00%** | ✅ Hoàn hảo | Bắt trọn vẹn mọi cặp quy tắc loại trừ và xung đột ưu đãi |
-| **Cryptographic Integrity** | 100.0% | **100.00%** | ✅ Hoàn hảo | 100% trích dẫn khớp mã băm SHA-256 đối chiếu line-spans gốc |
-| **Retrieval Latency (Mean)** | < 100 ms | **4.78 ms** | ✅ Vượt chuẩn | Đảm bảo tốc độ phản hồi tức thì cho người dùng thời gian thực |
-| **Retrieval Latency (p95)** | < 300 ms | **5.76 ms** | ✅ Vượt chuẩn | 95% số truy vấn hoàn thành dưới 6 phần nghìn giây |
+| **Time-Travel Leakage** | 0.0% | **0.00%** | Dat chuan (Pass) | 100% không rò rỉ chính sách tương lai hoặc chính sách quá hạn |
+| **Clause-Level Recall@k** | ≥ 95.0% | **100.00%** | Dat chuan (Pass) | Tìm kiếm chính xác từng điều khoản, khoản mục quy phạm |
+| **Conflict Completeness** | ≥ 95.0% | **100.00%** | Dat chuan (Pass) | Bắt trọn vẹn mọi cặp quy tắc loại trừ và xung đột ưu đãi |
+| **Cryptographic Integrity** | 100.0% | **100.00%** | Dat chuan (Pass) | 100% trích dẫn khớp mã băm SHA-256 đối chiếu line-spans gốc |
+| **Retrieval Latency (Mean)** | < 100 ms | **4.78 ms** | Dat chuan (Pass) | Đảm bảo tốc độ phản hồi tức thì cho người dùng thời gian thực |
+| **Retrieval Latency (p95)** | < 300 ms | **5.76 ms** | Dat chuan (Pass) | 95% số truy vấn hoàn thành dưới 6 phần nghìn giây |
 
 ---
 

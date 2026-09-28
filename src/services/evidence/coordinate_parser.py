@@ -15,6 +15,7 @@ from src.models.rag_schemas import EvidenceCoordinate
 
 class NormalizedCoordinate(BaseModel):
     """Normalized coordinate representation for claim-level evidence."""
+
     doc_id: str = Field(..., description="Document identifier (e.g. POL-001)")
     content_hash: str = Field(..., description="SHA-256 hash of verbatim quote")
     line_start: int = Field(1, description="Start line in source markdown")

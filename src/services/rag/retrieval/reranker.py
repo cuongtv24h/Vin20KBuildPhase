@@ -1,4 +1,5 @@
 """Local Cross-Encoder Re-ranker for Stage 2 Fine Ranking."""
+
 from __future__ import annotations
 
 import logging
@@ -25,6 +26,7 @@ class LocalCrossEncoderReranker:
         try:
             import torch
             from sentence_transformers import CrossEncoder
+
             device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
             logger.info("Initializing CrossEncoder '%s' on device '%s'...", self.model_name, device)
             self._ce_model = CrossEncoder(self.model_name, max_length=max_length, device=device)

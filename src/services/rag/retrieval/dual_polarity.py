@@ -1,4 +1,5 @@
 """Dual-Polarity Two-Stage Retriever: Positive (Why) and Negative (Why-not) Lanes."""
+
 from __future__ import annotations
 
 import logging

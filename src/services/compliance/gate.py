@@ -19,6 +19,7 @@ from src.services.compliance.rules import POL_08_PROHIBITED_PATTERNS
 
 class ComplianceCheckRequest(BaseModel):
     """Request schema for compliance checking."""
+
     message: str = Field(..., description="Message text to inspect")
     mode: str = Field("FINAL_SEND", description="ON_DRAFT, DEBOUNCE, or FINAL_SEND")
     quote_id: str | None = Field(None, description="Associated quote ID")
@@ -29,6 +30,7 @@ class ComplianceCheckRequest(BaseModel):
 
 class ComplianceClaimFinding(BaseModel):
     """Specific finding on a claim inside the message."""
+
     claim_text: str
     tier: str = Field(..., description="SUPPORTED, CONDITIONAL, UNSUPPORTED, PROHIBITED")
     rule_id: str | None = None
@@ -37,6 +39,7 @@ class ComplianceClaimFinding(BaseModel):
 
 class ComplianceCheckResponse(BaseModel):
     """Response schema matching Section 10.4 compliance contract."""
+
     check_id: str
     message_hash: str
     mode: str

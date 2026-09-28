@@ -8,7 +8,8 @@ def test_evidence_linker_verified_flow():
     linker = EvidenceLinker()
     verbatim = "Chiết khấu 8% giá trị căn hộ trước VAT khi thanh toán bằng vốn tự có."
     import hashlib
-    content_hash = hashlib.sha256(verbatim.strip().encode('utf-8')).hexdigest()
+
+    content_hash = hashlib.sha256(verbatim.strip().encode("utf-8")).hexdigest()
 
     coord = EvidenceCoordinate(
         policy_id="POL-02",
@@ -48,7 +49,8 @@ def test_evidence_linker_rejects_expired_policy():
     linker = EvidenceLinker()
     verbatim = "Ưu đãi tặng gói nội thất 100 triệu."
     import hashlib
-    content_hash = hashlib.sha256(verbatim.strip().encode('utf-8')).hexdigest()
+
+    content_hash = hashlib.sha256(verbatim.strip().encode("utf-8")).hexdigest()
 
     coord = EvidenceCoordinate(
         policy_id="POL-05",

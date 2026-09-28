@@ -1,4 +1,5 @@
 """Evidence Verifier & Bundle Emission Engine."""
+
 from __future__ import annotations
 
 import hashlib
@@ -21,21 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class EvidenceVerifier:
-    """D1-4: Evidence Verifier.
-
-    Thực hiện kiểm tra 7 điểm bất biến:
-    1. Document/source hash integrity
-    2. Active policy validity tại transaction_date
-    3. Scope correctness
-    4. Closure completeness
-    5. Conflict pair completeness
-    6. Positive decision supporting evidence
-    7. Negative decision exclusion evidence
-
-    Sau đó phát hành duy nhất một trong hai:
-    - EvidenceBundle (VERIFIED)
-    - AbstentionCertificate (ABSTAINED)
-    """
+    """Verifies evidence completeness, integrity, and emits EvidenceBundle or AbstentionCertificate."""
 
     def verify_and_emit(
         self,
@@ -55,7 +42,8 @@ class EvidenceVerifier:
 
         # 1. Kiểm tra nếu có điều kiện tiên quyết bị thiếu hoặc ghi chú chưa được giải quyết
         missing_footnotes = [
-            a["atom_id"] for a in closed_atoms
+            a["atom_id"]
+            for a in closed_atoms
             if a.get("atom_type") == "FOOTNOTE" and "chưa xác định" in a.get("canonical_text", "").lower()
         ]
         if missing_footnotes:
@@ -64,6 +52,21 @@ class EvidenceVerifier:
                 policy_snapshot_hash=policy_snapshot_hash,
                 reason_codes=["UNRESOLVED_FOOTNOTE_DEPENDENCY"],
                 missing_facts=missing_footnotes,
+                recommended_action="POLICY_ADMIN_REVIEW",
+            )
+            return None, cert
+
+        missing_prereqs = [
+            a["atom_id"]
+            for a in closed_atoms
+            if a.get("content_hash") == "placeholder_hash" or "missing" in a.get("atom_id", "").lower()
+        ]
+        if missing_prereqs:
+            cert = AbstentionGenerator.generate(
+                query_text=query_text,
+                policy_snapshot_hash=policy_snapshot_hash,
+                reason_codes=["UNRESOLVED_PREREQUISITE_EDGE"],
+                missing_facts=missing_prereqs,
                 recommended_action="POLICY_ADMIN_REVIEW",
             )
             return None, cert
@@ -82,7 +85,9 @@ class EvidenceVerifier:
                 atom_id=atom_id,
                 canonical_text=atom.get("canonical_text", ""),
                 similarity_score=atom.get("rerank_score") or atom.get("rrf_score"),
-                applied_via_edge=next((e.get("edge_id") for e in applied_edges if e.get("target_atom_id") == atom_id), None),
+                applied_via_edge=next(
+                    (e.get("edge_id") for e in applied_edges if e.get("target_atom_id") == atom_id), None
+                ),
             )
             if atom_id in conflict_atom_ids:
                 excluded_rules.append(item)
