@@ -14,6 +14,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -216,7 +217,7 @@ class PolicyDocumentModel(Base):
 
 
 class PolicyChunkModel(Base):
-    """Bảng lưu trữ các đoạn văn bản chính sách (chunks) phục vụ tìm kiếm ngữ nghĩa."""
+    """Bảng lưu trữ chunk ngữ nghĩa để tìm kiếm Time-Travel RAG."""
 
     __tablename__ = "policy_chunks"
 
@@ -224,30 +225,33 @@ class PolicyChunkModel(Base):
     document_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("policy_documents.document_id"), nullable=False, index=True
     )
-    clause_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    clause_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    section: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    page: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    embedding_vector: Mapped[list[float] | None] = mapped_column(JsonType, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding_json: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
 
     document: Mapped[PolicyDocumentModel] = relationship("PolicyDocumentModel", back_populates="chunks")
 
 
 class PolicyRuleModel(Base):
-    """Bảng lưu các quy tắc tính toán chiết khấu/ưu đãi trích xuất từ chính sách."""
+    """Bảng quy tắc chính sách có cấu trúc F9."""
 
     __tablename__ = "policy_rules"
 
     rule_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    document_id: Mapped[str] = mapped_column(
+    policy_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("policy_documents.document_id"), nullable=False, index=True
     )
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    clause_id: Mapped[str] = mapped_column(String(64), nullable=False)
     rule_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    benefit_category: Mapped[str] = mapped_column(String(64), nullable=False)
-    benefit_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    calculation_base: Mapped[str] = mapped_column(String(64), nullable=False)
-    rule_payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    condition_json: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    benefit_formula: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=10)
+    status: Mapped[str] = mapped_column(String(32), default="DRAFT", index=True)
+    regression_test_pass_rate: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
     document: Mapped[PolicyDocumentModel] = relationship("PolicyDocumentModel", back_populates="rules")
@@ -260,16 +264,10 @@ class PreSalesSessionModel(Base):
 
     session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(64), default="DEFAULT", index=True)
-    status: Mapped[str] = mapped_column(String(64), nullable=False, default="ACTIVE", index=True)
-    channel: Mapped[str] = mapped_column(String(32), default="WEB")
-    current_unit_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    financial_capacity_vnd: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    constraints_json: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True, default=dict)
+    status: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    constraints_json: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=func.now(), onupdate=func.now()
-    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     consents: Mapped[list[CustomerConsentModel]] = relationship(
         "CustomerConsentModel", back_populates="session", cascade="all, delete-orphan"
@@ -291,15 +289,12 @@ class CustomerConsentModel(Base):
     session_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("pre_sales_sessions.session_id"), nullable=False, index=True
     )
-    customer_name: Mapped[str] = mapped_column(String(255), default="")
-    customer_phone: Mapped[str] = mapped_column(String(32), default="")
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    customer_phone: Mapped[str] = mapped_column(String(32), nullable=False)
     customer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     consent_scope: Mapped[str] = mapped_column(String(255), default="PRE_SALES_ADVISORY_AND_SALES_CONTACT")
-    consent_given: Mapped[bool] = mapped_column(Boolean, default=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
     session: Mapped[PreSalesSessionModel] = relationship("PreSalesSessionModel", back_populates="consents")
 
@@ -314,14 +309,8 @@ class PreSalesPlanModel(Base):
         String(64), ForeignKey("pre_sales_sessions.session_id"), nullable=False, index=True
     )
     unit_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    listed_price_vnd: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    net_price_vnd: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    contract_price_vnd: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    scenario_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    snapshot_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    plan_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
-    scenarios_json: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
-    recommended_scenario_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    scenarios_json: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    recommended_scenario_code: Mapped[str] = mapped_column(String(32), nullable=False)
     pdf_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
@@ -339,13 +328,10 @@ class LeadDossierModel(Base):
     )
     status: Mapped[str] = mapped_column(String(32), default="NEW", index=True)
     lead_temperature: Mapped[str] = mapped_column(String(16), default="WARM", index=True)
-    customer_name: Mapped[str] = mapped_column(String(255), default="")
-    customer_phone_masked: Mapped[str] = mapped_column(String(32), default="")
-    customer_phone_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    interested_unit_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    dossier_payload: Mapped[dict[str, Any] | None] = mapped_column(JsonType, nullable=True)
+    customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    customer_phone_masked: Mapped[str] = mapped_column(String(32), nullable=False)
     assigned_sales_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    sla_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sla_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     quote_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
@@ -364,19 +350,13 @@ class QuoteModel(Base):
     approval_status: Mapped[str] = mapped_column(String(32), default="NOT_REQUIRED", index=True)
     pdf_status: Mapped[str] = mapped_column(String(32), default="NOT_REQUESTED", index=True)
     unit_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    customer_name: Mapped[str] = mapped_column(String(128), default="")
-    customer_phone_hash: Mapped[str] = mapped_column(String(64), default="")
-    sales_rep_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    manager_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     total_contract_price_vnd: Mapped[int] = mapped_column(BigInteger, default=0)
     signature: Mapped[str | None] = mapped_column(Text, nullable=True)
     snapshot_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pdf_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="SYSTEM")
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
     approved_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=func.now(), onupdate=func.now()
     )

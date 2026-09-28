@@ -48,7 +48,12 @@ def sa_to_pg(type_obj: object) -> str:
     except Exception:
         return type(type_obj).__name__.upper()
     # SQLAlchemy compile ra FLOAT, information_schema trả double precision
-    return raw.lower().replace("double precision", "float")
+    val = raw.lower().replace("double precision", "float")
+    if val.endswith("[]"):
+        return "array"
+    if val.startswith("vector"):
+        return "user-defined"
+    return val
 
 
 def pg_type_of(row: object) -> str:
