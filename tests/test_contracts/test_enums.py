@@ -75,12 +75,14 @@ def test_compliance_enums():
 def test_pre_sales_and_dossier_enums():
     """Khóa các trạng thái của phễu Pre-Sales và Lead Handoff."""
     assert len(PreSalesSessionStatus) == 7
-    assert "WAITING_FOR_CONSTRAINT_CONFIRMATION" in PreSalesSessionStatus
-    assert "WAITING_FOR_HANDOFF_CONSENT" in PreSalesSessionStatus
+    pre_sales_statuses = {s.value for s in PreSalesSessionStatus}
+    assert "WAITING_FOR_CONSTRAINT_CONFIRMATION" in pre_sales_statuses
+    assert "WAITING_FOR_HANDOFF_CONSENT" in pre_sales_statuses
 
     assert len(LeadDossierStatus) == 7
-    assert "CONVERTED_TO_QUOTE" in LeadDossierStatus
-    assert "DISQUALIFIED" in LeadDossierStatus
+    lead_dossier_statuses = {s.value for s in LeadDossierStatus}
+    assert "CONVERTED_TO_QUOTE" in lead_dossier_statuses
+    assert "DISQUALIFIED" in lead_dossier_statuses
 
 
 def test_policy_and_security_enums():
@@ -89,5 +91,7 @@ def test_policy_and_security_enums():
     assert {s.value for s in PolicyRuleStatus} == {"DRAFT", "APPROVED_FOR_USE", "ACTIVE", "RETIRED"}
 
     assert len(SecurityEventType) == 5
-    assert "SOD_VIOLATION_DETECTED" in SecurityEventType
-    assert "PROMPT_INJECTION_DETECTED" in SecurityEventType
+    security_event_types = {s.value for s in SecurityEventType}
+    assert "SOD_VIOLATION_DETECTED" in security_event_types
+    assert "PROMPT_INJECTION_DETECTED" in security_event_types
+

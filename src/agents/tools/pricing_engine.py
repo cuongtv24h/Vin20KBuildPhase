@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.tools import tool
+
 from src.contracts.pricing import PricingInput, PricingResult
-from src.services.pricing import PricingClient
+from src.services.pricing import get_pricing_client
 
 
 async def calculate_financial_plan(pricing_input: PricingInput | dict[str, Any]) -> PricingResult:
@@ -22,5 +24,10 @@ async def calculate_financial_plan(pricing_input: PricingInput | dict[str, Any])
     else:
         validated_input = pricing_input
 
-    client = PricingClient()
+    client = get_pricing_client()
     return await client.calculate(validated_input)
+
+
+# LangGraph / LangChain tool wrapper for agent graph bindings
+pricing_engine_tool = tool("calculate_financial_plan")(calculate_financial_plan)
+

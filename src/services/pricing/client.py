@@ -16,10 +16,12 @@ import asyncio
 import json
 import os
 import socket
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, getcontext
 from pathlib import Path
 from typing import Any
 
+from src.config import get_settings
 from src.contracts.common import canonical_json_bytes, sha256_hex
 from src.contracts.enums import OptimizationObjective
 from src.contracts.errors import DomainError, ErrorCode
@@ -29,6 +31,13 @@ from src.contracts.pricing import (
     PricingResult,
     ScenarioCode,
     ScenarioDetail,
+)
+from src.pricing_sidecar.client import PricingSidecarClient, SidecarMode
+from src.pricing_sidecar.contracts import (
+    OptimizationObjective as SidecarObjective,
+)
+from src.pricing_sidecar.contracts import (
+    PricingCalculationInput,
 )
 
 # Set Decimal precision to 28 digits as mandated by FCS v2.6
@@ -55,32 +64,138 @@ class PricingClient:
     def __init__(
         self,
         socket_path: str | None = None,
+        host: str | None = None,
+        port: int | None = None,
         timeout: float = 5.0,
         force_mock: bool = False,
+        fallback_to_direct: bool = True,
     ) -> None:
+        settings = get_settings()
         self.socket_path = socket_path or os.environ.get(
-            "PRICING_SIDECAR_SOCKET", "./data/pricing.sock"
+            "PRICING_SIDECAR_SOCKET", getattr(settings, "pricing_sidecar_socket", "./data/pricing.sock")
         )
+        self.host = host or os.environ.get("PRICING_SIDECAR_HOST", getattr(settings, "pricing_sidecar_host", "127.0.0.1"))
+        self.port = port or int(os.environ.get("PRICING_SIDECAR_PORT", str(getattr(settings, "pricing_sidecar_port", 8001))))
         self.timeout = timeout
         self.force_mock = force_mock or (
             os.environ.get("PRICING_USE_MOCK", "false").lower() in ("true", "1")
+            or getattr(settings, "pricing_use_mock", False)
+        )
+        self.fallback_to_direct = fallback_to_direct
+
+        use_tcp = os.name == "nt" or (socket_path is None and not Path(self.socket_path).exists())
+        self.sidecar_client = PricingSidecarClient(
+            mode=SidecarMode.IPC,
+            socket_path=self.socket_path,
+            host=self.host,
+            port=self.port,
+            use_tcp=use_tcp,
+            timeout_seconds=self.timeout,
+            fallback_to_direct=self.fallback_to_direct,
         )
 
     async def calculate(self, pricing_input: PricingInput) -> PricingResult:
         """
         Calculate 3 financial scenarios (PA-CHUDONG, PA-NHANH, PA-VAY) for the given input.
-        Attempts UDS socket first; seamlessly falls back to deterministic local math engine.
+        Invokes hardened Sidecar engine with seamless fallback to deterministic local math.
         """
-        if not self.force_mock:
-            try:
-                sidecar_res = await asyncio.to_thread(self._sync_call_uds_sidecar, pricing_input)
-                if sidecar_res is not None:
-                    return sidecar_res
-            except Exception:
-                # Socket offline or unsupported on current OS -> fallback to in-process math
-                pass
+        if self.force_mock:
+            return self._calculate_deterministic(pricing_input)
 
-        return self._calculate_deterministic(pricing_input)
+        try:
+            return await self._calculate_via_sidecar(pricing_input)
+        except Exception:
+            if self.fallback_to_direct:
+                return self._calculate_deterministic(pricing_input)
+            raise
+
+    async def _calculate_via_sidecar(self, pricing_input: PricingInput) -> PricingResult:
+        """Translate PricingInput to PricingCalculationInput, execute via sidecar, and translate back."""
+        try:
+            dep_date = date.fromisoformat(pricing_input.transaction_date)
+        except Exception:
+            dep_date = date.today()
+
+        contract_date = dep_date + timedelta(days=7)
+
+        sidecar_input = PricingCalculationInput(
+            unit_code=pricing_input.unit_code,
+            deposit_date=dep_date,
+            contract_signing_date=contract_date,
+            listed_price_vnd=pricing_input.listed_price_before_tax_vnd,
+            deposit_amount_vnd=100_000_000,
+            resolved_policy_snapshot_id=pricing_input.project_id or "SNAPSHOT-DEFAULT",
+            source_policy_hash=pricing_input.policy_snapshot_hash or "SOURCE-HASH-DEFAULT",
+            quote_id=pricing_input.quote_id,
+            quote_version=pricing_input.quote_version,
+            selected_scenarios=["PA-CHUDONG", "PA-NHANH", "PA-VAY"],
+            tiebreak_rule_id="TB-RULE-2026-CHUDONG-V1",
+        )
+
+        output = await self.sidecar_client.calculate_scenarios(sidecar_input)
+
+        scenarios_dict: dict[str, ScenarioDetail] = {}
+        for sc in output.scenario_results:
+            code = ScenarioCode(sc.scenario_code)
+            sched_items: list[PaymentScheduleItem] = []
+            for inst in sc.cashflow_schedule:
+                sched_items.append(
+                    PaymentScheduleItem(
+                        installment_number=inst.installment_order,
+                        due_milestone=inst.milestone_label,
+                        percentage=float(inst.percentage_of_contract) if hasattr(inst, "percentage_of_contract") else 0.0,
+                        amount_vnd=inst.amount_after_vat_vnd,
+                        vat_vnd=getattr(inst, "vat_amount_vnd", 0),
+                        kpbt_vnd=inst.maintenance_fee_amount_vnd,
+                        net_amount_vnd=getattr(inst, "net_amount_vnd", inst.amount_after_vat_vnd - inst.maintenance_fee_amount_vnd),
+                    )
+                )
+
+            handover_inst = next((inst for inst in sc.cashflow_schedule if inst.is_handover), None)
+            if handover_inst and handover_inst.due_date and sidecar_input.deposit_date:
+                days = max((handover_inst.due_date - sidecar_input.deposit_date).days, 30)
+                months = max(days // 30, 1)
+                monthly_burden = sc.customer_cash_outflow_until_handover_vnd // months
+            else:
+                monthly_burden = sc.total_contract_price_vnd // 24
+
+            detail = ScenarioDetail(
+                scenario_code=code,
+                scenario_name=sc.scenario_name,
+                net_price_vnd=sc.net_price_vnd,
+                vat_vnd=sc.vat_vnd,
+                kpbt_vnd=sc.maintenance_fee_vnd,
+                total_contract_price_vnd=sc.total_contract_price_vnd,
+                initial_cash_outflow_vnd=sc.customer_cash_outflow_round_1_vnd,
+                monthly_burden_vnd=monthly_burden,
+                total_cash_outflow_vnd=sc.customer_cash_outflow_until_handover_vnd,
+                benefit_value_vnd=sc.total_discount_amount_vnd,
+                payment_schedule=sched_items,
+                applied_incentives=[rule.rule_id for rule in sc.applied_benefits] or [sc.scenario_name],
+                is_feasible=(
+                    sc.customer_cash_outflow_round_1_vnd <= pricing_input.own_funds_vnd
+                    if pricing_input.own_funds_vnd > 0
+                    else True
+                ),
+            )
+            scenarios_dict[code.value] = detail
+
+        sidecar_obj = SidecarObjective(pricing_input.objective.value)
+        ranking_res = self.sidecar_client.rank_scenarios(
+            output.scenario_results,
+            objective=sidecar_obj,
+            tiebreak_rule_id="TB-RULE-2026-CHUDONG-V1",
+        )
+        rec_code = ScenarioCode(ranking_res.recommended_scenario)
+
+        return PricingResult(
+            schema_version="pricing-result.v1",
+            calculation_hash=output.canonical_snapshot_hash,
+            scenarios=scenarios_dict,
+            recommended_scenario_code=rec_code,
+            sanity_passed=output.sanity_report.passed,
+            sanity_errors=[e.error_message if hasattr(e, "error_message") else str(e) for e in output.sanity_report.errors],
+        )
 
     def _sync_call_uds_sidecar(self, pricing_input: PricingInput) -> PricingResult | None:
         """Attempt to call the Pricing Sidecar via Unix Domain Socket synchronously in a worker thread."""
@@ -464,3 +579,15 @@ class PricingClient:
             sanity_passed=sanity_passed,
             sanity_errors=sanity_errors,
         )
+
+
+_pricing_client_singleton: PricingClient | None = None
+
+
+def get_pricing_client() -> PricingClient:
+    """Singleton Lifecycle Manager for PricingClient."""
+    global _pricing_client_singleton
+    if _pricing_client_singleton is None:
+        _pricing_client_singleton = PricingClient()
+    return _pricing_client_singleton
+

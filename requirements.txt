@@ -52,3 +52,4 @@ httpx>=0.28.0
 # pyjwt[crypto]>=2.10.0     # auth JWT/RBAC cho get_current_principal (src/api/deps.py)
 # boto3>=1.35.0             # object storage PDF (nếu không dùng Supabase Storage)
 # psycopg2-binary>=2.9.0    # chỉ cần nếu chạy Alembic sync offline mode
+hypothesis>=6.100.0

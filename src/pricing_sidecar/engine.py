@@ -1,0 +1,934 @@
+"""Deterministic Pricing Engine Core: Additive Discount Model (FCS v2.6 §5).
+
+Step 1: Khấu trừ ưu đãi tiền mặt cố định trực tiếp: Base_1 = P_listed - D_fixed
+Step 2: Khấu trừ chiết khấu tỷ lệ % cộng dồn: Sum_Rate = ∑ r_i, P_net = Base_1 - round_vnd(Base_1 * Sum_Rate)
+"""
+
+from collections.abc import Sequence
+from datetime import date, timedelta
+from decimal import Decimal
+
+from pydantic import Field
+
+from src.pricing_sidecar.arithmetic import (
+    assert_no_float,
+    forbid_float,
+    round_vnd,
+    to_decimal,
+)
+from src.pricing_sidecar.contracts import (
+    AntiFloatBaseModel,
+    BenefitApplicationRule,
+    BenefitType,
+    CashflowInstallmentOutput,
+    PaymentScenarioConfig,
+    ScenarioCalculationResult,
+    ScenarioType,
+    ValuationStatus,
+    create_pa_chudong_config,
+    create_pa_nhanh_config,
+    create_pa_vay_config,
+)
+
+
+class AdditiveDiscountResult(AntiFloatBaseModel):
+    """Kết quả tính toán Bước 1 & Bước 2 mô hình Additive Discount (FCS v2.6 §5)."""
+
+    listed_price_vnd: int = Field(..., gt=0)
+    fixed_discount_vnd: int = Field(default=0, ge=0)
+    base_after_fixed_vnd: int = Field(..., ge=0)
+    total_discount_rate: Decimal = Field(default=Decimal("0.0000"), ge=0)
+    percentage_discount_vnd: int = Field(default=0, ge=0)
+    net_price_before_vat: int = Field(..., ge=0)
+    total_discount_amount_vnd: int = Field(default=0, ge=0)
+    max_discount_rate: Decimal = Field(default=Decimal("0.3500"), ge=0, le=1)
+    max_total_discount_cap_rate: Decimal = Field(default=Decimal("0.4000"), ge=0, le=1)
+    max_total_discount_vnd: int = Field(default=0, ge=0)
+
+    @property
+    def total_discount_vnd(self) -> int:
+        """Alias for total_discount_amount_vnd."""
+        return self.total_discount_amount_vnd
+
+    @property
+    def is_within_caps(self) -> bool:
+        """Kiểm tra kết quả có nằm trong trần Dual Discount Cap hay không."""
+        return (
+            self.total_discount_rate <= self.max_discount_rate
+            and self.total_discount_amount_vnd <= self.max_total_discount_vnd
+        )
+
+    def __iter__(self):
+        """Cho phép unpack: fixed, base, rate, pct_vnd, net = result."""
+        yield self.fixed_discount_vnd
+        yield self.base_after_fixed_vnd
+        yield self.total_discount_rate
+        yield self.percentage_discount_vnd
+        yield self.net_price_before_vat
+
+
+class ContractPricingSummary(AntiFloatBaseModel):
+    """Tổng hợp thuế VAT, phí KPBT và giá trị hợp đồng chính thức (Bước 3 & Bước 4 FCS §5)."""
+
+    net_price_before_vat: int = Field(..., ge=0, description="P_net: Giá Net trước thuế")
+    vat_rate: Decimal = Field(default=Decimal("0.1000"), ge=0, le=1)
+    vat_amount: int = Field(..., ge=0, description="A_vat: Tiền thuế GTGT")
+    maintenance_fee_rate: Decimal = Field(default=Decimal("0.0200"), ge=0, le=1)
+    maintenance_fee_amount: int = Field(..., ge=0, description="A_kpbt: Kinh phí bảo trì 2%")
+    final_contract_price: int = Field(..., ge=0, description="P_contract: Tổng giá trị HĐMB")
+
+    def __iter__(self):
+        """Cho phép unpack tuple: vat_amount, kpbt_amount, contract_price = summary."""
+        yield self.vat_amount
+        yield self.maintenance_fee_amount
+        yield self.final_contract_price
+
+
+class CashflowResidualError(ValueError):
+    """Ngoại lệ phát sinh khi đợt reconciliation dòng tiền sinh số dư âm (CASHFLOW_RESIDUAL_ERROR)."""
+
+    pass
+
+
+@forbid_float
+def calculate_fixed_discount(
+    listed_price_vnd: int,
+    benefits: Sequence[BenefitApplicationRule] | None = None,
+) -> tuple[int, int]:
+    """Bước 1 FCS §5: Khấu trừ ưu đãi tiền mặt cố định trực tiếp vào giá niêm yết.
+
+    Base_1 = P_listed - D_fixed (0 <= D_fixed <= P_listed)
+
+    Args:
+        listed_price_vnd: Giá niêm yết gốc của bất động sản (VNĐ, > 0).
+        benefits: Danh sách các quy tắc ưu đãi đã được phê duyệt.
+
+    Returns:
+        tuple[int, int]: (fixed_discount_vnd, base_after_fixed_vnd)
+
+    Raises:
+        ValueError: Nếu listed_price_vnd <= 0 hoặc D_fixed > listed_price_vnd.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(listed_price_vnd, benefits)
+
+    if listed_price_vnd <= 0:
+        raise ValueError(f"SANITY_FAIL: listed_price_vnd ({listed_price_vnd:,}đ) phải là số nguyên dương > 0.")
+
+    if not benefits:
+        return 0, listed_price_vnd
+
+    # Sắp xếp theo application_order để bảo đảm tính tất định
+    sorted_benefits = sorted(benefits, key=lambda b: b.application_order)
+
+    total_fixed_discount = 0
+    for b in sorted_benefits:
+        # Chỉ xét ưu đãi được ủy quyền trừ giá
+        if not b.price_deduction_authorized:
+            continue
+
+        # Quà hiện vật chỉ được trừ giá khi có chứng thư định giá APPROVED
+        if b.benefit_type == BenefitType.IN_KIND:
+            if b.valuation_status != ValuationStatus.APPROVED:
+                continue
+
+        # Các ưu đãi có số tiền giảm trừ cố định > 0
+        if b.fixed_deduction_vnd > 0:
+            total_fixed_discount += b.fixed_deduction_vnd
+
+    if total_fixed_discount < 0:
+        raise ValueError(f"SANITY_FAIL: fixed_discount_vnd ({total_fixed_discount:,}đ) không được âm.")
+
+    if total_fixed_discount > listed_price_vnd:
+        raise ValueError(
+            f"SANITY_FAIL: Tổng chiết khấu tiền mặt cố định ({total_fixed_discount:,}đ) "
+            f"vượt quá giá niêm yết gốc ({listed_price_vnd:,}đ)."
+        )
+
+    base_after_fixed = listed_price_vnd - total_fixed_discount
+    return total_fixed_discount, base_after_fixed
+
+
+@forbid_float
+def calculate_percentage_discount(
+    base_after_fixed_vnd: int,
+    benefits: Sequence[BenefitApplicationRule] | None = None,
+    scenario_discount_rate: Decimal = Decimal("0.0000"),
+) -> tuple[Decimal, int, int]:
+    """Bước 2 FCS §5: Khấu trừ chiết khấu tỷ lệ % cộng dồn (Additive Discount).
+
+    Sum_Rate = ∑ r_i + scenario_discount_rate
+    Discount_Percent_Amount = round_vnd(Base_1 * Sum_Rate)
+    P_net = Base_1 - Discount_Percent_Amount
+
+    Args:
+        base_after_fixed_vnd: Giá cơ sở sau khi trừ tiền mặt cố định (Base_1, >= 0).
+        benefits: Danh sách các quy tắc ưu đãi đã được phê duyệt.
+        scenario_discount_rate: Tỷ lệ chiết khấu riêng của kịch bản thanh toán (Decimal).
+
+    Returns:
+        tuple[Decimal, int, int]: (total_discount_rate, percentage_discount_vnd, net_price_before_vat)
+
+    Raises:
+        ValueError: Nếu base_after_fixed_vnd < 0 hoặc scenario_discount_rate < 0.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(base_after_fixed_vnd, benefits, scenario_discount_rate)
+
+    if base_after_fixed_vnd < 0:
+        raise ValueError(f"SANITY_FAIL: base_after_fixed_vnd ({base_after_fixed_vnd:,}đ) không được âm.")
+
+    scenario_rate = to_decimal(scenario_discount_rate)
+    if scenario_rate < Decimal("0.0000"):
+        raise ValueError(f"SANITY_FAIL: scenario_discount_rate ({scenario_rate}) không được âm.")
+
+    sum_rate = scenario_rate
+
+    if benefits:
+        sorted_benefits = sorted(benefits, key=lambda b: b.application_order)
+        for b in sorted_benefits:
+            if not b.price_deduction_authorized:
+                continue
+
+            if b.benefit_type == BenefitType.PERCENTAGE and b.discount_rate > Decimal("0.0000"):
+                sum_rate += to_decimal(b.discount_rate)
+
+    if sum_rate < Decimal("0.0000"):
+        raise ValueError(f"SANITY_FAIL: Tổng tỷ lệ chiết khấu ({sum_rate}) không được âm.")
+
+    discount_percent_amount = round_vnd(to_decimal(base_after_fixed_vnd) * sum_rate)
+    net_price_before_vat = base_after_fixed_vnd - discount_percent_amount
+
+    return sum_rate, discount_percent_amount, net_price_before_vat
+
+
+@forbid_float
+def validate_dual_discount_cap(
+    listed_price_vnd: int,
+    total_discount_rate: Decimal,
+    total_discount_amount_vnd: int,
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+) -> None:
+    """Cưỡng chế cơ chế Dual Discount Cap (FCS v2.6 §5 & §9).
+
+    1. Trần tỷ lệ phần trăm: Sum_Rate <= max_discount_rate (0.3500)
+    2. Trần tổng giá trị tài chính: D_total <= round_vnd(P_listed * max_total_discount_cap_rate) (0.4000)
+
+    Args:
+        listed_price_vnd: Giá niêm yết gốc (> 0).
+        total_discount_rate: Tổng tỷ lệ chiết khấu (Decimal).
+        total_discount_amount_vnd: Tổng số tiền chiết khấu (D_fixed + Discount_Percent_Amount).
+        max_discount_rate: Trần tỷ lệ chiết khấu tối đa (mặc định 0.3500).
+        max_total_discount_cap_rate: Trần tỷ lệ tổng giá trị tài chính tối đa (mặc định 0.4000).
+
+    Raises:
+        ValueError: Nếu vi phạm trần tỷ lệ hoặc trần tổng tiền.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(
+        listed_price_vnd,
+        total_discount_rate,
+        total_discount_amount_vnd,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+    )
+
+    if listed_price_vnd <= 0:
+        raise ValueError(f"SANITY_FAIL: listed_price_vnd ({listed_price_vnd:,}đ) phải là số nguyên dương > 0.")
+
+    rate = to_decimal(total_discount_rate)
+    max_rate = to_decimal(max_discount_rate)
+    max_total_cap_rate = to_decimal(max_total_discount_cap_rate)
+
+    # 1. Trần tỷ lệ phần trăm (Percentage Cap)
+    if rate > max_rate:
+        raise ValueError(f"DUAL_CAP_EXCEEDED: Tỷ lệ chiết khấu ({rate}) vượt trần tỷ lệ cho phép ({max_rate}).")
+
+    # 2. Trần tổng giá trị tài chính (Total Value Cap)
+    max_total_allowed_vnd = round_vnd(to_decimal(listed_price_vnd) * max_total_cap_rate)
+    if total_discount_amount_vnd > max_total_allowed_vnd:
+        raise ValueError(
+            f"DUAL_CAP_EXCEEDED: Tổng chiết khấu ({total_discount_amount_vnd:,}đ) "
+            f"vượt trần tổng tiền cho phép ({max_total_allowed_vnd:,}đ)."
+        )
+
+
+@forbid_float
+def calculate_additive_discount(
+    listed_price_vnd: int,
+    benefits: Sequence[BenefitApplicationRule] | None = None,
+    scenario_discount_rate: Decimal = Decimal("0.0000"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    enforce_caps: bool = True,
+) -> AdditiveDiscountResult:
+    """Tích hợp hoàn chỉnh Bước 1 & Bước 2 mô hình Additive Discount và Dual Discount Cap (FCS v2.6 §5).
+
+    Returns:
+        AdditiveDiscountResult: Đóng gói đầy đủ kết quả Bước 1 & Bước 2 và thông tin trần chiết khấu.
+
+    Raises:
+        ValueError: Nếu vi phạm Dual Cap khi enforce_caps=True.
+    """
+    assert_no_float(
+        listed_price_vnd,
+        benefits,
+        scenario_discount_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+    )
+
+    fixed_vnd, base_after_fixed_vnd = calculate_fixed_discount(
+        listed_price_vnd=listed_price_vnd,
+        benefits=benefits,
+    )
+
+    total_rate, percentage_vnd, net_price_vnd = calculate_percentage_discount(
+        base_after_fixed_vnd=base_after_fixed_vnd,
+        benefits=benefits,
+        scenario_discount_rate=scenario_discount_rate,
+    )
+
+    total_discount_vnd = fixed_vnd + percentage_vnd
+    max_total_discount_vnd = round_vnd(to_decimal(listed_price_vnd) * to_decimal(max_total_discount_cap_rate))
+
+    if enforce_caps:
+        validate_dual_discount_cap(
+            listed_price_vnd=listed_price_vnd,
+            total_discount_rate=total_rate,
+            total_discount_amount_vnd=total_discount_vnd,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+        )
+
+    return AdditiveDiscountResult(
+        listed_price_vnd=listed_price_vnd,
+        fixed_discount_vnd=fixed_vnd,
+        base_after_fixed_vnd=base_after_fixed_vnd,
+        total_discount_rate=total_rate,
+        percentage_discount_vnd=percentage_vnd,
+        net_price_before_vat=net_price_vnd,
+        total_discount_amount_vnd=total_discount_vnd,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+        max_total_discount_vnd=max_total_discount_vnd,
+    )
+
+
+@forbid_float
+def calculate_vat_amount(
+    net_price_before_vat: int,
+    vat_rate: Decimal = Decimal("0.1000"),
+) -> int:
+    """Bước 3 FCS §5: Tính thuế GTGT trên giá Net trước thuế.
+
+    A_vat = round_vnd(P_net * vat_rate)
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        vat_rate: Thuế suất GTGT (mặc định 0.1000 = 10%).
+
+    Returns:
+        int: Số tiền thuế GTGT làm tròn kế toán ROUND_HALF_UP.
+
+    Raises:
+        ValueError: Nếu net_price_before_vat < 0 hoặc vat_rate < 0.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(net_price_before_vat, vat_rate)
+
+    if net_price_before_vat < 0:
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
+
+    rate = to_decimal(vat_rate)
+    if rate < Decimal("0.0000"):
+        raise ValueError(f"SANITY_FAIL: vat_rate ({rate}) không được âm.")
+
+    return round_vnd(to_decimal(net_price_before_vat) * rate)
+
+
+@forbid_float
+def calculate_maintenance_fee_amount(
+    net_price_before_vat: int,
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+) -> int:
+    """Bước 3 FCS §5: Tính kinh phí bảo trì (KPBT) trên giá Net trước thuế.
+
+    A_kpbt = round_vnd(P_net * maintenance_fee_rate)
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        maintenance_fee_rate: Tỷ lệ phí bảo trì (mặc định 0.0200 = 2%).
+
+    Returns:
+        int: Số tiền phí bảo trì làm tròn kế toán ROUND_HALF_UP.
+
+    Raises:
+        ValueError: Nếu net_price_before_vat < 0 hoặc maintenance_fee_rate < 0.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(net_price_before_vat, maintenance_fee_rate)
+
+    if net_price_before_vat < 0:
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
+
+    rate = to_decimal(maintenance_fee_rate)
+    if rate < Decimal("0.0000"):
+        raise ValueError(f"SANITY_FAIL: maintenance_fee_rate ({rate}) không được âm.")
+
+    return round_vnd(to_decimal(net_price_before_vat) * rate)
+
+
+@forbid_float
+def calculate_final_contract_price(
+    net_price_before_vat: int,
+    vat_amount: int,
+    maintenance_fee_amount: int,
+) -> int:
+    """Bước 4 FCS §5: Tổng hợp giá trị hợp đồng mua bán chính thức.
+
+    P_contract = P_net + A_vat + A_kpbt
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        vat_amount: Thuế GTGT (VNĐ, >= 0).
+        maintenance_fee_amount: Kinh phí bảo trì (VNĐ, >= 0).
+
+    Returns:
+        int: Tổng giá trị HĐMB cuối cùng.
+
+    Raises:
+        ValueError: Nếu có bất kỳ thành phần nào mang giá trị âm.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(net_price_before_vat, vat_amount, maintenance_fee_amount)
+
+    if net_price_before_vat < 0:
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
+    if vat_amount < 0:
+        raise ValueError(f"SANITY_FAIL: vat_amount ({vat_amount:,}đ) không được âm.")
+    if maintenance_fee_amount < 0:
+        raise ValueError(f"SANITY_FAIL: maintenance_fee_amount ({maintenance_fee_amount:,}đ) không được âm.")
+
+    return net_price_before_vat + vat_amount + maintenance_fee_amount
+
+
+@forbid_float
+def calculate_contract_pricing(
+    net_price_before_vat: int,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+) -> ContractPricingSummary:
+    """Đóng gói trọn vẹn Bước 3 & Bước 4 thành đối tượng ContractPricingSummary.
+
+    Args:
+        net_price_before_vat: Giá Net trước thuế (VNĐ, >= 0).
+        vat_rate: Thuế suất GTGT (mặc định 0.1000 = 10%).
+        maintenance_fee_rate: Tỷ lệ phí bảo trì (mặc định 0.0200 = 2%).
+
+    Returns:
+        ContractPricingSummary: Chứa P_net, vat_amount, maintenance_fee_amount, final_contract_price.
+    """
+    assert_no_float(net_price_before_vat, vat_rate, maintenance_fee_rate)
+
+    vat_amt = calculate_vat_amount(net_price_before_vat, vat_rate=vat_rate)
+    kpbt_amt = calculate_maintenance_fee_amount(net_price_before_vat, maintenance_fee_rate=maintenance_fee_rate)
+    contract_price = calculate_final_contract_price(net_price_before_vat, vat_amt, kpbt_amt)
+
+    return ContractPricingSummary(
+        net_price_before_vat=net_price_before_vat,
+        vat_rate=vat_rate,
+        vat_amount=vat_amt,
+        maintenance_fee_rate=maintenance_fee_rate,
+        maintenance_fee_amount=kpbt_amt,
+        final_contract_price=contract_price,
+    )
+
+
+@forbid_float
+def calculate_total_benefit_value(
+    benefits: Sequence[BenefitApplicationRule] | None = None,
+) -> int:
+    """Tính tổng giá trị các ưu đãi quà tặng có chứng thư định giá hợp lệ (FCS v2.6 §7.1).
+
+    Chỉ tính các ưu đãi có ValuationStatus == APPROVED.
+    """
+    assert_no_float(benefits)
+    if not benefits:
+        return 0
+
+    total_val = 0
+    for b in benefits:
+        if b.valuation_status == ValuationStatus.APPROVED:
+            if b.fixed_deduction_vnd > 0:
+                total_val += b.fixed_deduction_vnd
+    return total_val
+
+
+# ===========================================================================
+# Cashflow Schedule Generator (FCS v2.6 §6.2)
+# ===========================================================================
+@forbid_float
+def generate_cashflow_schedule(
+    scenario_config: PaymentScenarioConfig,
+    net_price_before_vat: int,
+    vat_amount: int,
+    kpbt_amount: int,
+    deposit_amount_vnd: int = 100_000_000,
+    deposit_date: date | None = None,
+) -> list[CashflowInstallmentOutput]:
+    """Giải thuật Lập lịch Dòng tiền Generic (FCS v2.6 §6.2).
+
+    Duyệt động theo danh sách installment_rules của scenario_config, tính ngày đến hạn từ deposit_date,
+    thực hiện phân bổ vốn tự có, ngân hàng giải ngân, kinh phí bảo trì KPBT, cấn trừ cọc Đợt 1
+    và cơ chế bù số dư tại đợt reconciliation.
+
+    Args:
+        scenario_config: Cấu hình kịch bản tiến độ thanh toán.
+        net_price_before_vat: P_net: Giá Net trước thuế (VNĐ, >= 0).
+        vat_amount: A_vat: Tiền thuế GTGT (VNĐ, >= 0).
+        kpbt_amount: A_kpbt: Kinh phí bảo trì (VNĐ, >= 0).
+        deposit_amount_vnd: Tiền cọc thực tế đã nộp (VNĐ, >= 0).
+        deposit_date: Ngày ký thỏa thuận đặt cọc (mặc định 2026-03-08 nếu None).
+
+    Returns:
+        list[CashflowInstallmentOutput]: Danh sách các mốc dòng tiền đã lập lịch.
+
+    Raises:
+        ValueError: Nếu có giá trị số tiền âm hoặc đợt reconciliation sinh số dư âm.
+        TypeError: Nếu có bất kỳ tham số nào chứa kiểu float.
+    """
+    assert_no_float(
+        scenario_config,
+        net_price_before_vat,
+        vat_amount,
+        kpbt_amount,
+        deposit_amount_vnd,
+        deposit_date,
+    )
+    if net_price_before_vat < 0:
+        raise ValueError(f"SANITY_FAIL: net_price_before_vat ({net_price_before_vat:,}đ) không được âm.")
+    if vat_amount < 0:
+        raise ValueError(f"SANITY_FAIL: vat_amount ({vat_amount:,}đ) không được âm.")
+    if kpbt_amount < 0:
+        raise ValueError(f"SANITY_FAIL: kpbt_amount ({kpbt_amount:,}đ) không được âm.")
+    if deposit_amount_vnd < 0:
+        raise ValueError(f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm.")
+    rules = scenario_config.installment_rules
+    if not rules:
+        raise ValueError("SANITY_FAIL: scenario_config.installment_rules không được rỗng.")
+
+    base_date = deposit_date or date(2026, 3, 8)
+    base_with_vat = net_price_before_vat + vat_amount
+    contract_price = base_with_vat + kpbt_amount
+
+    # Dual Reconciliation Target (FCS v2.6 §6.2)
+    total_equity_target = round_vnd(to_decimal(base_with_vat) * scenario_config.customer_equity_rate)
+    total_bank_target = base_with_vat - total_equity_target
+
+    schedule: list[CashflowInstallmentOutput] = []
+    sum_equity_so_far = 0
+    sum_bank_so_far = 0
+    sum_kpbt_so_far = 0
+
+    for rule in rules:
+        due_date = base_date + timedelta(days=rule.days_from_deposit)
+
+        if not rule.is_reconciliation:
+            eq_amt = round_vnd(to_decimal(base_with_vat) * rule.customer_equity_ratio)
+            if (
+                scenario_config.bank_financing_rate > 0
+                and rule.bank_disbursement_ratio == scenario_config.bank_financing_rate
+            ):
+                bank_amt = total_bank_target
+            else:
+                bank_amt = round_vnd(to_decimal(base_with_vat) * rule.bank_disbursement_ratio)
+            kpbt_amt = round_vnd(to_decimal(kpbt_amount) * rule.maintenance_fee_ratio)
+        else:
+            # Task 2.8 (FCS §6.2): Reconciliation Gate Tường minh - Bù triệt tiêu sai số lẻ, đảm bảo không âm
+            eq_amt = total_equity_target - sum_equity_so_far
+            bank_amt = total_bank_target - sum_bank_so_far
+            kpbt_amt = kpbt_amount - sum_kpbt_so_far
+
+            if eq_amt < 0 or bank_amt < 0 or kpbt_amt < 0:
+                raise CashflowResidualError(
+                    f"CASHFLOW_RESIDUAL_ERROR: Đợt reconciliation sinh số dư âm: "
+                    f"equity={eq_amt:,}đ, bank={bank_amt:,}đ, kpbt={kpbt_amt:,}đ."
+                )
+
+        sum_equity_so_far += eq_amt
+        sum_bank_so_far += bank_amt
+        sum_kpbt_so_far += kpbt_amt
+
+        gross_milestone = eq_amt + bank_amt + kpbt_amt
+
+        # Task 2.6 (FCS §6.1): Xử lý kết chuyển tiền cọc tại Đợt 1 và tính tiền nộp thêm thực tế
+        if rule.installment_number == 1:
+            dep_credited = min(deposit_amount_vnd, eq_amt)
+            add_cash_due = eq_amt - dep_credited + kpbt_amt
+        else:
+            dep_credited = 0
+            add_cash_due = eq_amt + kpbt_amt
+
+        schedule.append(
+            CashflowInstallmentOutput(
+                installment_number=rule.installment_number,
+                milestone_name=rule.milestone_name,
+                due_date=due_date,
+                customer_equity_paid_vnd=eq_amt,
+                bank_disbursement_vnd=bank_amt,
+                maintenance_fee_paid_vnd=kpbt_amt,
+                installment_gross_obligation_vnd=gross_milestone,
+                installment_additional_cash_due_vnd=add_cash_due,
+                deposit_credited_vnd=dep_credited,
+                is_handover_milestone=rule.is_handover,
+                is_reconciliation_installment=rule.is_reconciliation,
+            )
+        )
+
+    # Invariant: Tổng nghĩa vụ các đợt phải khớp chính xác 100% P_contract
+    total_schedule_gross = sum(inst.installment_gross_obligation_vnd for inst in schedule)
+    if total_schedule_gross != contract_price:
+        raise ValueError(
+            f"SANITY_FAIL: Tổng nghĩa vụ dòng tiền ({total_schedule_gross:,}đ) "
+            f"lệch với Tổng giá HĐMB ({contract_price:,}đ)."
+        )
+
+    return schedule
+
+
+# ===========================================================================
+# Canonical Scenario Calculations (FCS v2.6 §5, §6, §10)
+# ===========================================================================
+@forbid_float
+def _calculate_scenario_core(
+    scenario_config: PaymentScenarioConfig,
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    scenario_discount_rate: Decimal = Decimal("0.0000"),
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    deposit_date: date | None = None,
+) -> ScenarioCalculationResult:
+    """Động cơ tính toán cốt lõi cho một cấu hình kịch bản PaymentScenarioConfig bất kỳ."""
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        scenario_discount_rate,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+        deposit_date,
+    )
+    if deposit_amount_vnd < 0:
+        raise ValueError(f"SANITY_FAIL: deposit_amount_vnd ({deposit_amount_vnd:,}đ) không được âm.")
+
+    # 1. Bước 1 & Bước 2: Additive Discount Model & Dual Discount Cap
+    additive_result = calculate_additive_discount(
+        listed_price_vnd=listed_price_vnd,
+        benefits=approved_benefits,
+        scenario_discount_rate=scenario_discount_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+        enforce_caps=True,
+    )
+
+    # 2. Bước 3 & Bước 4: Thuế VAT, Phí bảo trì KPBT và Tổng giá trị HĐMB
+    contract_summary = calculate_contract_pricing(
+        net_price_before_vat=additive_result.net_price_before_vat,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+    )
+
+    # 3. Tổng giá trị các ưu đãi được phê duyệt định giá
+    total_benefit_val = calculate_total_benefit_value(approved_benefits)
+
+    # 4. Lập lịch dòng tiền chi tiết theo generic schedule generator
+    schedule = generate_cashflow_schedule(
+        scenario_config=scenario_config,
+        net_price_before_vat=contract_summary.net_price_before_vat,
+        vat_amount=contract_summary.vat_amount,
+        kpbt_amount=contract_summary.maintenance_fee_amount,
+        deposit_amount_vnd=deposit_amount_vnd,
+        deposit_date=deposit_date,
+    )
+
+    inst_1 = schedule[0]
+    initial_gross = inst_1.installment_gross_obligation_vnd
+    initial_outflow = deposit_amount_vnd + inst_1.installment_additional_cash_due_vnd
+
+    # Dòng tiền mặt khách nộp đến mốc bàn giao nhà (FCS §7.1)
+    handover_rule = next((r for r in scenario_config.installment_rules if r.is_handover), None)
+    handover_idx = handover_rule.installment_number if handover_rule else len(scenario_config.installment_rules)
+    cash_to_handover = sum(
+        inst.customer_equity_paid_vnd + inst.maintenance_fee_paid_vnd
+        for inst in schedule
+        if inst.installment_number <= handover_idx
+    )
+
+    return ScenarioCalculationResult(
+        scenario_type=scenario_config.scenario_type,
+        scenario_name=scenario_config.scenario_name,
+        listed_price_vnd=additive_result.listed_price_vnd,
+        fixed_discount_vnd=additive_result.fixed_discount_vnd,
+        base_after_fixed_vnd=additive_result.base_after_fixed_vnd,
+        total_discount_rate=additive_result.total_discount_rate,
+        percentage_discount_vnd=additive_result.percentage_discount_vnd,
+        net_price_before_vat=contract_summary.net_price_before_vat,
+        vat_rate=contract_summary.vat_rate,
+        vat_amount=contract_summary.vat_amount,
+        maintenance_fee_rate=contract_summary.maintenance_fee_rate,
+        maintenance_fee_amount=contract_summary.maintenance_fee_amount,
+        final_contract_price=contract_summary.final_contract_price,
+        initial_gross_obligation_vnd=initial_gross,
+        initial_cash_outflow_vnd=initial_outflow,
+        customer_cash_outflow_until_handover=cash_to_handover,
+        total_benefit_value_vnd=total_benefit_val,
+        cashflow_schedule=schedule,
+    )
+
+
+@forbid_float
+def calculate_pa_chudong(
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    deposit_date: date | None = None,
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Tính toán tài chính trọn gói cho Phương án Tiến độ Chuẩn PA-CHUDONG (FCS v2.6 §5, §10 TC-01).
+
+    - Tiến độ: 9 đợt thanh toán chuẩn theo tiến độ thi công.
+    - Cơ cấu vốn: 100% vốn tự có, 0% ngân hàng giải ngân.
+    - Chiết khấu kịch bản: 0.00%.
+    - Đợt 1: Khách nộp 15% vốn tự có (đã kết chuyển cọc).
+    """
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+        deposit_date,
+    )
+    cfg = scenario_config or create_pa_chudong_config(deposit_amount_vnd=deposit_amount_vnd)
+    return _calculate_scenario_core(
+        scenario_config=cfg,
+        listed_price_vnd=listed_price_vnd,
+        approved_benefits=approved_benefits,
+        scenario_discount_rate=Decimal("0.0000"),
+        deposit_amount_vnd=deposit_amount_vnd,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+        deposit_date=deposit_date,
+    )
+
+
+@forbid_float
+def calculate_pa_nhanh(
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    early_discount_rate: Decimal = Decimal("0.0800"),
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    deposit_date: date | None = None,
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Tính toán tài chính trọn gói cho Phương án Thanh toán Sớm 95% PA-NHANH (FCS v2.6 §5, §10 TC-02).
+
+    - Tiến độ: 3 đợt (Đợt 1 nộp 95% vốn tự có, Đợt 2 nhận bàn giao 100% KPBT, Đợt 3 nhận sổ 5%).
+    - Cơ cấu vốn: 100% vốn tự có, 0% ngân hàng giải ngân.
+    - Chiết khấu kịch bản: early_discount_rate (mặc định 8% cho v1, hoặc 6% theo time-travel v2).
+    - Áp dụng mô hình chiết khấu cộng dồn Additive và kiểm duyệt trần Dual Cap.
+    """
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        early_discount_rate,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+        deposit_date,
+    )
+    cfg = scenario_config or create_pa_nhanh_config(deposit_amount_vnd=deposit_amount_vnd)
+    return _calculate_scenario_core(
+        scenario_config=cfg,
+        listed_price_vnd=listed_price_vnd,
+        approved_benefits=approved_benefits,
+        scenario_discount_rate=early_discount_rate,
+        deposit_amount_vnd=deposit_amount_vnd,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+        deposit_date=deposit_date,
+    )
+
+
+@forbid_float
+def calculate_pa_vay(
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    interest_support_months: int = 24,
+    principal_grace_months: int = 24,
+    deposit_date: date | None = None,
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Tính toán tài chính trọn gói cho Phương án Vay Ngân hàng HTLS PA-VAY (FCS v2.6 §5, §10 TC-03).
+
+    - Tiến độ: 6 đợt (Vốn tự có 30%, Ngân hàng giải ngân 70% HTLS 0%).
+    - Chiết khấu kịch bản: 0.00% (Gói hỗ trợ lãi suất thay thế chiết khấu tiền mặt).
+    - Đợt 1: Khách nộp 15% vốn tự có (đã kết chuyển cọc).
+    """
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+        interest_support_months,
+        principal_grace_months,
+        deposit_date,
+    )
+    cfg = scenario_config or create_pa_vay_config(
+        deposit_amount_vnd=deposit_amount_vnd,
+        interest_support_months=interest_support_months,
+        principal_grace_months=principal_grace_months,
+    )
+    return _calculate_scenario_core(
+        scenario_config=cfg,
+        listed_price_vnd=listed_price_vnd,
+        approved_benefits=approved_benefits,
+        scenario_discount_rate=Decimal("0.0000"),
+        deposit_amount_vnd=deposit_amount_vnd,
+        vat_rate=vat_rate,
+        maintenance_fee_rate=maintenance_fee_rate,
+        max_discount_rate=max_discount_rate,
+        max_total_discount_cap_rate=max_total_discount_cap_rate,
+        deposit_date=deposit_date,
+    )
+
+
+def resolve_scenario_type(code_or_type: ScenarioType | str) -> ScenarioType:
+    """Chuẩn hóa chuỗi hoặc enum thành ScenarioType chuẩn."""
+    if isinstance(code_or_type, ScenarioType):
+        return code_or_type
+    if not isinstance(code_or_type, str):
+        raise TypeError(f"FLOAT_PROHIBITED: Kiểu dữ liệu không hợp lệ: {type(code_or_type)}")
+
+    code_upper = code_or_type.strip().upper()
+    if code_upper in ("STANDARD_PROGRESS", "PA-CHUDONG", "CHUDONG", "PROGRESS"):
+        return ScenarioType.STANDARD_PROGRESS
+    if code_upper in (
+        "EARLY_95",
+        "PA-NHANH",
+        "NHANH",
+        "EARLY",
+        "EARLY_PAYMENT_95",
+    ):
+        return ScenarioType.EARLY_95
+    if code_upper in (
+        "BANK_LOAN_HTLS",
+        "PA-VAY",
+        "VAY",
+        "LOAN",
+        "HTLS",
+        "BANK_LOAN_SUPPORT",
+    ):
+        return ScenarioType.BANK_LOAN_HTLS
+    raise ValueError(f"UNSUPPORTED_SCENARIO: Kịch bản '{code_or_type}' không hợp lệ hoặc chưa được hỗ trợ.")
+
+
+@forbid_float
+def calculate_canonical_scenario(
+    scenario_type_or_code: ScenarioType | str,
+    listed_price_vnd: int,
+    approved_benefits: Sequence[BenefitApplicationRule] | None = None,
+    deposit_amount_vnd: int = 100_000_000,
+    vat_rate: Decimal = Decimal("0.1000"),
+    maintenance_fee_rate: Decimal = Decimal("0.0200"),
+    max_discount_rate: Decimal = Decimal("0.3500"),
+    max_total_discount_cap_rate: Decimal = Decimal("0.4000"),
+    early_discount_rate: Decimal = Decimal("0.0800"),
+    deposit_date: date | None = None,
+    scenario_config: PaymentScenarioConfig | None = None,
+) -> ScenarioCalculationResult:
+    """Hàm điều phối tính toán kịch bản chuẩn tắc cho bất kỳ ScenarioType hoặc alias nào."""
+    assert_no_float(
+        listed_price_vnd,
+        approved_benefits,
+        deposit_amount_vnd,
+        vat_rate,
+        maintenance_fee_rate,
+        max_discount_rate,
+        max_total_discount_cap_rate,
+        early_discount_rate,
+        deposit_date,
+    )
+    resolved_type = resolve_scenario_type(scenario_type_or_code)
+
+    if resolved_type == ScenarioType.STANDARD_PROGRESS:
+        return calculate_pa_chudong(
+            listed_price_vnd=listed_price_vnd,
+            approved_benefits=approved_benefits,
+            deposit_amount_vnd=deposit_amount_vnd,
+            vat_rate=vat_rate,
+            maintenance_fee_rate=maintenance_fee_rate,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+            deposit_date=deposit_date,
+            scenario_config=scenario_config,
+        )
+    if resolved_type == ScenarioType.EARLY_95:
+        return calculate_pa_nhanh(
+            listed_price_vnd=listed_price_vnd,
+            approved_benefits=approved_benefits,
+            early_discount_rate=early_discount_rate,
+            deposit_amount_vnd=deposit_amount_vnd,
+            vat_rate=vat_rate,
+            maintenance_fee_rate=maintenance_fee_rate,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+            deposit_date=deposit_date,
+            scenario_config=scenario_config,
+        )
+    if resolved_type == ScenarioType.BANK_LOAN_HTLS:
+        return calculate_pa_vay(
+            listed_price_vnd=listed_price_vnd,
+            approved_benefits=approved_benefits,
+            deposit_amount_vnd=deposit_amount_vnd,
+            vat_rate=vat_rate,
+            maintenance_fee_rate=maintenance_fee_rate,
+            max_discount_rate=max_discount_rate,
+            max_total_discount_cap_rate=max_total_discount_cap_rate,
+            deposit_date=deposit_date,
+            scenario_config=scenario_config,
+        )
+
+    raise ValueError(f"UNSUPPORTED_SCENARIO: Kịch bản '{scenario_type_or_code}' không hợp lệ.")
