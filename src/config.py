@@ -37,8 +37,15 @@ class Settings(BaseSettings):
     fallback2_openai_base_url: str | None = None
     fallback2_model_name: str | None = None
 
-    # Database & Vector Store (PostgreSQL + pgvector)
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/pricepolicy_db"
+    # Database
+    database_url: str = "sqlite:///./data/app.db"
+
+    # LangGraph persistent checkpointing (INV-RT-04 — Spike 2)
+    checkpoint_db_uri: str | None = None
+    use_postgres_checkpointer: bool = False
+
+    # Vector Store & Local Embeddings
+    chroma_persist_dir: str = "./data/chroma"
     pg_table_name: str = "policy_atoms"
     embedding_model_id: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_dim: int = 384
@@ -47,6 +54,13 @@ class Settings(BaseSettings):
     reranker_top_k: int = 5
     hybrid_search_enabled: bool = True
     coarse_top_k: int = 30
+
+    # Pricing Sidecar (Component C-06)
+    pricing_sidecar_socket: str = "./data/pricing.sock"
+    pricing_sidecar_host: str = "127.0.0.1"
+    pricing_sidecar_port: int = 8001
+    pricing_use_mock: bool = False
+    pricing_fallback_to_direct: bool = True
 
 
 @lru_cache

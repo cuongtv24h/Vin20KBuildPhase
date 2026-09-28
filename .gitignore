@@ -35,7 +35,6 @@ env/
 ENV/
 env.bak/
 venv.bak/
-
 # ------------------------------------------------------------------------------
 # LAYER 2: Environment Variables, Credentials & Security Secrets
 # ------------------------------------------------------------------------------
@@ -66,6 +65,9 @@ data/contracts/
 data/customer_data/
 data/uploads/
 data/temp/
+data/official_pdfs/
+data/pre_sales_pdfs/
+data/test_pdfs/
 
 # Raw policy file extensions (unprocessed enterprise documents)
 *.pdf
@@ -227,3 +229,11 @@ scratch/
 tmp/
 temp/
 *.tmp
+
+# AI logs, local docs & team docs
+mydoc/
+.freebuff/
+reports/
+team_docs/
+dataset/
+

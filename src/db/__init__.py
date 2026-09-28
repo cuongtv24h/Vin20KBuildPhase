@@ -1,23 +1,61 @@
-"""Database package for PricePolicy AI."""
+"""
+Database module initialization and exports.
+"""
 
 from src.db.models import (
     AbstentionCertificateModel,
     Base,
+    ComplianceCheckModel,
+    CustomerConsentModel,
     EvidenceBundleModel,
+    LeadDossierModel,
     PolicyAtomModel,
+    PolicyChunkModel,
+    PolicyDocumentModel,
     PolicyEdgeModel,
     PolicyModel,
+    PolicyRuleModel,
+    PreSalesPlanModel,
+    PreSalesSessionModel,
+    ProjectModel,
+    QuoteAuditEventModel,
+    QuoteModel,
+    QuoteSnapshotModel,
+    TransactionalOutboxModel,
+    UnitModel,
 )
-from src.db.session import async_session_factory, engine, get_db
+from src.db.session import (
+    async_session_factory,
+    engine,
+    get_db,
+    get_db_session,
+    init_db,
+)
 
 __all__ = [
-    "get_db",
-    "async_session_factory",
-    "engine",
     "Base",
+    "engine",
+    "async_session_factory",
+    "get_db",
+    "get_db_session",
+    "init_db",
     "PolicyModel",
     "PolicyAtomModel",
     "PolicyEdgeModel",
     "EvidenceBundleModel",
     "AbstentionCertificateModel",
+    "ProjectModel",
+    "UnitModel",
+    "PolicyDocumentModel",
+    "PolicyChunkModel",
+    "PolicyRuleModel",
+    "PreSalesSessionModel",
+    "CustomerConsentModel",
+    "PreSalesPlanModel",
+    "LeadDossierModel",
+    "QuoteModel",
+    "QuoteSnapshotModel",
+    "QuoteAuditEventModel",
+    "TransactionalOutboxModel",
+    "ComplianceCheckModel",
 ]

@@ -1,30 +1,52 @@
-# Core API & Server
+# ============================================================
+# PricePolicy AI Agent — Dependencies (theo kiến trúc TD-4.1)
+# Cấu trúc nhóm bám theo component: C-01..C-11 (docs/CodeBaseIndex.md)
+# Python 3.11 (phiên bản CI đang dùng)
+# ============================================================
+
+# ---- Core API (FastAPI gateway — TD-4.4) ----
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
 httpx>=0.28.0
+sse-starlette>=2.1.0  # C-01/C-09: SSE stream (quotes/pre-sales events, Last-Event-ID)
 
-# LLM Orchestration (Outer Agent Flow)
+# ---- AI / LangChain (orchestrator C-01, pre-sales C-09, LLM adapter) ----
 langchain>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0  # Spike 2: AsyncPostgresSaver persistent checkpointing
 
-# Core RAG Engine (LlamaIndex)
-llama-index-core>=0.11.0
-llama-index-vector-stores-postgres>=0.2.0
-llama-index-embeddings-openai>=0.2.0
-llama-index-llms-openai>=0.2.0
-
-# Database & Vector Storage (PostgreSQL + pgvector)
-sqlalchemy[asyncio]>=2.0.30
-asyncpg>=0.30.0
+# ---- Persistence: Supabase PostgreSQL 16 + pgvector (TD-4.2 — C-02/C-03/C-07) ----
+sqlalchemy[asyncio]>=2.0.36  # async engine + AsyncPostgresSaver checkpoint (Spike 2)
+aiosqlite>=0.20.0  # async SQLite driver cho dev/test offline (Spike 2)
+asyncpg>=0.30.0  # driver PostgreSQL async (quản lý connection pool)
+psycopg[binary,pool]>=3.2.0  # driver sync/pool cho LangGraph AsyncPostgresSaver
 psycopg2-binary>=2.9.9
-pgvector>=0.3.0
-alembic>=1.14.0
+alembic>=1.14.0  # migration schema (src/db/migrations/)
+pgvector>=0.3.6  # dtype vector cho time-travel semantic search (HNSW, 1536 dims)
 
-# Development, Linting & Testing
+# ---- Outbox Worker (transactional outbox: PDF + SSE dispatch — TD-4.1) ----
+redis>=5.2.0
+arq>=0.26.1  # task queue bất đồng bộ (src/worker/)
+
+# ---- Bảo mật & Ký số (C-05: HITL Ed25519 — RFC 8032) ----
+cryptography>=42.0.0  # Spike 3: Ed25519 asymmetric signing & verification
+pynacl>=1.5.0  # Ed25519 verify/dev-sign; production ký qua KMS server (SIGNING_KMS_URL)
+
+# ---- PDF Báo giá (worker: render + mã QR kiểm thực độc lập) ----
+reportlab>=4.2.0
+qrcode>=8.0
+
+# ---- Pricing Sidecar (C-06) ----
+# KHÔNG cần lib ngoài: 100% decimal.Decimal chuẩn (prec=28), giao tiếp qua UDS
+
+# ---- Dev tools ----
 ruff>=0.8.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
+
+# ---- Tuỳ chọn — bật đúng lúc implement (đánh dấu trong CodeBaseIndex.md) ----
+hypothesis>=6.100.0
