@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Copilot — Prototype tương tác · PricePolicy AI Agent</title>
+<style>
+/* ============================================================
+   PricePolicy AI Agent — Sales Copilot Prototype (SCR-S03, TD-5.1)
+   Design tokens theo Wireframe_UI_Flow.md §2.1
+   ============================================================ */
+:root {
+  --navy-900: #0F172A; --navy-700: #1E293B;
+  --cyan-600: #0284C7; --cyan-500: #0EA5E9;
+  --green-500: #10B981; --green-600: #059669;
+  --amber-500: #F59E0B; --amber-600: #D97706;
+  --red-500: #EF4444;  --red-600: #DC2626;
+  --slate-50: #F8FAFC; --slate-100: #F1F5F9; --slate-200: #E2E8F0;
+  --slate-400: #94A3B8; --slate-600: #475569;
+  --black-flag: #1C1917;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(15,23,42,.08), 0 4px 16px rgba(15,23,42,.06);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--slate-100); color: var(--navy-900); font-size: 14px; line-height: 1.55;
+}
+button { font: inherit; cursor: pointer; border: none; background: none; }
+button:disabled { cursor: not-allowed; }
+
+/* ---------- Header ---------- */
+header {
+  background: var(--navy-900); color: #fff; padding: 10px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 50; box-shadow: var(--shadow);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+.brand .logo {
+  width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, var(--cyan-500), var(--cyan-600));
+  display: grid; place-items: center; font-size: 15px;
+}
+.brand small { display: block; font-weight: 400; font-size: 11px; color: var(--slate-400); }
+.ctx { display: flex; align-items: center; gap: 8px; margin-left: 8px; }
+.ctx select {
+  background: var(--navy-700); color: #fff; border: 1px solid #334155; border-radius: 8px;
+  padding: 6px 8px; font-size: 13px;
+}
+.sla { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.sla-ring {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 10px; font-weight: 700; position: relative; color: #fff;
+  background: conic-gradient(var(--red-500) calc(var(--pct) * 1%), rgba(255,255,255,.12) 0);
+}
+.sla-ring::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--navy-900); }
+.sla-ring span { position: relative; z-index: 1; }
+.sla-meta { font-size: 11px; color: var(--slate-400); line-height: 1.3; }
+.sla-meta b { display: block; font-size: 13px; color: #fff; }
+.ref-badge {
+  background: rgba(245,158,11,.15); color: #FCD34D; border: 1px solid rgba(245,158,11,.4);
+  padding: 4px 10px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .4px;
+}
+
+/* ---------- Demo bar ---------- */
+.demo-bar {
+  background: var(--navy-700); color: var(--slate-400); padding: 6px 20px;
+  display: flex; align-items: center; gap: 8px; font-size: 11.5px; flex-wrap: wrap;
+}
+.demo-bar b { color: #fff; font-weight: 600; }
+.demo-chip {
+  padding: 3px 10px; border-radius: 999px; border: 1px solid #334155; color: #CBD5E1; font-size: 11px;
+  transition: all .15s;
+}
+.demo-chip:hover { border-color: var(--cyan-500); color: #fff; }
+.demo-chip.active { background: var(--cyan-600); border-color: var(--cyan-600); color: #fff; }
+
+/* ---------- Layout ---------- */
+.wrap { display: grid; grid-template-columns: 1fr 360px; gap: 16px; max-width: 1240px; margin: 16px auto; padding: 0 20px; }
+@media (max-width: 980px) { .wrap { grid-template-columns: 1fr; } }
+.card {
+  background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+  border: 1px solid var(--slate-200); overflow: hidden;
+}
+.card-h {
+  padding: 12px 16px; border-bottom: 1px solid var(--slate-200);
+  display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px;
+}
+.card-h .step-num {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--cyan-600); color: #fff;
+  display: grid; place-items: center; font-size: 11.5px; flex-shrink: 0;
+}
+.card-b { padding: 16px; }
+
+/* ---------- Step 1: câu hỏi khách ---------- */
+.q-input {
+  width: 100%; min-height: 64px; border: 1.5px solid var(--slate-200); border-radius: 10px;
+  padding: 10px 12px; font: inherit; resize: vertical; outline: none; transition: border-color .15s;
+}
+.q-input:focus { border-color: var(--cyan-500); box-shadow: 0 0 0 3px rgba(14,165,233,.12); }
+.q-meta { display: flex; gap: 10px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.q-meta label { font-size: 12px; color: var(--slate-600); display: flex; align-items: center; gap: 6px; }
+.q-meta select { border: 1px solid var(--slate-200); border-radius: 8px; padding: 5px 8px; font-size: 12.5px; }
+.btn {
+  padding: 9px 16px; border-radius: 9px; font-weight: 600; font-size: 13.5px;
+  transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary { background: var(--cyan-600); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--cyan-500); }
+.btn-primary:disabled { opacity: .5; }
+.btn-ghost { border: 1px solid var(--slate-200); color: var(--navy-700); background: #fff; }
+.btn-ghost:hover { border-color: var(--cyan-500); color: var(--cyan-600); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip {
+  border: 1px solid var(--slate-200); background: var(--slate-50); border-radius: 999px;
+  padding: 5px 12px; font-size: 12px; color: var(--slate-600); transition: all .15s;
+}
+.chip:hover { border-color: var(--cyan-500); color: var(--cyan-600); background: #F0F9FF; }
+
+/* ---------- Stepper (mô phỏng SSE) ---------- */
+.stepper { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 2px; }
+.s-step {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
+  border-radius: 999px; font-size: 11.5px; background: var(--slate-100); color: var(--slate-400);
+  border: 1px solid transparent; opacity: 0; transform: translateY(4px); transition: all .25s;
+}
+.s-step.show { opacity: 1; transform: none; }
+.s-step.run { background: #F0F9FF; color: var(--cyan-600); border-color: rgba(14,165,233,.35); }
+.s-step.run::before { content: ""; width: 10px; height: 10px; border: 2px solid var(--cyan-500); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+.s-step.done { background: #ECFDF5; color: var(--green-600); }
+.s-step.done::before { content: "✓"; font-weight: 800; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Draft (bước 2) ---------- */
+.draft-wrap { margin-top: 14px; display: none; }
+.draft-wrap.show { display: block; animation: rise .3s ease; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.draft-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.draft-head .tag { font-size: 10.5px; font-weight: 700; letter-spacing: .3px; color: var(--cyan-600); background: #F0F9FF; border: 1px solid rgba(14,165,233,.3); padding: 3px 8px; border-radius: 999px; }
+.draft-head .ts { font-size: 11px; color: var(--slate-400); margin-left: auto; }
+.draft-text {
+  width: 100%; min-height: 130px; border: 1.5px solid var(--slate-200); border-radius: 10px;
+  padding: 12px 14px; font: inherit; line-height: 1.7; resize: vertical; outline: none;
+}
+.draft-text:focus { border-color: var(--cyan-500); }
+.anchors { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.anchor {
+  display: flex; gap: 8px; align-items: flex-start; text-align: left; width: 100%;
+  background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 9px; padding: 8px 10px;
+  font-size: 12px; color: var(--navy-700); transition: all .15s;
+}
+.anchor:hover { border-color: var(--amber-500); box-shadow: 0 1px 6px rgba(245,158,11,.18); }
+.anchor .a-id { font-weight: 800; color: var(--amber-600); flex-shrink: 0; }
+.anchor .a-src { display: block; font-size: 11px; color: var(--slate-600); margin-top: 2px; }
+
+/* ---------- Compliance panel ---------- */
+.verdict {
+  border-radius: var(--radius); padding: 16px; margin-bottom: 12px; position: relative;
+  border: 1.5px solid var(--slate-200); background: #fff; transition: opacity .2s;
+}
+.verdict.checking { opacity: .45; }
+.verdict .v-head { display: flex; align-items: center; gap: 10px; }
+.v-ico { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font-size: 18px; flex-shrink: 0; }
+.v-title { font-weight: 800; font-size: 15px; }
+.v-sub { font-size: 11.5px; color: var(--slate-600); }
+.v-spin { position: absolute; top: 12px; right: 14px; width: 15px; height: 15px; border: 2px solid var(--cyan-500); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; display: none; }
+.verdict.checking .v-spin { display: block; }
+.v-green .v-ico { background: #ECFDF5; } .v-green .v-title { color: var(--green-600); }
+.v-amber .v-ico { background: #FFFBEB; } .v-amber .v-title { color: var(--amber-600); }
+.v-red .v-ico { background: #FEF2F2; } .v-red .v-title { color: var(--red-600); }
+.v-black .v-ico { background: #F5F5F4; } .v-black .v-title { color: var(--black-flag); }
+.v-checks { list-style: none; margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.v-checks li { display: flex; gap: 8px; font-size: 12.5px; align-items: flex-start; }
+.v-checks .ok { color: var(--green-600); font-weight: 700; }
+.v-checks .bad { color: var(--red-600); font-weight: 700; }
+.v-checks .warn { color: var(--amber-600); font-weight: 700; }
+.v-item-link { color: var(--red-600); text-decoration: underline; cursor: pointer; }
+.suggest {
+  margin-top: 10px; background: #F0F9FF; border: 1px dashed rgba(14,165,233,.45);
+  border-radius: 9px; padding: 9px 11px; font-size: 12px;
+}
+.suggest b { color: var(--cyan-600); }
+.suggest button { color: var(--cyan-600); text-decoration: underline; font-weight: 700; padding: 0; }
+
+/* ---------- Actions & history ---------- */
+.actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.actions .row { display: flex; gap: 8px; }
+.actions .btn { flex: 1; justify-content: center; }
+.btn-copy { background: var(--navy-700); color: #fff; }
+.btn-copy:hover:not(:disabled) { background: var(--navy-900); }
+.btn-send { background: var(--green-600); color: #fff; }
+.btn-send:hover:not(:disabled) { background: var(--green-500); }
+.btn-send:disabled, .btn-copy:disabled, .btn-variant:disabled { opacity: .38; }
+.hint { font-size: 11px; color: var(--slate-600); margin-top: 6px; }
+.history { margin-top: 14px; border-top: 1px dashed var(--slate-200); padding-top: 10px; }
+.history h4 { font-size: 11.5px; color: var(--slate-600); margin-bottom: 8px; letter-spacing: .3px; }
+.h-item { display: flex; gap: 8px; font-size: 11.5px; padding: 5px 0; border-bottom: 1px solid var(--slate-50); align-items: baseline; }
+.h-item .t { color: var(--slate-400); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; align-self: center; }
+
+/* ---------- Modals & toast ---------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 100;
+  display: none; place-items: center; padding: 20px; backdrop-filter: blur(2px);
+}
+.overlay.show { display: grid; }
+.modal { background: #fff; border-radius: 14px; max-width: 480px; width: 100%; box-shadow: 0 20px 60px rgba(15,23,42,.3); animation: rise .25s ease; max-height: 86vh; overflow: auto; }
+.modal-h { padding: 14px 18px; font-weight: 800; font-size: 14.5px; border-bottom: 1px solid var(--slate-200); display: flex; align-items: center; gap: 8px; }
+.modal-b { padding: 16px 18px; }
+.modal-f { padding: 12px 18px 16px; display: flex; gap: 10px; justify-content: flex-end; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--slate-200); font-size: 12.5px; }
+.kv span { color: var(--slate-600); } .kv b { text-align: right; }
+.gate-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 6px 0; }
+.gate-line .st { margin-left: auto; font-weight: 700; }
+.receipt-big { text-align: center; padding: 10px 0 4px; }
+.receipt-big .big-ico { font-size: 40px; }
+.receipt-big .did { font-family: ui-monospace, monospace; background: var(--slate-100); border-radius: 8px; padding: 8px 10px; display: inline-block; margin-top: 8px; font-size: 12.5px; }
+.toast {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: var(--navy-900); color: #fff; border-radius: 10px; padding: 10px 18px;
+  font-size: 13px; z-index: 200; transition: transform .3s; box-shadow: var(--shadow); max-width: 90vw;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.footer-note { text-align: center; color: var(--slate-400); font-size: 11px; padding: 10px 0 24px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">🏛</div>
+    <div>Sales Copilot<small>PricePolicy AI · VLand Riverside</small></div>
+  </div>
+  <div class="ctx">
+    <select id="sel-customer" aria-label="Khách hàng">
+      <option>An · Nguyễn Minh An</option>
+      <option>Bình · Trần Văn Bình</option>
+      <option>Cường · Lê Hoàng Cường</option>
+    </select>
+    <select id="sel-unit" aria-label="Căn hộ">
+      <option>R-02.02 · 2BR · 4,6 tỷ</option>
+      <option>G-02.02 · 3BR · 6,32 tỷ</option>
+    </select>
+  </div>
+  <div class="ref-badge">BẢN THAM KHẢO · KHÔNG PHẢI BÁO GIÁ CHÍNH THỨC</div>
+  <div class="sla">
+    <div class="sla-meta">SLA phản hồi lead<b id="sla-name">Nguyễn Minh An</b></div>
+    <div class="sla-ring" id="slaRing" style="--pct:78"><span id="slaText">45:12</span></div>
+  </div>
+</header>
+
+<div class="demo-bar">
+  <b>Kịch bản demo (fixtures):</b>
+  <button class="demo-chip" data-demo="msg01">✓ SUPPORTED · XANH</button>
+  <button class="demo-chip" data-demo="msg04">⚠ CONDITIONAL · VÀNG</button>
+  <button class="demo-chip" data-demo="msg03">✗ UNSUPPORTED · ĐỎ</button>
+  <button class="demo-chip" data-demo="msg02">⛔ PROHIBITED · ĐEN</button>
+  <span style="margin-left:auto">Soạn tin → live-check 500ms → Copy/Gửi có audit</span>
+</div>
+
+<div class="wrap">
+  <!-- ================= CỘT TRÁI: COPILOT ================= -->
+  <div style="display:flex; flex-direction:column; gap:16px;">
+
+    <div class="card">
+      <div class="card-h"><span class="step-num">1</span> Câu hỏi của khách (paste từ Zalo)</div>
+      <div class="card-b">
+        <textarea id="qInput" class="q-input" placeholder="Dán tin nhắn khách vào đây…">căn R-02.02 trả chậm 9 đợt thì mỗi đợt bao nhiêu em, có được quà nội thất không?</textarea>
+        <div class="chips">
+          <button class="chip" data-q="căn R-02.02 trả chậm 9 đợt thì mỗi đợt bao nhiêu em, có được quà nội thất không?">Trả chậm 9 đợt + quà nội thất?</button>
+          <button class="chip" data-q="em ơi thanh toán sớm 95% được chiết khấu mấy %, mỗi đợt đóng bao nhiêu?">Thanh toán sớm 95% chiết khấu mấy %?</button>
+          <button class="chip" data-q="gói vay ngân hàng hỗ trợ lãi suất thế nào anh nhỉ?">Gói vay HTLS thế nào?</button>
+        </div>
+        <div class="q-meta">
+          <label>Khách <select id="ctx-customer"><option>An · R-02.02</option><option>Bình · G-02.02</option></select></label>
+          <button class="btn btn-primary" id="btnGenerate" style="margin-left:auto">✨ Tạo câu trả lời</button>
+        </div>
+        <div class="stepper" id="stepper"></div>
+      </div>
+    </div>
+
+    <div class="card draft-wrap" id="draftCard">
+      <div class="card-h"><span class="step-num">2</span> Nháp trả lời — sửa nhẹ rồi chọn kênh gửi
+        <span class="tag" style="margin-left:auto">BẢN THAM KHẢO</span></div>
+      <div class="card-b">
+        <div class="draft-head">
+          <span class="tag" id="variantTag">Mặc định · thân mật</span>
+          <span class="ts" id="draftTs"></span>
+        </div>
+        <textarea id="draftText" class="draft-text" spellcheck="false"></textarea>
+        <div class="anchors" id="anchorList"></div>
+        <div class="hint">💡 Con số tiền trong nháp phải kèm mỏ neo [n] — bấm vào mỏ neo để xem trích gốc chính sách.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= CỘT PHẢI: COMPLIANCE ================= -->
+  <div>
+    <div class="card">
+      <div class="card-h">🛡 Kiểm tra tuân thủ (F8)<span class="mono" style="margin-left:auto;color:var(--slate-400)">debounce 500ms</span></div>
+      <div class="card-b">
+        <div class="verdict v-amber" id="verdict">
+          <div class="v-spin"></div>
+          <div class="v-head">
+            <div class="v-ico" id="vIco">⚠</div>
+            <div><div class="v-title" id="vTitle">VÀNG — Có điều kiện</div><div class="v-sub" id="vSub">Nháp mặc định chưa tạo</div></div>
+          </div>
+          <ul class="v-checks" id="vChecks"></ul>
+          <div class="suggest" id="vSuggest" style="display:none"></div>
+        </div>
+
+        <div class="actions">
+          <div class="row">
+            <button class="btn btn-copy" id="btnCopy" disabled>📋 Copy sang Zalo</button>
+            <button class="btn btn-ghost" id="btnVariant" disabled>↻ Biến thể</button>
+          </div>
+          <button class="btn btn-send" id="btnSend" disabled>📨 Gửi chính thức qua cổng hệ thống</button>
+          <div class="hint" id="sendHint">Tạo nháp trả lời để bật các hành động.</div>
+        </div>
+
+        <div class="history">
+          <h4>LỊCH SỬ KIỂM TRA & HÀNH ĐỘNG (audit)</h4>
+          <div id="historyList">
+            <div class="h-item"><span class="t">14:02</span><span class="dot" style="background:var(--amber-500)"></span> VÀNG → đã sửa · nháp "HTLS 24 tháng"</div>
+            <div class="h-item"><span class="t">14:01</span><span class="dot" style="background:var(--amber-500)"></span> VÀNG · check ON_PREVIEW</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">Prototype tương tác · SCR-S03 Sales Copilot · TD-5.1 LOOP 3 · dữ liệu demo: mydoc/dataset/fixtures/compliance_messages.json</div>
+
+<!-- ===== Modal: mỏ neo chứng cứ ===== -->
+<div class="overlay" id="ovAnchor">
+  <div class="modal" role="dialog">
+    <div class="modal-h">🔗 Chứng cứ <span id="anchorId" class="mono" style="color:var(--amber-600)">[1]</span></div>
+    <div class="modal-b">
+      <div id="anchorQuote" style="background:#FFFBEB;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.7;border:1px solid #FDE68A"></div>
+      <div style="margin-top:12px">
+        <div class="kv"><span>Chính sách</span><b id="anchorPolicy"></b></div>
+        <div class="kv"><span>Phiên bản</span><b id="anchorVersion"></b></div>
+        <div class="kv"><span>Hiệu lực</span><b id="anchorEffect"></b></div>
+        <div class="kv"><span>Nguồn chunk</span><b class="mono" id="anchorHash"></b></div>
+      </div>
+    </div>
+    <div class="modal-f"><button class="btn btn-ghost" data-close>Đóng</button></div>
+  </div>
+</div>
+
+<!-- ===== Modal: Copy (ON_COPY) ===== -->
+<div class="overlay" id="ovCopy">
+  <div class="modal" role="dialog">
+    <div class="modal-h">📋 Copy sang Zalo — gửi ngoài hệ thống</div>
+    <div class="modal-b">
+      <div id="copyWarn" style="display:none;background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:12px;font-size:13px;margin-bottom:12px">
+        ⚠ Tin nhắn hiện ở trạng thái <b id="copyWarnTier"></b>. Bạn vẫn có thể copy, nhưng hành vi này
+        <b>được ghi log kiểm toán</b> (ON_COPY + verdict + nội dung). Câu thay thế an toàn có sẵn trong gợi ý.
+      </div>
+      <div class="kv"><span>Verdict lúc copy</span><b id="copyVerdict"></b></div>
+      <div class="kv"><span>Checkpoint</span><b>ON_COPY ✓ (đã ghi log)</b></div>
+      <div class="kv"><span>Người thực hiện</span><b id="copyUser">NV Nam (SALES)</b></div>
+      <div class="hint" style="margin-top:10px">Khuyến nghị: dùng <b>Gửi chính thức</b> để có biên lai dispatch + bảo chứng đầy đủ.</div>
+    </div>
+    <div class="modal-f">
+      <button class="btn btn-ghost" data-close>Hủy</button>
+      <button class="btn btn-copy" id="copyConfirmBtn">Copy ngay</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: Gửi chính thức (ON_FINAL_SEND) ===== -->
+<div class="overlay" id="ovSend">
+  <div class="modal" role="dialog">
+    <div class="modal-h">📨 Gửi qua cổng chính thức → Zalo khách</div>
+    <div class="modal-b" id="sendBody">
+      <div class="kv"><span>Người nhận</span><b id="sendTo">Nguyễn Minh An</b></div>
+      <div class="kv"><span>Verdict hiện tại</span><b id="sendVerdict"></b></div>
+      <div class="kv"><span>Checkpoint bắt buộc</span><b>ON_FINAL_SEND</b></div>
+      <div class="hint" style="margin-top:10px">Backend sẽ kiểm tra lại lần cuối — UI chỉ là gợi ý (double-lock).</div>
+    </div>
+    <div class="modal-f" id="sendFooter">
+      <button class="btn btn-ghost" data-close>Hủy</button>
+      <button class="btn btn-send" id="sendGo">Xác nhận & gửi</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: Biến thể ===== -->
+<div class="overlay" id="ovVariant">
+  <div class="modal" role="dialog">
+    <div class="modal-h">↻ Chọn biến thể giọng nói (cùng số liệu, cùng chứng cứ)</div>
+    <div class="modal-b" id="variantList" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div class="modal-f"><button class="btn btn-ghost" data-close>Đóng</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   Sales Copilot Prototype — mô phỏng LOOP 3 (TD-5.1)
+   Dữ liệu demo bám fixtures thật của dự án.
+   ============================================================ */
+
+// ---------- Mỏ neo chứng cứ (policy excerpts từ dataset) ----------
+const ANCHORS = {
+  1: { quote: "Khách hàng thanh toán tối thiểu 95% giá trị hợp đồng trong 30 ngày kể từ ngày đặt cọc được hưởng chiết khấu 8% giá trị căn hộ trước thuế.",
+       policy: "POL-2026-VLF-EARLY — Chiết khấu Thanh toán Sớm 95%", version: "v3.0",
+       effect: "01/01/2026 → 30/06/2026", hash: "chunk #12 · 3f9a…e2" },
+  2: { quote: "Số liệu do Deterministic Math Engine tính theo FCS v2.6 — đối soát golden case BENCH-01, sai số Δ = 0 ₫ (Net 4.232.000.000 ₫ · VAT 423.200.000 ₫ · Tổng 4.655.200.000 ₫).",
+       policy: "FCS v2.6 — Math Engine (C-06)", version: "v2.6",
+       effect: "Đối soát lúc 14:02 10/03/2026", hash: "calc_out · b7c1…9d" },
+  3: { quote: "Gói quà tặng nội thất trị giá 200.000.000 ₫ áp dụng cho căn hộ loại 3BR. Căn 2BR không thuộc diện áp dụng (không quy đổi).",
+       policy: "POL-2026-VLF-INTERIOR — Quà tặng Nội thất", version: "v1.0",
+       effect: "01/01/2026 → 31/12/2026", hash: "chunk #04 · 91aa…7c" },
+  4: { quote: "Chương trình hỗ trợ lãi suất 0% trong 24 tháng đầu kể từ giải ngân. Sau 24 tháng, lãi suất áp dụng theo biểu phí của ngân hàng thương mại đồng tài trợ.",
+       policy: "POL-2026-VLF-HLSN — Hỗ trợ Lãi suất Ngân hàng", version: "v2.0",
+       effect: "01/01/2026 → 30/06/2026", hash: "chunk #07 · 44de…10" },
+  5: { quote: "Tiến độ thanh toán chuẩn 09 đợt theo % giá trị hợp đồng từng mốc xây dựng (đợt 1: 30% kể cả cọc; các đợt sau theo tiến độ xây dựng thực tế).",
+       policy: "POL-2026-VLF-PROG — Thanh toán Giãn tiến độ", version: "v1.1",
+       effect: "01/01/2026 → 31/12/2026", hash: "chunk #02 · 6f30…58" },
+};
+
+// ---------- Kịch bản sinh nháp (mapping câu hỏi → draft + anchors + verdict) ----------
+const SCENARIOS = {
+  progress: {
+    match: /9 đợt|trả chậm|tiến độ/i,
+    text: "Dạ em chào anh, căn R-02.02 theo tiến độ chuẩn 9 đợt ạ [5]. Đợt 1 anh thanh toán 30% (gồm cọc đã đặt) là 1.397 tỷ, các đợt sau theo mốc xây dựng thực tế ạ [2].\n\nVề quà nội thất: căn 2BR không thuộc diện áp dụng gói 200 triệu (chỉ 3BR) [3] — bù lại nếu anh thích đóng sớm, ưu đãi chiết khấu 8% gấp 5 lần giá trị quà ạ [1].",
+    anchors: [5, 2, 3, 1],
+    tier: "AMBER",
+    checks: [
+      ["ok", "3 claim số tiền có chứng cứ [5][2][3]"],
+      ["warn", "1 điều kiện cần khuyến cáo: quà nội thất — khác phân khu loại căn [3]"],
+      ["ok", "Đúng quy chuẩn phát ngôn POL-08"],
+    ],
+    variants: [
+      { tag: "Ngắn gọn", text: "Dạ căn R-02.02 đóng 9 đợt theo tiến độ [5], đợt 1 là 1.397 tỷ [2]. Quà nội thất chỉ áp dụng căn 3BR anh nhé [3] — đóng sớm 95% thì được chiết khấu 8% [1]." },
+      { tag: "Chi tiết", text: "Dạ em chào anh, căn R-02.02 (2BR, 4,6 tỷ) thanh toán giãn theo tiến độ chuẩn gồm 9 đợt gắn mốc xây dựng thực tế [5]. Đợt 1 anh thanh toán 30% giá trị hợp đồng (đã cấn trừ cọc đặt) tương đương 1.397 tỷ [2]. Riêng gói quà nội thất 200 triệu chỉ áp dụng cho dòng căn 3BR nên căn này không áp dụng ạ [3]. Nếu anh linh hoạt dòng tiền, phương án thanh toán sớm 95% nhận ngay chiết khấu 8% trước thuế — tương đương ~368 triệu, cao gấp nhiều lần giá trị quà [1]. Anh muốn em lập bảng so sánh 2 phương án không ạ?" },
+    ],
+  },
+  early: {
+    match: /thanh toán sớm|95%|chiết khấu/i,
+    text: "Dạ em chào anh An, căn R-02.02 giá sau chiết khấu 8% thanh toán sớm là 4.232 tỷ [1]. Anh thanh toán 95% đợt 1 là 4.422 tỷ (đã gồm VAT) [2], đợt nhận nhà mới đóng 5% còn lại ạ.",
+    anchors: [1, 2],
+    tier: "GREEN",
+    checks: [
+      ["ok", "2 claim có chứng cứ [1][2]"],
+      ["ok", "Số liệu khớp Math Engine Δ = 0 ₫ (BENCH-01)"],
+      ["ok", "Đúng quy chuẩn phát ngôn POL-08"],
+    ],
+    variants: [
+      { tag: "Ngắn gọn", text: "Dạ căn R-02.02 thanh toán sớm 95% được chiết khấu 8% → giá net 4.232 tỷ [1]. Đợt 1 đóng 95% gồm VAT là 4.422 tỷ, nhận nhà đóng nốt 5% ạ [2]." },
+      { tag: "Chi tiết", text: "Dạ em chào anh An, căn R-02.02 giá niêm yết 4,6 tỷ (trước thuế). Nếu anh chọn thanh toán sớm 95% trong 30 ngày kể từ cọc, anh được chiết khấu 8% giá trị căn trước thuế [1] — tương đương 368 triệu. Giá net sau chiết khấu là 4.232 tỷ, sau thuế VAT 10% tổng hợp đồng 4.655 tỷ [2]. Đợt 1 anh thanh toán 95% là 4.422 tỷ (đã gồm VAT), 5% còn lại đóng khi nhận nhà ạ. Anh muốn em lập báo giá chính thức có mã QR đối soát không ạ?" },
+    ],
+  },
+  htls: {
+    match: /vay|lãi suất|htls/i,
+    text: "Dạ gói vay ngân hàng được hỗ trợ lãi suất 0% trong 24 tháng đầu anh nhé [4].",
+    anchors: [4],
+    tier: "AMBER",
+    checks: [
+      ["ok", "1 claim có chứng cứ [4]"],
+      ["warn", "Thiếu khuyến cáo bắt buộc: \"Sau 24 tháng lãi suất theo biểu phí ngân hàng\" [4]"],
+      ["ok", "Đúng quy chuẩn phát ngôn POL-08"],
+    ],
+    suggest: "Thêm khuyến cáo: \"…Sau 24 tháng lãi suất áp dụng theo biểu phí ngân hàng thương mại [4].\"",
+    variants: [
+      { tag: "Đã thêm khuyến cáo (an toàn)", text: "Dạ gói vay ngân hàng được hỗ trợ lãi suất 0% trong 24 tháng đầu anh nhé [4]. Sau 24 tháng lãi suất áp dụng theo biểu phí ngân hàng thương mại ạ [4]." },
+    ],
+  },
+};
+
+// ---------- Fixtures 4 message thật (compliance_messages.json) ----------
+const FIXTURES = {
+  msg01: { text: "Dạ em chào anh An, căn R-02.02 giá sau chiết khấu 8% thanh toán sớm là 4.232 tỷ [1]. Anh thanh toán 95% đợt 1 là 4.422 tỷ (đã gồm VAT) [2], đợt nhận nhà mới đóng 5% còn lại ạ.",
+           anchors: [1, 2], tag: "Mặc định · thân mật" },
+  msg04: { text: "Dạ gói vay ngân hàng được hỗ trợ lãi suất 0% trong 24 tháng anh nhé [4].",
+           anchors: [4], tag: "Mặc định · thân mật" },
+  msg03: { text: "Căn này Chủ đầu tư chiết khấu tới 12% đó anh, giá siêu hời chỉ trong tuần này thôi.",
+           anchors: [], tag: "Mặc định · thân mật" },
+  msg02: { text: "Anh cứ yên tâm đặt cọc đi, em cam kết 100% ngân hàng duyệt hồ sơ cho anh vay 70% không cần chứng minh thu nhập!",
+           anchors: [], tag: "Mặc định · thân mật" },
+};
+
+// ---------- Verdict model ----------
+const TIERS = {
+  GREEN: { cls: "v-green", ico: "✓", title: "XANH — Hỗ trợ đầy đủ", dot: "var(--green-500)", label: "XANH",
+           sub: "Mọi claim đều có chứng cứ & đúng phát ngôn" },
+  AMBER: { cls: "v-amber", ico: "⚠", title: "VÀNG — Có điều kiện", dot: "var(--amber-500)", label: "VÀNG",
+           sub: "Gửi được sau khi bổ sung khuyến cáo" },
+  RED:   { cls: "v-red", ico: "✗", title: "ĐỎ — Thiếu chứng cứ", dot: "var(--red-500)", label: "ĐỎ",
+           sub: "Có tuyên bố không có căn cứ — không gửi được" },
+  BLACK: { cls: "v-black", ico: "⛔", title: "ĐEN — Cấm phát ngôn", dot: "var(--black-flag)", label: "ĐEN",
+           sub: "Vi phạm POL-08 — bị chặn tuyệt đối" },
+};
+
+// ---------- Live compliance engine (heuristic mô phỏng) ----------
+function liveCheck(text) {
+  const t = text.toLowerCase();
+  if (/(cam kết|bảo lãnh|chắc chắn)[^.]*(duyệt|vay|sinh lời|lãi|giảm giá)|không cần chứng minh thu nhập|cam kết 100%/.test(t))
+    return { tier: "BLACK",
+      checks: [["bad", "Cam kết vượt thẩm quyền — POL-2026-VLF-SALES-GUIDE Điều 1 (MSG-02)"],
+               ["bad", "Cụm cấm: cam kết/bảo lãnh kết quả phê duyệt tín dụng"]],
+      suggest: "Câu an toàn: \"Hồ sơ vay anh sẽ được ngân hàng đối tác thẩm định theo quy trình chuẩn; em hỗ trợ anh chuẩn bị đủ giấy tờ để tăng tỉ lệ duyệt nhé.\"" };
+  const pct = t.match(/chiết khấu[^0-9]*(\d+)\s*%/);
+  const hype = /siêu hời|chỉ trong (tuần|tháng) này/.test(t);
+  if ((pct && parseInt(pct[1]) > 8) || hype)
+    return { tier: "RED",
+      checks: [
+        ...(pct && parseInt(pct[1]) > 8 ? [["bad", "Mức chiết khấu " + pct[1] + "% vượt trần chính sách hiện hành 8,0% (MSG-03)"]] : []),
+        ...(hype ? [["bad", "Claim \u201csiêu hời / giới hạn thời gian\u201d — không có chứng cứ khuyến mãi"]] : []),
+      ],
+      suggest: "Câu an toàn: \"Chương trình hiện hành là chiết khấu 8% cho thanh toán sớm 95% [1], anh xem em gửi chi tiết nhé.\"" };
+  const hasMoney = /\d+[,.]?\d*\s*(tỷ|triệu|\btr\b)/.test(t);
+  const hasAnchor = /\[\d\]/.test(text);
+  if (hasMoney && !hasAnchor)
+    return { tier: "RED",
+      checks: [["bad", "Claim số tiền chưa có mỏ neo chứng cứ [n]"]],
+      suggest: "Gắn mỏ neo cho từng con số — bấm mỏ neo trong khung Nháp để xem cách gắn." };
+  if (/lãi suất 0%/.test(t) && !/sau 24 tháng/.test(t))
+    return { tier: "AMBER",
+      checks: [["ok", "1 claim có chứng cứ [4]"],
+               ["warn", "Thiếu khuyến cáo bắt buộc: \"Sau 24 tháng theo biểu phí ngân hàng\" [4]"]],
+      suggest: "Thêm khuyến cáo: \"…Sau 24 tháng lãi suất áp dụng theo biểu phí ngân hàng thương mại [4].\"" };
+  if (hasAnchor)
+    return { tier: "GREEN",
+      checks: [["ok", "Các claim số tiền có chứng cứ [n]"],
+               ["ok", "Số liệu khớp Math Engine Δ = 0 ₫"],
+               ["ok", "Đúng quy chuẩn phát ngôn POL-08"]] };
+  return { tier: "GREEN",
+    checks: [["ok", "Không phát hiện claim rủi ro"],
+             ["ok", "Đúng quy chuẩn phát ngôn POL-08"]] };
+}
+
+// ---------- State ----------
+let state = { tier: null, draft: "", anchors: [], variants: [], variantIdx: 0, sent: false };
+const $ = (id) => document.getElementById(id);
+const nowHm = () => new Date().toTimeString().slice(0, 5);
+
+// ---------- Toast & log ----------
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3200); }
+function log(tierLabel, dotColor, msg) {
+  const div = document.createElement("div");
+  div.className = "h-item";
+  div.innerHTML = '<span class="t">' + nowHm() + '</span><span class="dot" style="background:' + dotColor + '"></span> ' + msg + ' · ' + tierLabel;
+  $("historyList").prepend(div);
+}
+
+// ---------- Stepper ----------
+const STEPS = ["Đang hiểu câu hỏi", "Tra chính sách hợp lệ", "Tính toán (Math Engine)", "Kiểm tuân thủ (F8)"];
+function runStepper(done) {
+  const st = $("stepper"); st.innerHTML = "";
+  const els = STEPS.map(s => { const e = document.createElement("span"); e.className = "s-step"; e.textContent = s; st.appendChild(e); return e; });
+  let i = 0;
+  (function next() {
+    if (i > 0) els[i - 1].className = "s-step show done";
+    if (i >= els.length) { setTimeout(done, 250); return; }
+    els[i].classList.add("show", "run"); i++;
+    setTimeout(next, 420 + Math.random() * 220);
+  })();
+}
+
+// ---------- Render helpers ----------
+function renderVerdict(tierKey, checks, suggest) {
+  const T = TIERS[tierKey], v = $("verdict");
+  v.className = "verdict " + T.cls;
+  $("vIco").textContent = T.ico; $("vTitle").textContent = T.title; $("vSub").textContent = T.sub;
+  $("vChecks").innerHTML = checks.map(c => '<li><span class="' + c[0] + '">' + (c[0] === "ok" ? "✓" : c[0] === "warn" ? "⚠" : "✗") + "</span><span>" + c[1] + "</span></li>").join("");
+  const sug = $("vSuggest");
+  if (suggest) { sug.style.display = "block"; sug.innerHTML = "<b>Gợi ý câu thay thế an toàn (A4):</b> " + suggest; }
+  else sug.style.display = "none";
+  state.tier = tierKey;
+  const canSend = tierKey === "GREEN" || tierKey === "AMBER";
+  $("btnSend").disabled = !canSend || state.sent;
+  $("btnCopy").disabled = state.sent;
+  $("btnVariant").disabled = state.variants.length === 0;
+  $("sendHint").textContent = state.sent ? "✓ Đã gửi qua cổng chính thức — xem biên lai trong lịch sử."
+    : canSend ? (tierKey === "AMBER" ? "VÀNG: gửi được sau khi xử lý khuyến cáo — xác nhận khi bấm Gửi." : "Sẵn sàng gửi qua cổng chính thức (backend sẽ kiểm tra lần cuối).")
+    : (tierKey === "RED" ? "Gửi bị khóa: " + T.sub : "Gửi bị khóa tuyệt đối: " + T.sub);
+}
+function renderAnchors(ids) {
+  $("anchorList").innerHTML = ids.map(id => {
+    const a = ANCHORS[id];
+    return '<button class="anchor" data-anchor="' + id + '"><span class="a-id">[' + id + ']</span><span>' + a.quote.slice(0, 92) + "…<span class=\"a-src\">" + a.policy + " · " + a.version + " · hiệu lực " + a.effect + "</span></span></button>";
+  }).join("");
+}
+function setDraft(text, anchorIds, tag) {
+  state.draft = text; $("draftText").value = text;
+  $("variantTag").textContent = tag || "Mặc định · thân mật";
+  $("draftTs").textContent = "sinh lúc " + nowHm();
+  state.anchors = anchorIds || [];
+  renderAnchors(state.anchors);
+  $("draftCard").classList.add("show");
+  state.sent = false; $("btnSend").textContent = "📨 Gửi chính thức qua cổng hệ thống";
+}
+
+// ---------- Generate flow ----------
+$("btnGenerate").addEventListener("click", () => {
+  const q = $("qInput").value.trim();
+  if (!q) { toast("Dán câu hỏi khách vào trước nhé"); return; }
+  $("btnGenerate").disabled = true;
+  runStepper(() => {
+    $("btnGenerate").disabled = false;
+    const sc = Object.values(SCENARIOS).find(s => s.match.test(q)) || SCENARIOS.early;
+    state.variants = sc.variants; state.variantIdx = 0;
+    setDraft(sc.text, sc.anchors, "Mặc định · thân mật");
+    renderVerdict(sc.tier, sc.checks, sc.suggest);
+    log(TIERS[sc.tier].label, TIERS[sc.tier].dot, "Sinh nháp + check F8");
+  });
+});
+document.querySelectorAll(".chip[data-q]").forEach(c => c.addEventListener("click", () => { $("qInput").value = c.dataset.q; }));
+
+// ---------- Demo fixtures ----------
+document.querySelectorAll(".demo-chip").forEach(btn => btn.addEventListener("click", () => {
+  document.querySelectorAll(".demo-chip").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  const fx = FIXTURES[btn.dataset.demo];
+  // fixture không có anchor thật → render empty anchor list nhưng vẫn hiện khung
+  state.variants = []; state.variantIdx = 0;
+  setDraft(fx.text, fx.anchors, fx.tag);
+  const res = liveCheck(fx.text);
+  const T = TIERS[res.tier];
+  renderVerdict(res.tier, res.checks, res.suggest);
+  log(T.label, T.dot, "Load fixture " + btn.dataset.demo.toUpperCase());
+}));
+
+// ---------- Live re-check (debounce 500ms — không flicker) ----------
+let deb;
+$("draftText").addEventListener("input", () => {
+  const v = $("verdict"); v.classList.add("checking");
+  clearTimeout(deb);
+  deb = setTimeout(() => {
+    const text = $("draftText").value; state.draft = text;
+    const res = liveCheck(text);
+    state.variants = []; state.variantIdx = 0;
+    renderVerdict(res.tier, res.checks, res.suggest);
+    v.classList.remove("checking");
+    log(TIERS[res.tier].label, TIERS[res.tier].dot, "Live-check ON_PREVIEW (sửa tay)");
+  }, 500);
+});
+
+// ---------- Anchor popover ----------
+$("anchorList").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-anchor]"); if (!btn) return;
+  const a = ANCHORS[btn.dataset.anchor];
+  $("anchorId").textContent = "[" + btn.dataset.anchor + "]";
+  $("anchorQuote").textContent = "“" + a.quote + "”";
+  $("anchorPolicy").textContent = a.policy; $("anchorVersion").textContent = a.version;
+  $("anchorEffect").textContent = a.effect; $("anchorHash").textContent = a.hash;
+  openModal("ovAnchor");
+});
+
+// ---------- Copy (ON_COPY — có lối đi khi ĐỎ/ĐEN, luôn ghi log) ----------
+$("btnCopy").addEventListener("click", () => {
+  const risky = state.tier === "RED" || state.tier === "BLACK";
+  $("copyWarn").style.display = risky ? "block" : "none";
+  $("copyWarnTier").textContent = TIERS[state.tier].label;
+  $("copyVerdict").textContent = TIERS[state.tier].label + " · " + nowHm();
+  openModal("ovCopy");
+});
+$("copyConfirmBtn").addEventListener("click", () => {
+  try { navigator.clipboard.writeText($("draftText").value); } catch (e) {}
+  closeModal("ovCopy");
+  log(TIERS[state.tier].label, TIERS[state.tier].dot, "COPY sang Zalo · ON_COPY logged");
+  toast("📋 Đã copy — hành vi đã ghi log kiểm toán (ON_COPY)");
+});
+
+// ---------- Gửi chính thức (ON_FINAL_SEND double-lock) ----------
+$("btnSend").addEventListener("click", () => {
+  $("sendTo").textContent = $("sel-customer").value.split(" · ")[1] || "Nguyễn Minh An";
+  $("sendVerdict").textContent = TIERS[state.tier].label;
+  $("sendBody").querySelectorAll(".gate-line").forEach(x => x.remove());
+  $("sendGo").disabled = false; $("sendGo").textContent = "Xác nhận & gửi";
+  openModal("ovSend");
+});
+$("sendGo").addEventListener("click", () => {
+  $("sendGo").disabled = true; $("sendGo").textContent = "Đang kiểm tra ON_FINAL_SEND…";
+  const lines = [["Gate F8 — claim ↔ chứng cứ", 500], ["Gate POL-08 — phát ngôn cấm", 400], ["Gate Math — số tiền Δ = 0", 400]];
+  const body = $("sendBody");
+  lines.forEach(([txt, d], i) => setTimeout(() => {
+    const div = document.createElement("div");
+    div.className = "gate-line"; div.innerHTML = txt + ' <span class="st" style="color:var(--green-600)">✓</span>';
+    body.appendChild(div);
+    if (i === lines.length - 1) setTimeout(showReceipt, 350);
+  }, lines.slice(0, i + 1).reduce((a, x) => a + x[1], 0)));
+});
+function showReceipt() {
+  const did = "DISPATCH-ZALO-2026-00" + Math.floor(800 + Math.random() * 199);
+  $("sendBody").innerHTML = '<div class="receipt-big"><div class="big-ico">✅</div><b style="font-size:16px">Đã gửi qua cổng chính thức</b>' +
+    '<div class="did">' + did + "</div></div>" +
+    '<div style="margin-top:10px"><div class="kv"><span>ON_PREVIEW</span><b style="color:var(--green-600)">✓ 16:01</b></div>' +
+    '<div class="kv"><span>ON_COPY</span><b style="color:var(--green-600)">✓ 16:02</b></div>' +
+    '<div class="kv"><span>ON_FINAL_SEND</span><b style="color:var(--green-600)">✓ " + nowHm() + "</b></div></div>';
+  $("sendFooter").innerHTML = '<button class="btn btn-send" data-close>Hoàn tất</button>';
+  state.sent = true;
+  $("btnSend").disabled = true; $("btnSend").textContent = "✓ Đã gửi — " + did;
+  $("btnCopy").disabled = true; $("btnVariant").disabled = true;
+  log("XANH", TIERS.GREEN.dot, "GỬI chính thức · " + did + " · 3 checkpoint ✓");
+}
+
+// ---------- Biến thể ----------
+$("btnVariant").addEventListener("click", () => {
+  if (!state.variants.length) return;
+  $("variantList").innerHTML = state.variants.map((v, i) =>
+    '<button class="anchor" data-variant="' + i + '" style="background:var(--slate-50);border-color:var(--slate-200)">' +
+    '<span class="a-id" style="color:var(--cyan-600)">' + v.tag + '</span><span>' + v.text.slice(0, 140) + "…</span></button>").join("");
+  openModal("ovVariant");
+});
+$("variantList").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-variant]"); if (!btn) return;
+  const v = state.variants[+btn.dataset.variant];
+  setDraft(v.text, state.anchors, v.tag);
+  const res = liveCheck(v.text);
+  renderVerdict(res.tier, res.checks, res.suggest);
+  closeModal("ovVariant");
+  log(TIERS[res.tier].label, TIERS[res.tier].dot, "Đổi biến thể: " + v.tag);
+});
+
+// ---------- Modal utils ----------
+function openModal(id) { $(id).classList.add("show"); }
+function closeModal(id) { $(id).classList.remove("show"); }
+document.querySelectorAll(".overlay").forEach(ov => {
+  ov.addEventListener("click", (e) => { if (e.target === ov) ov.classList.remove("show"); });
+  ov.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", () => ov.classList.remove("show")));
+});
+
+// ---------- SLA countdown (45:12, ring đổi màu) ----------
+let slaSec = 45 * 60 + 12;
+setInterval(() => {
+  if (slaSec > 0) slaSec--;
+  const m = String(Math.floor(slaSec / 60)).padStart(2, "0"), s = String(slaSec % 60).padStart(2, "0");
+  $("slaText").textContent = m + ":" + s;
+  const pct = Math.max(0, Math.min(100, (slaSec / (60 * 60)) * 100));
+  const ring = $("slaRing");
+  ring.style.setProperty("--pct", pct);
+  ring.style.background = "conic-gradient(" + (pct < 25 ? "var(--red-500)" : pct < 50 ? "var(--amber-500)" : "var(--green-500)") + " calc(" + pct + " * 1%), rgba(255,255,255,.12) 0)";
+}, 1000);
+</script>
+</body>
+</html>

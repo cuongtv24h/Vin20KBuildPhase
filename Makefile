@@ -27,3 +27,6 @@ seed-data:
 
 sidecar:
 	python -m src.pricing_sidecar
+
+prototype:
+	python scripts/serve_prototype.py
