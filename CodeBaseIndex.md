@@ -295,6 +295,7 @@ Vin20KBuildPhase/
 | `5.uiux-interaction-design.md` | TD-5: đặc tả tương tác UI/UX theo 4 đối tượng (vi-tương tác bám contract SSE/enum; bổ sung Composer F8, Dossier inbox, Policy Admin) | 🔵 Phương Đuy (implement) + 🟣 review |
 | `5.1-sales-journey-ui.md` | TD-5.1: UI theo luồng đời thường của Sale — journey map 1 ngày, 7 interaction loops (Copilot < 60s, Revision tại chỗ, Copy-mode có audit), gap hợp đồng ADR-UX-03 | 🔵 Phương Đuy (implement) + 🟣 duyệt ADR |
 | `5.2-agent-first-sales-workspace.md` | TD-5.2: mô hình "Agent là trung tâm" — Chat để chỉ huy/Panel để làm việc/Menu để duyệt; 5 mục rail, 8 pattern hội thoại, ranh giới an toàn agent | 🔵 Phương Đuy (implement) + 🟣 review |
+| `5.3-sales-ui-handoff-spec.md` | TD-5.3: đặc tả bàn giao màn Sales cho agent implement — geometry px, token hex, 7 card types, 8 artifact types, mapping endpoint, acceptance checklist | 🔵 Phương Đuy (implement) |
 | `frontend/prototype/sales_workspace.html` | Prototype tương tác SCR-S00 Agent-First Workspace (Rail + hội thoại Agent + Artifact Panel; demo 4 kịch bản TD-5.2) — xem: `make prototype` | 🔵 Phương Đuy |
 | `frontend/prototype/sales_copilot.html` | Prototype tương tác SCR-S03 Sales Copilot (4 fixtures F8, live-check debounce 500ms, anchor popover, copy/send có audit) — `/sales_copilot.html` | 🔵 Phương Đuy |
 | `phanbien.md` | Báo cáo phản biện vòng 2 — các khoảng trống cần xử lý | 🟣 Tạ Việt Cường |

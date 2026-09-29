@@ -6,7 +6,7 @@
 **Khối nghiệp vụ:** Kinh doanh Bất động sản VLandFuture  
 **Ngày khởi tạo:** 2026-09-26  
 **Lần cập nhật cuối:** 2026-09-26T18:30:00+07:00  
-**Phiên bản hệ thống:** v2.7 (Controlled Implementation Baseline — Agent-First Sales Workspace Locked)  
+**Phiên bản hệ thống:** v2.8 (Controlled Implementation Baseline — Sales UI Handoff Spec Locked)  
 **Tác giả / Quản trị viên:** Principal Enterprise Architect & Solution Architect Lead  
 **Trạng thái tài liệu:** **LIVING DOCUMENT (TÀI LIỆU SỐNG ĐƯỢC DUY TRÌ & CẬP NHẬT LIÊN TỤC)**
 
@@ -49,6 +49,18 @@ Mỗi bản ghi cập nhật trong tương lai phải tuân thủ đúng định
 ## 2. NHẬT KÝ THAY ĐỔI LỊCH SỬ
 
 ---
+
+### [2026-09-26] - Phiên bản 2.8 — Ban hành TD-5.3: Đặc tả Bàn giao UI Màn Sales (Handoff Spec cho Agent)
+
+- **Người thực hiện:** TechLead (Tạ Việt Cường) + Dev 3 (Phương Đuy)
+- **Tài liệu mới ban hành:** [mydoc/5.3-sales-ui-handoff-spec.md](5.3-sales-ui-handoff-spec.md)
+- **Lý do cập nhật:** Hai prototype (SCR-S00 workspace + SCR-S03 copilot) đã được duyệt hướng; cần bản đặc tả chi tiết đến mức component + giá trị px/hex để agent AI / Dev 3 implement Next.js không phải suy đoán.
+- **Chi tiết nội dung trọng yếu:** Layout geometry (rail 64px / chat flex / panel 380px, 3 breakpoints, container 1500px); design tokens trích trực tiếp từ prototype (màu, typography, radius, shadow, motion); đặc tả 7 component card trong stream (Briefing/Text/Confirm/Stepper/Receipt/Nudge/Clarify); 8 artifact type của panel; intent router + slash command; mapping endpoint/loading/empty/error từng component; responsive + a11y; acceptance checklist 10 mục + 7 anti-pattern từ chối nghiệm thu.
+- **Quyết định Kiến trúc Mới (ADRs):** ADR-UX-05 — Màn Sales chỉ có 1 route `/sales`; các "quản lý khách hàng/báo giá" là view render trong Artifact Panel hoặc do agent render vào hội thoại, không phải route riêng; không dùng thư viện chat UI có sẵn (tự dựng theo spec).
+- **Tiêu chuẩn Nghiệm thu Bổ sung (New ACs):** AC-UI-01 — acceptance checklist §10 pass 100% trước khi merge; AC-UI-02 — token màu/px dùng nguyên bản từ §3, không tự chế token mới.
+
+---
+
 
 ### [2026-09-26] - Phiên bản 2.7 — Ban hành TD-5.2: Mô hình Tương tác "Agent là Trung tâm" cho Sales Workspace
 
