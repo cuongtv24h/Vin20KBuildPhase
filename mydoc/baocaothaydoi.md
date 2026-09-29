@@ -6,7 +6,7 @@
 **Khối nghiệp vụ:** Kinh doanh Bất động sản VLandFuture  
 **Ngày khởi tạo:** 2026-09-26  
 **Lần cập nhật cuối:** 2026-09-26T18:30:00+07:00  
-**Phiên bản hệ thống:** v2.4 (Controlled Implementation Baseline — Codebase Dependencies & Env Locked)  
+**Phiên bản hệ thống:** v2.5 (Controlled Implementation Baseline — UX Interaction Spec Locked)  
 **Tác giả / Quản trị viên:** Principal Enterprise Architect & Solution Architect Lead  
 **Trạng thái tài liệu:** **LIVING DOCUMENT (TÀI LIỆU SỐNG ĐƯỢC DUY TRÌ & CẬP NHẬT LIÊN TỤC)**
 
@@ -49,6 +49,19 @@ Mỗi bản ghi cập nhật trong tương lai phải tuân thủ đúng định
 ## 2. NHẬT KÝ THAY ĐỔI LỊCH SỬ
 
 ---
+
+### [2026-09-26] - Phiên bản 2.5 — Ban hành TD-5: Đặc tả Tương tác UI/UX theo Đối tượng
+
+- **Người thực hiện:** TechLead (Tạ Việt Cường) — phối hợp định hướng Dev 3 (Phương Đuy)
+- **Tài liệu mới ban hành:** [mydoc/5.uiux-interaction-design.md](5.uiux-interaction-design.md)
+- **Tài liệu nền kế thừa:** `mydoc/Luu_tru/UiUxRecommend.md` (15 nguyên tắc Conversational Financial Workspace), `docs/team_report/Wireframe_UI_Flow.md` (SCR-02/04/05/06/07 + design tokens)
+- **Lý do cập nhật:** Wireframe hiện có còn thiếu đặc tả tương tác cho Message Composer F8, Lead Dossier Inbox và toàn bộ workspace Policy Admin; các màn có sẵn chưa chỉ định vi-tương tác bám contract hệ thống (SSE event, enum trạng thái, debounce, checkpoint F8).
+- **Chi tiết nội dung trọng yếu:** 7 nguyên tắc xuyên suốt (Trust-first, Boundary visualization, Latency honesty, Safe-abstention-≠-error…); vi-tương tác cụ thể cho 4 persona (Customer / Sales / Manager / Policy Admin); ma trận Màn hình ↔ Component ↔ Endpoint ↔ ưu tiên MVP (§5.1) làm checklist bàn giao Dev 3; bộ chỉ số UX nối `eval/`.
+- **Quyết định Kiến trúc Mới (ADRs):** ADR-UX-01 — UI không tự quyết hành vi gửi tin: nút Gửi chỉ là gợi ý, chốt chặn luôn ở backend gate `ON_FINAL_SEND` (double-lock); ADR-UX-02 — không có thao tác xóa policy, chỉ supersede (đồng bộ bất biến append-only).
+- **Tiêu chuẩn Nghiệm thu Bổ sung (New ACs):** AC-UX-01 — mọi màn hình P0 map 1-1 endpoint có thật trong TD-4.4; AC-UX-02 — mọi cờ rủi ro hiển thị icon + chữ, không phụ thuộc màu đơn thuần.
+
+---
+
 
 ### [2026-09-26] - Phiên bản 2.4 — Chuẩn hóa Dependencies & Environment Variables theo Kiến trúc TD-4.1 (Codebase Baseline)
 

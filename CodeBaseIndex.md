@@ -292,6 +292,7 @@ Vin20KBuildPhase/
 | `4.4-api-event-tool-contracts.md` | TD-4.4: 29 endpoints, SSE, tool contracts, bảng lỗi | 🟣 Tạ Việt Cường |
 | `ImplementPlan.md` / `Implement_plan_detail.md` | Phân chia 4 thành viên, 11 components, 6 spikes, flowchart MVP | 🟣 Tạ Việt Cường |
 | `CTV_ImplementPlanDetail.md` | Kế hoạch chi tiết vai trò TechLead (6 phase, 10 ngày) | 🟣 Tạ Việt Cường |
+| `5.uiux-interaction-design.md` | TD-5: đặc tả tương tác UI/UX theo 4 đối tượng (vi-tương tác bám contract SSE/enum; bổ sung Composer F8, Dossier inbox, Policy Admin) | 🔵 Phương Đuy (implement) + 🟣 review |
 | `phanbien.md` | Báo cáo phản biện vòng 2 — các khoảng trống cần xử lý | 🟣 Tạ Việt Cường |
 | `baocaothaydoi.md` (+ `.mv`) | **CHANGELOG-ARCH** — bản ghi bắt buộc mọi thay đổi kiến trúc/contract | 🟣 Tạ Việt Cường (mọi thành viên ghi khi đổi) |
 | `architecture-workflow-diagrams.html` | Sơ đồ kiến trúc + workflow dạng HTML | 🟣 Tạ Việt Cường |
