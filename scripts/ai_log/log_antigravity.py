@@ -52,6 +52,7 @@ import argparse
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -72,6 +73,10 @@ GEMINI_HOME = Path.home() / ".gemini"
 BRAIN_CANDIDATES = (
     GEMINI_HOME / "antigravity-ide" / "brain",
     GEMINI_HOME / "antigravity" / "brain",
+)
+CONVERSATIONS_CANDIDATES = (
+    GEMINI_HOME / "antigravity-ide" / "conversations",
+    GEMINI_HOME / "antigravity" / "conversations",
 )
 
 USER_REQUEST_RE = re.compile(r"<USER_REQUEST>(.*?)</USER_REQUEST>", re.DOTALL)
@@ -123,6 +128,11 @@ def get_brain_dirs() -> list[Path]:
         p = Path(env)
         return [p] if p.exists() else []
     return [p for p in BRAIN_CANDIDATES if p.exists()]
+
+
+def get_conversations_dirs() -> list[Path]:
+    """Conversations SQLite directories to scan."""
+    return [p for p in CONVERSATIONS_CANDIDATES if p.exists()]
 
 
 # ---------------------------------------------------------------------------
@@ -211,20 +221,25 @@ def extract_user_prompt(content: str) -> str:
 
 def get_logged_entry_ids(log_file: Path) -> set[str]:
     logged: set[str] = set()
-    if not log_file.exists():
-        return logged
-    with open(log_file, encoding="utf-8-sig") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            eid = entry.get("entry_id", "")
-            if eid:
-                logged.add(eid)
+    files_to_check = [log_file]
+    archive_dir = log_file.parent / "archive"
+    if archive_dir.exists():
+        files_to_check.extend(archive_dir.glob("*.jsonl"))
+    for fpath in files_to_check:
+        if not fpath.exists():
+            continue
+        with open(fpath, encoding="utf-8-sig", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                eid = entry.get("entry_id", "")
+                if eid:
+                    logged.add(eid)
     return logged
 
 
@@ -269,10 +284,140 @@ def iter_transcript_inputs(transcript: Path, conv_id: str,
             }
 
 
+def _extract_ts_from_meta(raw_meta: bytes) -> datetime | None:
+    if not raw_meta:
+        return None
+    idx = raw_meta.find(b"\x08")
+    if idx == -1:
+        return None
+    shift = 0
+    val = 0
+    p = idx + 1
+    while p < len(raw_meta):
+        b = raw_meta[p]
+        val |= (b & 0x7F) << shift
+        p += 1
+        if not (b & 0x80):
+            break
+        shift += 7
+    try:
+        return datetime.fromtimestamp(val, tz=VN_TZ)
+    except Exception:
+        return None
+
+
+def _parse_protobuf_fields(data: bytes) -> list[tuple[int, str]]:
+    pos = 0
+    fields = []
+    while pos < len(data):
+        try:
+            key = 0
+            shift = 0
+            while pos < len(data):
+                b = data[pos]
+                key |= (b & 0x7F) << shift
+                pos += 1
+                shift += 7
+                if not (b & 0x80):
+                    break
+            wire_type = key & 0x07
+            field_num = key >> 3
+            if wire_type == 0:  # varint
+                while pos < len(data) and (data[pos] & 0x80):
+                    pos += 1
+                pos += 1
+            elif wire_type == 1:  # 64-bit
+                pos += 8
+            elif wire_type == 2:  # length-delimited
+                length = 0
+                shift = 0
+                while pos < len(data):
+                    b = data[pos]
+                    length |= (b & 0x7F) << shift
+                    pos += 1
+                    shift += 7
+                    if not (b & 0x80):
+                        break
+                val = data[pos:pos + length]
+                pos += length
+                try:
+                    s = val.decode("utf-8")
+                    if len(s) >= 1 and all(c >= " " or c in "\r\n\t" for c in s):
+                        fields.append((field_num, s))
+                    else:
+                        fields.extend(_parse_protobuf_fields(val))
+                except Exception:
+                    fields.extend(_parse_protobuf_fields(val))
+            elif wire_type == 5:  # 32-bit
+                pos += 4
+            else:
+                break
+        except Exception:
+            break
+    return fields
+
+
+def iter_sqlite_inputs(convs_dirs: list[Path], cutoff: datetime | None,
+                       only_conv: str | None, repo_root_n: str):
+    """Yield prompts from Antigravity IDE SQLite conversation databases."""
+    for conv_dir in convs_dirs:
+        if not conv_dir.exists():
+            continue
+        for db_file in sorted(conv_dir.glob("*.db"), key=lambda f: f.stat().st_mtime):
+            conv_id = db_file.stem
+            if only_conv and conv_id != only_conv:
+                continue
+
+            try:
+                conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+                rows = conn.execute(
+                    "SELECT idx, metadata, step_payload FROM steps "
+                    "WHERE step_type = 14 AND length(step_payload) > 200"
+                ).fetchall()
+            except Exception:
+                continue
+
+            matches_repo = False if repo_root_n else True
+            extracted = []
+
+            for idx, meta, payload in rows:
+                if not payload:
+                    continue
+                ts_dt = _extract_ts_from_meta(meta)
+                if cutoff and ts_dt and ts_dt < cutoff:
+                    continue
+
+                fields = _parse_protobuf_fields(payload)
+
+                if not matches_repo and repo_root_n:
+                    for _, s in fields:
+                        s_norm = s.lower().replace("/", "\\")
+                        if repo_root_n in s_norm:
+                            matches_repo = True
+                            break
+
+                prompts = [
+                    s for fnum, s in fields
+                    if fnum == 2 and not s.startswith("mcp(") and len(s.strip()) > 1
+                ]
+                if prompts:
+                    extracted.append({
+                        "conv_id": conv_id,
+                        "step_index": int(idx),
+                        "timestamp": ts_dt.isoformat() if ts_dt else "",
+                        "text": prompts[0],
+                    })
+
+            if matches_repo:
+                yield from extracted
+
+
 def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
                      only_conv: str | None, repo_root_n: str):
-    """Yield user-input dicts from every matching conversation transcript."""
+    """Yield user-input dicts from transcripts and SQLite databases."""
     for brain in brain_dirs:
+        if not brain.exists():
+            continue
         for conv_dir in sorted(brain.iterdir()):
             if not conv_dir.is_dir():
                 continue
@@ -291,6 +436,10 @@ def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
 
             yield from iter_transcript_inputs(transcript, conv_dir.name,
                                               cutoff)
+
+    # Also yield from Antigravity IDE SQLite databases
+    convs_dirs = get_conversations_dirs()
+    yield from iter_sqlite_inputs(convs_dirs, cutoff, only_conv, repo_root_n)
 
 
 # ---------------------------------------------------------------------------
