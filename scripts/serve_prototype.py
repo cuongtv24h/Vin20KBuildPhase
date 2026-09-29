@@ -11,7 +11,7 @@ import http.server
 import os
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "prototype")
-DEFAULT_FILE = "sales_copilot.html"
+DEFAULT_FILE = "sales_workspace.html"  # SCR-S00; copilot: /sales_copilot.html
 
 
 class PrototypeHandler(http.server.SimpleHTTPRequestHandler):
