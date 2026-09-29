@@ -10,6 +10,7 @@ uvicorn[standard]>=0.34.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
+httpx>=0.28.0
 sse-starlette>=2.1.0  # C-01/C-09: SSE stream (quotes/pre-sales events, Last-Event-ID)
 
 # ---- AI / LangChain (orchestrator C-01, pre-sales C-09, LLM adapter) ----
@@ -23,6 +24,7 @@ sqlalchemy[asyncio]>=2.0.36  # async engine + AsyncPostgresSaver checkpoint (Spi
 aiosqlite>=0.20.0  # async SQLite driver cho dev/test offline (Spike 2)
 asyncpg>=0.30.0  # driver PostgreSQL async (quản lý connection pool)
 psycopg[binary,pool]>=3.2.0  # driver sync/pool cho LangGraph AsyncPostgresSaver
+psycopg2-binary>=2.9.9
 alembic>=1.14.0  # migration schema (src/db/migrations/)
 pgvector>=0.3.6  # dtype vector cho time-travel semantic search (HNSW, 1536 dims)
 
@@ -45,11 +47,6 @@ qrcode>=8.0
 ruff>=0.8.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
-httpx>=0.28.0
 
 # ---- Tuỳ chọn — bật đúng lúc implement (đánh dấu trong CodeBaseIndex.md) ----
-# python-multipart>=0.0.20  # upload văn bản chính sách (Policy Admin UI, C-03)
-# pyjwt[crypto]>=2.10.0     # auth JWT/RBAC cho get_current_principal (src/api/deps.py)
-# boto3>=1.35.0             # object storage PDF (nếu không dùng Supabase Storage)
-# psycopg2-binary>=2.9.0    # chỉ cần nếu chạy Alembic sync offline mode
 hypothesis>=6.100.0

@@ -1,28 +1,145 @@
 """
 Sales Message Compliance Gate (C-11, F8) — tầng service.
-Owner: Phase 5 — phục vụ E2E chặng 5 (F8 Send Gate). File MỚI, ngoài phạm vi Phase 4.
-
-Ranh giới: chỉ ghi bảng `compliance_checks` (DDL Phase 0). KHÔNG đụng router/deps
-của Phase 4; endpoint POST /messages/send của Phase 4 sẽ gọi thẳng vào module này.
-
-Invariants:
-- F8: tin nhắn có claim tài chính không có dẫn chứng phải bị UNSUPPORTED/PROHIBITED → cấm gửi.
-- Chỉ Backend mới được thực thi gửi tin (client không được bypass).
+Enforces speech guidelines (POL-08) and validates claim evidence across 3 checkpoints:
+- ON_DRAFT: Real-time typing suggestions
+- DEBOUNCE: Form level pre-check
+- FINAL_SEND: Hard enforcement gate (blocks prohibited or unverified messages)
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.contracts.common import sha256_hex
 from src.contracts.enums import ComplianceStatus, ComplianceTier
 from src.contracts.errors import DomainError, ErrorCode
 from src.db.models import ComplianceCheckModel
+from src.services.compliance.rules import POL_08_PROHIBITED_PATTERNS
+
+
+class ComplianceCheckRequest(BaseModel):
+    """Request schema for compliance checking."""
+
+    message: str = Field(..., description="Message text to inspect")
+    mode: str = Field("FINAL_SEND", description="ON_DRAFT, DEBOUNCE, or FINAL_SEND")
+    quote_id: str | None = Field(None, description="Associated quote ID")
+    quote_version: int | None = Field(None, description="Associated quote version")
+    policy_version_refs: list[str] = Field(default_factory=list, description="Referenced policy versions")
+    claimed_evidence_ids: list[str] = Field(default_factory=list, description="IDs of linked evidence items")
+
+
+class ComplianceClaimFinding(BaseModel):
+    """Specific finding on a claim inside the message."""
+
+    claim_text: str
+    tier: str = Field(..., description="SUPPORTED, CONDITIONAL, UNSUPPORTED, PROHIBITED")
+    rule_id: str | None = None
+    reason: str
+
+
+class ComplianceCheckResponse(BaseModel):
+    """Response schema matching Section 10.4 compliance contract."""
+
+    check_id: str
+    message_hash: str
+    mode: str
+    overall_status: str = Field(..., description="SUPPORTED, CONDITIONAL, UNSUPPORTED, PROHIBITED")
+    quote_id: str | None = None
+    quote_version: int | None = None
+    policy_version_refs: list[str] = Field(default_factory=list)
+    claims: list[ComplianceClaimFinding] = Field(default_factory=list)
+    required_action: str = Field(..., description="ALLOW_SEND, WARN_CONDITIONAL, BLOCK_MESSAGE_COMPLIANCE_VIOLATION")
+
+
+class ComplianceGate:
+    """Core Compliance Gate Engine (C-11)."""
+
+    def check(self, request: ComplianceCheckRequest) -> ComplianceCheckResponse:
+        """Inspect a message and determine compliance status according to mode."""
+        msg = request.message
+        findings: list[ComplianceClaimFinding] = []
+
+        # 1. Quét vi phạm cấm tuyệt đối theo POL-08
+        has_prohibited = False
+        for pattern in POL_08_PROHIBITED_PATTERNS:
+            match = re.search(pattern.regex, msg, re.IGNORECASE)
+            if match:
+                has_prohibited = True
+                findings.append(
+                    ComplianceClaimFinding(
+                        claim_text=match.group(0),
+                        tier="PROHIBITED",
+                        rule_id=pattern.pattern_id,
+                        reason=pattern.description,
+                    )
+                )
+
+        # 2. Phân tích các claim định lượng tài chính
+        financial_discount_match = re.search(r"chiết khấu\s+\d+(\.\d+)?%", msg, re.IGNORECASE)
+        if financial_discount_match:
+            claim_str = financial_discount_match.group(0)
+            if not request.policy_version_refs and not request.claimed_evidence_ids:
+                if request.mode == "FINAL_SEND":
+                    tier = "UNSUPPORTED"
+                    reason = "Phát ngôn chiết khấu tài chính nhưng không có mỏ neo chứng từ chính sách (EvidenceBundle)."
+                else:
+                    tier = "CONDITIONAL"
+                    reason = "Cần đính kèm chứng từ chính sách hợp lệ trước khi gửi chính thức."
+                findings.append(
+                    ComplianceClaimFinding(
+                        claim_text=claim_str,
+                        tier=tier,
+                        rule_id="RULE-EVIDENCE-REQUIRED",
+                        reason=reason,
+                    )
+                )
+            else:
+                findings.append(
+                    ComplianceClaimFinding(
+                        claim_text=claim_str,
+                        tier="SUPPORTED",
+                        rule_id="RULE-EVIDENCE-LINKED",
+                        reason="Đã liên kết mỏ neo chứng cứ chính sách hợp lệ.",
+                    )
+                )
+
+        # 3. Tổng hợp trạng thái
+        if has_prohibited:
+            overall_status = "PROHIBITED"
+            action = "BLOCK_MESSAGE_COMPLIANCE_VIOLATION"
+        elif any(f.tier == "UNSUPPORTED" for f in findings):
+            overall_status = "UNSUPPORTED"
+            action = "BLOCK_MESSAGE_COMPLIANCE_VIOLATION" if request.mode == "FINAL_SEND" else "WARN_UNSUPPORTED"
+        elif any(f.tier == "CONDITIONAL" for f in findings):
+            overall_status = "CONDITIONAL"
+            action = "SUGGEST_LINKING_EVIDENCE" if request.mode == "ON_DRAFT" else "WARN_CONDITIONAL"
+        else:
+            overall_status = "SUPPORTED"
+            action = "ALLOW_SEND"
+
+        msg_hash = hashlib.sha256(msg.encode("utf-8")).hexdigest()
+        check_id = f"CHK-{uuid.uuid4().hex[:8].upper()}"
+
+        return ComplianceCheckResponse(
+            check_id=check_id,
+            message_hash=msg_hash,
+            mode=request.mode,
+            overall_status=overall_status,
+            quote_id=request.quote_id,
+            quote_version=request.quote_version,
+            policy_version_refs=request.policy_version_refs,
+            claims=findings,
+            required_action=action,
+        )
+
 
 # Claim tài chính: số tiền VNĐ, phần trăm chiết khấu, lãi suất, ân hạn
 # (cho phép từ đệm giữa từ khóa và con số: 'lãi suất ưu đãi 12%', 'giảm ngay 20%')
@@ -42,9 +159,9 @@ PROHIBITED_COMMITMENTS = re.compile(
 def analyze_message_claims(message_text: str) -> list[dict[str, Any]]:
     """
     Phân rã tin nhắn thành các claim tiềm năng với trạng thái tuân thủ:
-    - Cam kết cấm (sinh lời/hoàn vốn) → PROHIBITED.
-    - Claim số tài chính không kèm mã điều khoản [POL-...] → UNSUPPORTED.
-    - Claim có dẫn chứng (mã điều khoản) → SUPPORTED.
+    - Cam kết cấm (sinh lời/hoàn vốn) -> PROHIBITED.
+    - Claim số tài chính không kèm mã điều khoản [POL-...] -> UNSUPPORTED.
+    - Claim có dẫn chứng (mã điều khoản) -> SUPPORTED.
     """
     claims: list[dict[str, Any]] = []
     prohibited_match = PROHIBITED_COMMITMENTS.search(message_text)
@@ -96,6 +213,7 @@ def determine_tier(claims: list[dict[str, Any]]) -> ComplianceTier:
     if ComplianceStatus.CONDITIONAL.value in statuses:
         return ComplianceTier.TIER_2_YELLOW
     return ComplianceTier.TIER_1_GREEN
+
 
 PHONE_PATTERN = re.compile(r"^0\d{9,10}$")
 
@@ -174,14 +292,8 @@ class ComplianceGateService:
         plan_id: str | None = None,
     ) -> dict[str, Any]:
         """
-        Cổng gửi tin duy nhất của Backend (F8). Chỉ cho phép gửi khi:
-        - Có bản ghi compliance_checks với message_hash khớp.
-        - Khớp đúng quote_id / plan_id nếu được chỉ định (chống mượn hash).
-        - Trạng thái KHÔNG phải UNSUPPORTED/PROHIBITED.
-        - Nội dung gửi băm ra khớp đúng message_hash đã thẩm định.
-        Nếu vi phạm → DomainError COMPLIANCE_SEND_BLOCKED (HTTP 403 ở tầng API).
+        Cổng gửi tin duy nhất của Backend (F8).
         """
-        # Validate phone format trước khi xử lý
         cleaned_phone = validate_phone_format(recipient_phone)
 
         text_hash = sha256_hex(message_text)
@@ -192,7 +304,6 @@ class ComplianceGateService:
                 http_status=403,
             )
 
-        # Lấy bản ghi kiểm duyệt mới nhất khớp hash và quote_id/plan_id nếu có
         from sqlalchemy import select
 
         conditions = [ComplianceCheckModel.message_hash == message_hash]
@@ -234,8 +345,7 @@ class ComplianceGateService:
             ]
             raise DomainError(
                 ErrorCode.COMPLIANCE_SEND_BLOCKED,
-                f"Chặn gửi: trạng thái tuân thủ {record.overall_status} "
-                f"(tier {record.compliance_tier}).",
+                f"Chặn gửi: trạng thái tuân thủ {record.overall_status} (tier {record.compliance_tier}).",
                 http_status=403,
                 details={"check_id": record.check_id, "rejection_reasons": rejection_reasons},
             )

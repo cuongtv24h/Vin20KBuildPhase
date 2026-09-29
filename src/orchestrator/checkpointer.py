@@ -15,7 +15,11 @@ from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
-from psycopg_pool import AsyncConnectionPool
+
+try:
+    from psycopg_pool import AsyncConnectionPool
+except ImportError:
+    AsyncConnectionPool = None  # type: ignore[assignment, misc]
 
 # Registry chia sẻ: mọi CheckpointManager trỏ cùng db_uri dùng chung một pool.
 # Tránh việc mỗi graph/runner tự mở pool riêng làm cạn connection Supabase.

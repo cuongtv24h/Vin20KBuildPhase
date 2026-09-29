@@ -41,15 +41,19 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
 
     # LangGraph persistent checkpointing (INV-RT-04 — Spike 2)
-    # CHECKPOINT_DB_URI: DSN psycopg (postgresql://) cho AsyncPostgresSaver.
-    # Trống => CheckpointManager chỉ có MemorySaver (test/dev offline).
     checkpoint_db_uri: str | None = None
-    # USE_POSTGRES_CHECKPOINTER: opt-in tường minh — khi false (mặc định)
-    # app chạy MemorySaver ngay cả khi CHECKPOINT_DB_URI đã cấu hình.
     use_postgres_checkpointer: bool = False
 
-    # Vector Store
+    # Vector Store & Local Embeddings
     chroma_persist_dir: str = "./data/chroma"
+    pg_table_name: str = "policy_atoms"
+    embedding_model_id: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dim: int = 384
+    reranker_model_id: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_enabled: bool = True
+    reranker_top_k: int = 5
+    hybrid_search_enabled: bool = True
+    coarse_top_k: int = 30
 
     # Pricing Sidecar (Component C-06)
     pricing_sidecar_socket: str = "./data/pricing.sock"

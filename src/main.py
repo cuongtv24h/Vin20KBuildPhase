@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from src.agents.pre_sales.graph import PreSalesSessionRunner
+from src.api.pricing_mock import router as pricing_router
 from src.api.routes import router
 from src.config import get_settings
 from src.contracts.errors import DomainError, current_correlation_id
@@ -103,8 +104,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI20K Agent",
-    description="AI Agent built with LangGraph",
+    title="PricePolicy AI Agent",
+    description="Enterprise PricePolicy AI Agent (BDS020-06)",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -129,6 +130,7 @@ async def domain_error_exception_handler(request: Request, exc: DomainError):
 
 
 app.include_router(router)
+app.include_router(pricing_router, prefix="/api/v1/pricing", tags=["Pricing Engine Mock"])
 
 
 @app.get("/health")
