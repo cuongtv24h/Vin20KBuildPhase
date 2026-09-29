@@ -6,7 +6,7 @@
 **Khối nghiệp vụ:** Kinh doanh Bất động sản VLandFuture  
 **Ngày khởi tạo:** 2026-09-26  
 **Lần cập nhật cuối:** 2026-09-26T18:30:00+07:00  
-**Phiên bản hệ thống:** v2.5 (Controlled Implementation Baseline — UX Interaction Spec Locked)  
+**Phiên bản hệ thống:** v2.6 (Controlled Implementation Baseline — Sales Journey UI Locked)  
 **Tác giả / Quản trị viên:** Principal Enterprise Architect & Solution Architect Lead  
 **Trạng thái tài liệu:** **LIVING DOCUMENT (TÀI LIỆU SỐNG ĐƯỢC DUY TRÌ & CẬP NHẬT LIÊN TỤC)**
 
@@ -49,6 +49,18 @@ Mỗi bản ghi cập nhật trong tương lai phải tuân thủ đúng định
 ## 2. NHẬT KÝ THAY ĐỔI LỊCH SỬ
 
 ---
+
+### [2026-09-26] - Phiên bản 2.6 — Ban hành TD-5.1: UI theo Luồng Nghiệp vụ Đời thường của Sales Executive
+
+- **Người thực hiện:** TechLead (Tạ Việt Cường) + Dev 3 (Phương Đuy) — journey design workshop
+- **Tài liệu mới ban hành:** [mydoc/5.1-sales-journey-ui.md](5.1-sales-journey-ui.md)
+- **Lý do cập nhật:** TD-5 thiết kế theo màn hình; cần bổ sung góc nhìn journey-map theo ngày đời thực của Sale (70% tương tác trên mobile, Zalo là môi trường chính, khách hỏi giá giữa đường) để UI chạm đúng moment of truth.
+- **Chi tiết nội dung trọng yếu:** 5 nguyên tắc vàng (A1 Answer-first-formalize-later, A2 Không nhập hai lần, A3 Zalo-là-nhà hệ thống-là-bộ-não, A4 Chặn-phải-có-lối-đi, A5 Trạng thái-tự-chạy-tới-người); journey map 1 ngày với 10 moment; 7 interaction loops (Sales Home, Dossier call-brief, Sales Copilot < 60s với Copy-mode có audit, Quote Builder prefill, Revision tại chỗ, Composer + PDF share, Meeting Mode & Pipeline tự sinh).
+- **Quyết định Kiến trúc Mới (ADRs):** ADR-UX-03 (ĐỀ XUẤT — chờ phê duyệt) — bổ sung 4 hợp đồng API còn thiếu so với luồng đời thực: `GET /quotes?assignee=me`, `GET /policies/changes?since=`, `POST /quotes/{id}/versions/{version}/submit-for-review`, `GET /notifications`; kèm yêu cầu phi chức năng push/webhook mobile.
+- **Tiêu chuẩn Nghiệm thu Bổ sung (New ACs):** AC-SALE-01 — trả lời khách qua Copilot < 60s (median); AC-SALE-02 — 100% tin nhắn kênh Copy vẫn có vết compliance check (ON_COPY logged).
+
+---
+
 
 ### [2026-09-26] - Phiên bản 2.5 — Ban hành TD-5: Đặc tả Tương tác UI/UX theo Đối tượng
 
