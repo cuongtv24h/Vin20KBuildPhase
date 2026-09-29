@@ -19,6 +19,11 @@ langchain-openai>=0.3.0
 langgraph>=0.2.0
 langgraph-checkpoint-postgres>=2.0.0  # Spike 2: AsyncPostgresSaver persistent checkpointing
 
+# ---- PEC-RAG & Time-Travel Retrieval (C-02, C-03, C-04) ----
+numpy>=1.26.0
+llama-index-core>=0.11.0
+llama-index-vector-stores-postgres>=0.2.0
+
 # ---- Persistence: Supabase PostgreSQL 16 + pgvector (TD-4.2 — C-02/C-03/C-07) ----
 sqlalchemy[asyncio]>=2.0.36  # async engine + AsyncPostgresSaver checkpoint (Spike 2)
 aiosqlite>=0.20.0  # async SQLite driver cho dev/test offline (Spike 2)
