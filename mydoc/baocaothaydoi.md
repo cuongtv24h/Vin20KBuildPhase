@@ -6,7 +6,7 @@
 **Khối nghiệp vụ:** Kinh doanh Bất động sản VLandFuture  
 **Ngày khởi tạo:** 2026-09-26  
 **Lần cập nhật cuối:** 2026-09-26T18:30:00+07:00  
-**Phiên bản hệ thống:** v2.6 (Controlled Implementation Baseline — Sales Journey UI Locked)  
+**Phiên bản hệ thống:** v2.7 (Controlled Implementation Baseline — Agent-First Sales Workspace Locked)  
 **Tác giả / Quản trị viên:** Principal Enterprise Architect & Solution Architect Lead  
 **Trạng thái tài liệu:** **LIVING DOCUMENT (TÀI LIỆU SỐNG ĐƯỢC DUY TRÌ & CẬP NHẬT LIÊN TỤC)**
 
@@ -49,6 +49,18 @@ Mỗi bản ghi cập nhật trong tương lai phải tuân thủ đúng định
 ## 2. NHẬT KÝ THAY ĐỔI LỊCH SỬ
 
 ---
+
+### [2026-09-26] - Phiên bản 2.7 — Ban hành TD-5.2: Mô hình Tương tác "Agent là Trung tâm" cho Sales Workspace
+
+- **Người thực hiện:** TechLead (Tạ Việt Cường) + Dev 3 (Phương Đuy)
+- **Tài liệu mới ban hành:** [mydoc/5.2-agent-first-sales-workspace.md](5.2-agent-first-sales-workspace.md)
+- **Lý do cập nhật:** Chốt quyết định kiến trúc UX cấp cao — màn hình chính của Sale là hội thoại với Agent Trợ lý (theo định hướng Product Owner), kết hợp menu hoạt động (Khách hàng, Báo giá, Tin nhắn, Chính sách) làm lưới an toàn.
+- **Chi tiết nội dung trọng yếu:** Đối chiếu 3 mô hình (tool-first / agent-first tuyệt đối / hybrid) → chọn mô hình C "Chat để chỉ huy — Panel để làm việc — Menu để duyệt"; bố cục SCR-S00 (Rail 64px + Agent Conversation + Artifact Panel); 5 mục rail với bảng phân định khi nào dùng menu khi nào hỏi agent; 8 pattern hội thoại (Briefing mở ca, Slash command, Confirm card, Artifact rendering, Stepper, Receipt+Undo, Context chip, Proactive nudge); vòng đời lệnh "tạo báo giá" 2-lần-chạm; bảng ranh giới an toàn agent (đối ứng interrupt StateGraph TD-4.3).
+- **Quyết định Kiến trúc Mới (ADRs):** ADR-UX-04 — Màn Sales chính là Agent Conversation; trang Home riêng bị bãi bỏ, thay bằng Briefing card do agent chủ động đăng vào đầu phiên (S01→SCR-S00). 7 vòng tương tác TD-5.1 giữ nguyên, chỉ đảo bố cục.
+- **Tiêu chuẩn Nghiệm thu Bổ sung (New ACs):** AC-UX-03 — mọi side-effect từ chat phải qua Confirm card (2 lần chạm); AC-UX-04 — mọi kết quả có cấu trúc render thành đối tượng ở Artifact Panel, không đăng dạng text.
+
+---
+
 
 ### [2026-09-26] - Phiên bản 2.6 — Ban hành TD-5.1: UI theo Luồng Nghiệp vụ Đời thường của Sales Executive
 
