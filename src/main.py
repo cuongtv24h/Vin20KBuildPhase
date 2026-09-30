@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     manager: CheckpointManager | None = None
     if settings.use_postgres_checkpointer and settings.checkpoint_db_uri:
         # INV-RT-04: persistent checkpointing qua AsyncPostgresSaver (Spike 2).
-        manager = CheckpointManager(db_uri=settings.checkpoint_db_uri)
+        manager = CheckpointManager(db_uri=settings.checkpoint_db_uri, max_pool_size=2)
         await manager.initialize()
         saver = manager.get_async_postgres_checkpointer()
         configure_app_checkpointer(saver)

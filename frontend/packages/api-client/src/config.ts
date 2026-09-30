@@ -17,7 +17,16 @@ export type ApiMode = 'mock' | 'real'
 
 export const API_MODE: ApiMode = env.NEXT_PUBLIC_API_MODE === 'real' ? 'real' : 'mock'
 
-export const API_BASE_URL = (env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787/api/v1').replace(/\/$/, '')
+function resolveApiBaseUrl(): string {
+  const raw = env.NEXT_PUBLIC_API_BASE_URL || env.NEXT_PUBLIC_API_URL || (API_MODE === 'real' ? '/api/v1' : 'http://localhost:8787/api/v1')
+  const trimmed = raw.replace(/\/$/, '')
+  if (!trimmed.endsWith('/api/v1')) {
+    return `${trimmed}/api/v1`
+  }
+  return trimmed
+}
+
+export const API_BASE_URL = resolveApiBaseUrl()
 
 /** TD-4.1 §3.1 — Timeout-path deadline 10s: UI dừng an toàn, không treo spinner. */
 export const REQUEST_TIMEOUT_MS = 10_000

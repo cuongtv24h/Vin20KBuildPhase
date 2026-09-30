@@ -7,6 +7,7 @@ import { defineConfig } from 'vite'
 // app (Khách hàng, Nội bộ) là hai origin thật, dev phải khớp topology thật để CORS được kiểm chứng.
 export default defineConfig({
   plugins: [react()],
+  envDir: path.resolve(import.meta.dirname, '../../../'),
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   resolve: {
     alias: {

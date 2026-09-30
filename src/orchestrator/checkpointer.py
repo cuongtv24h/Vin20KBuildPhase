@@ -81,7 +81,8 @@ class CheckpointManager:
 
             self._pool = AsyncConnectionPool(
                 conninfo=self.db_uri,
-                max_size=self.max_pool_size,
+                min_size=1,
+                max_size=max(1, self.max_pool_size),
                 open=False,
                 # autocommit=True BẮT BUỘC: setup() của AsyncPostgresSaver chạy
                 # CREATE INDEX CONCURRENTLY — không được phép trong transaction block.

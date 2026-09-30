@@ -7,6 +7,7 @@ import { defineConfig } from 'vite'
 // API_INTEGRATION.md). Không dùng proxy: hai app là hai origin thật, dev phải khớp topology thật.
 export default defineConfig({
   plugins: [react()],
+  envDir: path.resolve(import.meta.dirname, '../../../'),
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   resolve: {
     alias: {
