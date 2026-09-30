@@ -12,6 +12,7 @@ from src.api.endpoints import (
     admin_cp,
     catalog,
     compliance,
+    copilot,
     evaluation,
     leads,
     policies,
@@ -61,6 +62,7 @@ router.include_router(quotes.router)
 router.include_router(quote_events.router)
 router.include_router(compliance.router)
 router.include_router(evaluation.router)
+router.include_router(copilot.router, prefix="/api/v1")
 router.include_router(policies.router, prefix="/api/v1")
 
 api_router = router

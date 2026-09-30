@@ -775,18 +775,64 @@ export function SalesWorkspacePage() {
         return
       }
 
-      // Fallback
+      // Gọi LLM thật qua endpoint /api/v1/copilot/chat
+      const thinkingId = `thinking-${Date.now()}`
       setMessages((prev) => [
         ...prev,
         {
-          id: `fb-${Date.now()}`,
-          type: 'fallback',
+          id: thinkingId,
+          type: 'agent',
           time,
-          text: 'Em chưa chắc chắn hiểu yêu cầu. Anh có thể chọn nhanh thao tác nghiệp vụ:',
+          text: 'Đang suy nghĩ câu trả lời...',
         },
       ])
       scrollChatToEnd()
-    }, 300)
+
+      fetch('/api/v1/copilot/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          current_unit: selectedLead?.constraints?.preferred_unit_code || 'R-02.02',
+          lead_dossier_id: selectedLead?.dossier_id,
+          history: messages.slice(-6).map((m) => ({
+            role: m.type === 'user' ? 'user' : 'assistant',
+            content: m.text || '',
+          })),
+        }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          return res.json()
+        })
+        .then((data) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === thinkingId
+                ? {
+                    ...m,
+                    text: data.reply || 'Em đã ghi nhận yêu cầu của anh.',
+                  }
+                : m
+            )
+          )
+          scrollChatToEnd()
+        })
+        .catch(() => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === thinkingId
+                ? {
+                    ...m,
+                    type: 'fallback',
+                    text: 'Em chưa chắc chắn hiểu yêu cầu. Anh có thể chọn nhanh thao tác nghiệp vụ:',
+                  }
+                : m
+            )
+          )
+          scrollChatToEnd()
+        })
+    }, 250)
   }
 
   // Slash commands list
