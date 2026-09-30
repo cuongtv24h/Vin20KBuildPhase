@@ -14,10 +14,11 @@ settings = get_settings()
 # Hỗ trợ PostgreSQL (asyncpg) hoặc SQLite (aiosqlite)
 db_url = settings.database_url
 if db_url.startswith("sqlite:///") and not db_url.startswith("sqlite+aiosqlite:///"):
-    # Chuyển đổi sang driver async nếu là sqlite
     db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
 elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg:///")
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+elif db_url.startswith("postgres://") and not db_url.startswith("postgresql+asyncpg://"):
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://")
 
 engine = create_async_engine(
     db_url,
@@ -34,6 +35,7 @@ async_session_factory = async_sessionmaker(
 
 class Base(DeclarativeBase):
     """Lớp cơ sở ORM DeclarativeBase cho tất cả các thực thể database."""
+
     pass
 
 
@@ -46,10 +48,13 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+# Alias for backward compatibility
+get_db = get_db_session
+
+
 async def init_db() -> None:
     """Khởi tạo toàn bộ schema cơ sở dữ liệu (drop & create all)."""
-    from src.db.models import Base
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+    from src.db.models import Base as ModelsBase
 
+    async with engine.begin() as conn:
+        await conn.run_sync(ModelsBase.metadata.create_all)

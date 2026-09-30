@@ -1,0 +1,42 @@
+[
+  {
+    "id": "GQ-001",
+    "type": "T0_EXACT",
+    "description": "Happy path: Query chính xác tên điều khoản",
+    "query": "Điều 3.2 chiết khấu thanh toán sớm",
+    "expected_status": "VERIFIED",
+    "expected_atoms": ["ATOM-001"]
+  },
+  {
+    "id": "GQ-002",
+    "type": "T1_HYBRID",
+    "description": "Semantic: Truy vấn tự nhiên",
+    "query": "khách hàng VIP thì được giảm bao nhiêu tiền?",
+    "expected_status": "VERIFIED",
+    "expected_atoms": ["ATOM-002"]
+  },
+  {
+    "id": "GQ-003",
+    "type": "DUAL_POLARITY",
+    "description": "Why-not / Conflict: Có điều khoản giảm giá nhưng vướng EXCLUDES (ngăn không cho cộng dồn ưu đãi)",
+    "query": "Tôi đang dùng gói A, xin thêm giảm giá gói B",
+    "expected_status": "VERIFIED",
+    "expected_atoms": ["ATOM-003", "ATOM-EXCL-001"]
+  },
+  {
+    "id": "GQ-004",
+    "type": "ABSTENTION",
+    "description": "Abstention: Thiếu điều kiện tiên quyết (footnotes)",
+    "query": "tính lãi suất cho vay ưu đãi dự án X",
+    "expected_status": "ABSTAINED",
+    "reason_code": "UNRESOLVED_EXCLUSION_EDGE"
+  },
+  {
+    "id": "GQ-005",
+    "type": "TEMPORAL",
+    "description": "Temporal Conflict: Cùng câu hỏi nhưng sai ngày áp dụng so với version của policy",
+    "query": "chiết khấu chuẩn cho tháng 5/2026",
+    "transaction_date": "2026-05-15",
+    "expected_status": "VERIFIED"
+  }
+]

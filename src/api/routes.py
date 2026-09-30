@@ -9,9 +9,12 @@ from fastapi import APIRouter, HTTPException
 
 from src.agents.graph import agent
 from src.api.endpoints import (
+    admin_cp,
+    catalog,
     compliance,
     evaluation,
     leads,
+    policies,
     pre_sales,
     quote_events,
     quotes,
@@ -47,14 +50,17 @@ async def agent_status():
 
 
 # -----------------------------------------------------------------------------
-# Mount All 7 Domain Sub-Routers
+# Mount All Domain Sub-Routers
 # -----------------------------------------------------------------------------
 router.include_router(base_router)
+router.include_router(catalog.router)
+router.include_router(admin_cp.router)
 router.include_router(pre_sales.router)
 router.include_router(leads.router)
 router.include_router(quotes.router)
 router.include_router(quote_events.router)
 router.include_router(compliance.router)
 router.include_router(evaluation.router)
+router.include_router(policies.router, prefix="/api/v1")
 
 api_router = router

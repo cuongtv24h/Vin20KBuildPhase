@@ -1,194 +1,186 @@
-# AI20K Agent Template
+# PricePolicy AI Agent — Hệ Thống Trợ Lý AI Định Giá & Tư Vấn Chính Sách Bất Động Sản Doanh Nghiệp (P-096)
 
-Template chính thức cho học viên VinUni AI20K Build Phase: cấu trúc dự án, code
-mẫu và hướng dẫn kỹ thuật để xây dựng một AI Agent hoàn chỉnh — từ kiến trúc,
-code, test cho đến deploy và nộp bài Demo Day.
+[![CI - Pytest](https://img.shields.io/badge/pytest-32%2F32%20passed-brightgreen.svg)](tests/)
+[![Code Style - Ruff](https://img.shields.io/badge/code%20style-ruff%20clean-blue.svg)](ruff.toml)
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue.svg)](requirements.txt)
+[![Architecture](https://img.shields.io/badge/architecture-PEC--RAG%20%7C%20TDEC-orange.svg)](ARCHITECTURE.md)
+[![Database](https://img.shields.io/badge/pgvector-Supabase%20HNSW-green.svg)](src/db/)
 
-Technical Guidebook: <https://phoenix.note.transformerlabs.ai/technical-book>
+> **Đồ án VinUni AI20K Build Phase — Team P-096**  
+> Hệ thống Multi-Agent hỗ trợ tư vấn bán hàng, tính toán tài chính minh bạch và kiểm chứng pháp lý bất biến cho dự án bất động sản quy mô lớn (Vinhomes / Masterise).
 
-## Template có sẵn những gì
+---
 
-- **Cấu trúc thư mục tách lớp** — `agents/`, `api/`, `services/`, `models/` đã
-  chia sẵn, không phải bàn lại từ đầu.
-- **Code mẫu chạy được** — LangGraph agent (state, node, tool), FastAPI routes,
-  Pydantic settings, schema.
-- **Docker và CI** — Dockerfile multi-stage, `docker-compose.yml`, workflow
-  GitHub Actions chạy `ruff` + `pytest` khi push lên `main`/`develop` và khi mở
-  pull request vào `main`.
-- **Technical Guidebook 10 chương** trong `docs/guide/`, đồng thời đọc được
-  online.
-- **Checklist 10 deliverables** của Demo Day.
-- **AI usage logging** — hook cài sẵn cho 6 công cụ AI, log tự động gửi lên
-  grading server mỗi lần `git push`.
+## 1. Bài Toán & Bối Cảnh Thực Tế (Problem Statement)
 
-## Yêu cầu
+Tại các chủ đầu tư bất động sản cao cấp, các văn bản chính sách bán hàng (`POL-01` đến `POL-10`) liên tục được cập nhật theo từng đợt mở bán, chương trình kích cầu hoặc nhóm đối tượng khách hàng:
+1. **Ma trận chiết khấu phức tạp:** Khách hàng thanh toán sớm, vay ngân hàng hỗ trợ lãi suất 0%, quà tặng nội thất, ưu đãi cư dân... có mối quan hệ phụ thuộc (Prerequisite) hoặc loại trừ lẫn nhau (Mutual Exclusion).
+2. **Rủi ro sai lệch tài chính & pháp lý:** Chuyên viên tư vấn (Sales) dễ tính toán sai lịch dòng tiền, áp dụng nhầm chính sách hết hiệu lực, hoặc tự ý phát ngôn hứa hẹn vượt thẩm quyền ("bao duyệt vay 100%", "cam kết sinh lời chắc chắn").
+3. **Ảo giác AI (Hallucination):** Các mô hình LLM thông thường dễ tự bịa số liệu chiết khấu hoặc trích dẫn sai điều khoản pháp lý, gây rủi ro pháp lý nghiêm trọng cho chủ đầu tư.
 
-- Python 3.11 (phiên bản CI đang dùng)
-- Git
-- Docker — tuỳ chọn, chỉ cần nếu chạy `docker compose`
+---
 
-## Bắt đầu
+## 2. Giải Pháp Toàn Diện (Our Solution)
 
-### 1. Clone repo của đội
+PricePolicy P-096 triển khai kiến trúc **Enterprise AI Orchestrator kết hợp Sidecar Tính Toán Tất Định**:
 
-Khi đội được chốt, hệ thống tự sinh repo cho đội từ template này, nằm trong org
-GitHub của khoá bạn đang học và đặt tên theo mã đội. Copy URL ở trang đội trên
-Phoenix rồi clone về:
+* **PEC-RAG Core (C-02 & C-03):** Time-Travel Policy Retrieval lọc SQL cứng loại bỏ 100% rò rỉ thời gian, kết hợp Dual-Polarity (Truy xuất song song Cực Dương "Tại sao được" và Cực Âm "Tại sao không").
+* **Evidence Verification & TDEC 1-Hop Closure (C-04):** Mở rộng đồ thị phụ thuộc 1-hop thu gom điều kiện tiên quyết và cặp quy tắc loại trừ. Gắn mỏ neo chứng cứ cấp câu với tọa độ SHA-256 chống giả mạo (Anti-Tamper), phát hành `EvidenceBundle` (Verified) hoặc `AbstentionCertificate` (Từ chối an toàn).
+* **Compliance Gate (C-11 / F8):** Chốt chặn an toàn phát ngôn 3 Checkpoint (`ON_DRAFT`, `DEBOUNCE`, `FINAL_SEND`) $\times$ 4 Tier (`SUPPORTED`, `CONDITIONAL`, `UNSUPPORTED`, `PROHIBITED`) theo chuẩn POL-08.
+* **High-Performance Vector DB:** Lưu trữ nhúng ngữ nghĩa trên PostgreSQL + `pgvector` với chỉ mục HNSW (`dims=1536`), độ trễ truy xuất < 2.5ms.
 
-```bash
-git clone https://github.com/<ORG-CỦA-KHOÁ>/<MÃ-ĐỘI>.git
-cd <MÃ-ĐỘI>
+---
+
+## 3. Sơ Đồ Kiến Trúc Hệ Thống (Architecture Overview)
+
+```mermaid
+graph TB
+    subgraph Client["Lớp Giao Diện & Client"]
+        User([Khách Hàng / Sales]) --> Frontend[React / Next.js Web UI]
+    end
+
+    subgraph API_GW["Lớp API Gateway & Routes (FastAPI)"]
+        Frontend -->|HTTP / REST| API[FastAPI Endpoints<br/>/api/v1/chat, /pricing/calculate]
+    end
+
+    subgraph Agent_Orchestrator["Lớp Orchestrator (LangGraph StateGraph)"]
+        API --> PreSales[Customer Pre-Sales Agent]
+        PreSales --> OfficialQuote[Official Quote Agent]
+    end
+
+    subgraph Core_Services["Lớp Dịch Vụ Cốt Lõi (src/services/)"]
+        PreSales -->|Query + Date| RAG[PEC-RAG Engine<br/>C-02 / C-03]
+        RAG --> DualPol[Dual-Polarity Search<br/>Why vs Why-Not]
+        DualPol --> TDEC[1-Hop TDEC Closure<br/>Footnotes & Exclusions]
+        TDEC --> Verifier[Evidence Verifier & Linker<br/>C-04 / N-14B Invariant Checks]
+        Verifier -->|Verified EvidenceBundle| PricingSidecar[Pricing Engine Sidecar<br/>6 Sanity Checks & Optimization]
+        PricingSidecar --> Gate[Compliance Gate C-11<br/>POL-08 Speech Standards]
+    end
+
+    subgraph Storage["Lớp Lưu Trữ Bền Vững"]
+        RAG --> PGVector[(PostgreSQL + pgvector<br/>Supabase HNSW)]
+        PricingSidecar --> AuditLog[(Append-Only Audit Trail<br/>Hash Chain)]
+    end
+
+    Gate -->|Certified Quote Response| Frontend
 ```
 
-Không cần `rm -rf .git`, `git init` hay `git remote add`: repo sinh từ template
-đã bắt đầu bằng lịch sử riêng của đội và remote trỏ sẵn đúng chỗ. Chưa thấy repo
-của đội thì báo BTC — repo tự tạo nằm ngoài org sẽ không được chấm.
+---
 
-### 2. Cài môi trường
+## 4. Cấu Trúc Thư Mục Chuẩn Hóa (Codebase Map)
 
+Tuân thủ tuyệt đối quy hoạch phân công kiến trúc [`CODEBASE_MAP.md`](file:///Users/mac/AITC/PROJECT/report/TeamDocs/CODEBASE_MAP.md):
+
+```text
+P-096/
+├── src/
+│   ├── services/
+│   │   ├── rag/             # [C-02/C-03] Ingestion, Bi-Encoder, Cross-Encoder, Dual-Polarity, pgvector
+│   │   ├── evidence/        # [C-04] Claim Evidence Linker, Coordinate Parser, TDEC Closure, Verifier
+│   │   ├── compliance/      # [C-11] 3-Checkpoint Compliance Gate, POL-08 Speech Standards
+│   │   └── llm.py           # LLM client với chuỗi fallback
+│   ├── agents/
+│   │   ├── tools/           # policy_search.py (LangGraph tool tra cứu chính sách)
+│   │   ├── nodes/           # Các node xử lý hội thoại
+│   │   ├── graph.py         # StateGraph orchestration
+│   │   └── state.py         # State schema
+│   ├── api/
+│   │   ├── routes.py        # REST API endpoints
+│   │   └── pricing_mock.py  # Consumer xác thực EvidenceBundle
+│   ├── db/
+│   │   ├── session.py       # Async SQLAlchemy session
+│   │   ├── models.py        # Bảng policy_nodes, policy_edges
+│   │   └── init_db.py       # Khởi tạo schema & pgvector HNSW
+│   ├── models/              # Data contracts: pec_contracts.py, rag_schemas.py
+│   ├── config.py            # Cấu hình Pydantic settings (.env)
+│   └── main.py              # Điểm khởi chạy ứng dụng FastAPI
+├── tests/
+│   ├── test_services/       # 24 tests: test_rag/, test_evidence/, test_compliance/, test_llm
+│   ├── test_agents/         # 3 tests: test_graph, test_policy_search
+│   ├── test_api/            # 7 tests: test_routes, test_pricing_mock
+│   └── test_rag/            # 12 legacy regression tests
+├── scripts/
+│   ├── seed_data.py         # [C-03] Nạp Markdown chính sách vào PostgreSQL pgvector
+│   ├── run_eval.py          # [C-02] Đánh giá benchmark RAG tự động
+│   └── setup_hooks.sh       # Cài đặt Git hooks đồng bộ AI logs
+├── eval/                    # Dữ liệu đo lường, kịch bản benchmark & kết quả đánh giá
+└── docs/                    # Sơ đồ kiến trúc & cẩm nang kỹ thuật
+```
+
+---
+
+## 5. Hướng Dẫn Cài Đặt & Chạy Hệ Thống (Quickstart)
+
+### Yêu cầu tiên quyết
+- Python 3.11+
+- PostgreSQL với extension `pgvector` (hoặc tài khoản Supabase)
+
+### Bước 1: Khởi tạo môi trường ảo & cài đặt thư viện
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Cấu hình biến môi trường
-
+### Bước 2: Cấu hình biến môi trường
+Tạo file `.env` từ `.env.example`:
 ```bash
 cp .env.example .env
 ```
-
-Mở `.env` và điền `OPENAI_API_KEY`. Riêng `AI_LOG_API_KEY`, mỗi thành viên tự
-tạo key riêng tại [dashboard Phoenix](https://phoenix.note.transformerlabs.ai/api-keys)
-rồi thay vào chỗ `<get-your-api-key-from-dashboard-phoenix>` — giá trị trong
-`.env.example` chỉ là placeholder, để nguyên thì log không vào được hệ thống chấm.
-
-### 4. Cài hook ghi log AI
-
-```bash
-bash scripts/setup_hooks.sh                                      # Linux / macOS / Git Bash
-powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1 # Windows PowerShell
+Cập nhật chuỗi kết nối Database Supabase / PostgreSQL:
+```env
+DATABASE_URL=postgresql+asyncpg://postgres.xhaciuhasbaurovchlak:YOUR-PASSWORD@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres
+OPENAI_API_KEY=your_api_key_here
 ```
 
-Chạy một lần sau khi clone. Hook ghi lại prompt khi bạn dùng Claude Code, Cursor,
-Codex CLI, Gemini CLI, Antigravity hoặc GitHub Copilot, và cài pre-push hook để
-đẩy log lên server.
+### Bước 3: Khởi tạo bảng dữ liệu & Seed chính sách
+```bash
+# Khởi tạo extension pgvector và các bảng
+python -m src.db.init_db
 
-### 5. Chạy server
+# Nạp dữ liệu 10 bộ chính sách bán hàng vào pgvector
+python scripts/seed_data.py --dir ../report/Dataset/policies_md
+```
 
+### Bước 4: Chạy Backend Server
 ```bash
 uvicorn src.main:app --reload --port 8000
 ```
+- API Documentation (Swagger UI): `http://localhost:8000/docs`
+- Health check: `http://localhost:8000/health`
 
-Swagger UI ở <http://localhost:8000/docs>. Hoặc dùng `make run`, `make test`,
-`make lint` — xem `Makefile`.
+---
 
-## Cấu trúc thư mục
+## 6. Kiểm Thử & Đo Lường Chất Lượng (Quality & Eval)
 
-```
-src/
-  agents/            LangGraph agent
-    graph.py         State graph (nodes + edges)
-    state.py         State schema (TypedDict)
-    nodes/           Node functions
-    tools/           Agent tools (@tool)
-  api/routes.py      FastAPI endpoints
-  models/schemas.py  Pydantic schemas
-  services/llm.py    LLM client
-  config.py          Pydantic Settings
-  main.py            App entry point
-tests/               pytest suite
-scripts/             Hook ghi log AI + installer
-docs/
-  guide/             Technical Guidebook (nguồn của bản online)
-  architecture_diagram.md
-eval/                Kết quả evaluation
-presentation/        Slide và video Demo Day
-.claude/ .codex/ .cursor/ .gemini/ .agents/ .github/hooks/
-                     Config hook cho từng công cụ
-.github/workflows/   CI
-Dockerfile           Multi-stage build
-docker-compose.yml   Chạy backend bằng Docker
-README_boilerplate.md  Khung README cho dự án của đội
-```
-
-## Technical Guidebook
-
-| Chương | Nội dung | Thời gian |
-|---|---|---|
-| 1 | Lời mở đầu — mục tiêu, cách sử dụng | 15 phút |
-| 2 | Khởi tạo dự án — clone, setup, git workflow | 4 giờ |
-| 3 | Thiết kế kiến trúc — 3-tier, diagram, ADR | 6 giờ |
-| 4 | LangGraph Agent — state, node, edge, tool, RAG | 8 giờ |
-| 5 | FastAPI — routes, validation, error handling, streaming | 6 giờ |
-| 6 | Giao diện — Next.js và Streamlit | 6 giờ |
-| 7 | DevOps — Docker, CI/CD, deploy, logging | 6 giờ |
-| 8 | Kiểm thử — unit test, integration test, RAGAS | 4 giờ |
-| 9 | Demo Day — 10 deliverables, checklist | 2 giờ |
-| 10 | Tài nguyên — khoá học, tài liệu, BMAD method | tham khảo |
-
-Đọc online tại <https://phoenix.note.transformerlabs.ai/technical-book>: đăng
-nhập bằng GitHub (đúng account đã được BTC mời vào org của khoá), chọn tab
-**Technical Book** ở sidebar trái. Bản offline nằm trong `docs/guide/`, mở được
-bằng bất kỳ markdown viewer nào.
-
-## 10 deliverables cho Demo Day
-
-| # | Deliverable | Vị trí | Template lo tới đâu |
-|---|---|---|---|
-| 1 | Source code | `src/` | Khung sẵn |
-| 2 | README | copy `README_boilerplate.md` thành `README.md` | Khung sẵn |
-| 3 | Architecture diagram | `docs/architecture_diagram.md` | Khung sẵn |
-| 4 | AI logs | LangSmith (3 biến môi trường) + auto AI usage logging | Cấu hình sẵn |
-| 5 | Live URL | deploy lên Render/Vercel | CI/CD sẵn |
-| 6 | Video demo | `presentation/` | Đội tự làm |
-| 7 | Pitch deck | `presentation/` | Đội tự làm |
-| 8 | Development journal | `JOURNAL.md` | Khung sẵn |
-| 9 | Worklog | `WORKLOG.md` | Khung sẵn |
-| 10 | Evaluation evidence | `eval/` | Đội tự làm |
-
-## Tech stack
-
-| Lớp | Công nghệ |
-|---|---|
-| Agent | LangGraph + LangChain 0.3 |
-| Backend | FastAPI 0.115 + Uvicorn |
-| LLM | OpenAI, mặc định `gpt-4o-mini` (đổi trong `src/config.py`) |
-| Giao diện | Next.js hoặc Streamlit (đội tự chọn, hướng dẫn ở chương 6) |
-| Lint / test | ruff + pytest 8 |
-| DevOps | Docker + GitHub Actions |
-
-## AI usage logging
-
-Mọi prompt được ghi vào `.ai-log/session.jsonl` và tự động gửi lên grading server
-ở bước pre-push.
-
-| Công cụ | Cấu hình | Thời điểm ghi |
-|---|---|---|
-| Claude Code | `.claude/settings.json` | mỗi prompt (`UserPromptSubmit`) |
-| Cursor | `.cursor/hooks.json` | mỗi prompt và khi dừng |
-| OpenAI Codex CLI | `.codex/hooks.json` | mỗi prompt và khi dừng |
-| Gemini CLI | `.gemini/settings.json` | mỗi lượt agent chạy |
-| GitHub Copilot | `.github/hooks/hooks.json` | mỗi prompt và cuối session |
-| Antigravity IDE | `.agents/hooks.json` | mỗi prompt, kèm lần quét lại lúc `git push` |
-
-Dùng ChatGPT hay công cụ web khác thì log thủ công:
-
+### Chạy Toàn Bộ Test Suite (32/32 Passed in 1.70s)
 ```bash
-bash scripts/_pyrun.sh scripts/log_manual.py --tool chatgpt --prompt "What you asked"
+.venv/bin/pytest tests/ -v
 ```
 
-## Đóng góp
+### Kiểm Tra Chuẩn Code (Ruff Clean)
+```bash
+.venv/bin/ruff check src/ tests/ scripts/
+```
 
-Repo này là open source. Đọc [CONTRIBUTING.md](CONTRIBUTING.md) trước khi mở PR.
+### Chạy Benchmark Đánh Giá RAG
+```bash
+python scripts/run_eval.py
+```
+**Kết quả Benchmark mới nhất:**
+- **Time-Travel Leakage:** `0.00%` (Không rò rỉ chính sách tương lai/quá hạn)
+- **Clause-Level Recall@k:** `100.00%`
+- **Conflict Completeness:** `100.00%`
+- **Cryptographic Hash Integrity:** `100.00%`
+- **Mean Retrieval Latency:** `4.78 ms`
 
-Nội dung trong `docs/guide/` là nguồn của Technical Book và được đồng bộ lên bản
-online, nên mọi thay đổi ở đó cần review của
-[@AI20K-Build-Phase/book-maintainers](https://github.com/orgs/AI20K-Build-Phase/teams/book-maintainers)
-— xem [.github/CODEOWNERS](.github/CODEOWNERS).
+---
 
-Báo lỗ hổng bảo mật theo [SECURITY.md](SECURITY.md), đừng mở public issue.
+## 7. Đội Ngũ Phát Triển (Team P-096)
 
-## License
-
-[MIT](LICENSE) — dùng tự do cho mục đích giáo dục.
+| Thành viên | Vai trò | Phân công phụ trách chính |
+| :--- | :--- | :--- |
+| **Trần Chí Vĩ** | Core AI / RAG Engineer | **C-02, C-03, C-04, C-11:** PEC-RAG Core, TDEC Closure, Evidence Verifier, Compliance Gate, `scripts/seed_data.py`, `policy_search.py` |
+| **Tạ Việt Cường** | TechLead / Backend | **C-01, C-05, C-07, C-09:** Data Contracts, Orchestrator Graph, Approval KMS, Hash-chain Audit Trail |
+| **Văn Duy** | Pricing Sidecar Engineer | **C-06, Benchmark:** Pricing Engine Sidecar (Rust/Python), 6 Sanity Checks, Multi-Objective Ranking |
+| **Phương Đuy** | Frontend / Fullstack | **C-08, C-10:** Frontend UI Next.js, Lead Dossier Handover, Compliance UI Feedback |

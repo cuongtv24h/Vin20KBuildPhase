@@ -33,12 +33,19 @@ from src.config import get_settings  # noqa: E402
 
 def main() -> None:
     settings = get_settings()
-    uvicorn.run(
+    config = uvicorn.Config(
         "src.main:app",
         host=settings.app_host,
         port=settings.app_port,
         log_level=settings.log_level.lower(),
     )
+    server = uvicorn.Server(config)
+    if sys.platform == "win32":
+        import asyncio
+
+        asyncio.run(server.serve(), loop_factory=asyncio.SelectorEventLoop)
+    else:
+        server.run()
 
 
 if __name__ == "__main__":

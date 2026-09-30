@@ -1,0 +1,25 @@
+{
+  "name": "@pricepolicy/api-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "main": "src/client.ts",
+  "types": "src/client.ts",
+  "exports": {
+    ".": "./src/client.ts",
+    "./client": "./src/client.ts",
+    "./config": "./src/config.ts",
+    "./contracts": "./src/contracts/index.ts",
+    "./endpoints": "./src/endpoints.ts",
+    "./errors": "./src/errors.ts",
+    "./http": "./src/http.ts",
+    "./hooks": "./src/hooks/index.ts",
+    "./sse": "./src/sse.ts",
+    "./*": "./src/*.ts"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.103.2",
+    "react": "^18.3.1"
+  }
+}

@@ -5,14 +5,40 @@ Owner: TechLead (cuongtv_02560)
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import re
+import secrets
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Header, HTTPException, Request, status
 
 from src.contracts.errors import ErrorCode
+
+
+def create_access_token(user: str, role: str) -> str:
+    """Tạo access token mang thông tin user và role."""
+    payload = json.dumps({"u": user, "r": role, "rnd": secrets.token_hex(8)})
+    return "tk_" + base64.urlsafe_b64encode(payload.encode("utf-8")).decode("utf-8")
+
+
+def parse_auth_token(token_str: str) -> tuple[str | None, str | None]:
+    """Giải mã thông tin user và role từ access token."""
+    token = token_str.replace("Bearer ", "").strip()
+    if token.startswith("tk_"):
+        try:
+            raw = base64.urlsafe_b64decode(token[3:].encode("utf-8")).decode("utf-8")
+            data = json.loads(raw)
+            return data.get("u"), data.get("r")
+        except Exception:
+            return None, None
+    elif token.startswith("token_"):
+        parts = token.split("_")
+        if len(parts) >= 3:
+            return parts[1], parts[-2].upper()
+    return None, None
 
 
 @dataclass
@@ -117,14 +143,25 @@ def verify_occ(current_version: int, expected_version: int | None) -> None:
 
 
 def get_current_principal(
-    x_user_id: str = Header("SALES-001", alias="X-User-Id"),
-    x_user_role: str = Header("SALES", alias="X-User-Role"),
+    authorization: str | None = Header(None, alias="Authorization"),
+    x_user_id: str | None = Header(None, alias="X-User-Id"),
+    x_user_role: str | None = Header(None, alias="X-User-Role"),
     x_tenant_id: str = Header("DEFAULT", alias="X-Tenant-Id"),
 ) -> Principal:
-    """Extracts Principal actor from request headers for RBAC & SoD enforcement."""
+    """Extracts Principal actor from request headers or Bearer token for RBAC & SoD enforcement."""
+    user_id = x_user_id.strip() if x_user_id else None
+    role = x_user_role.strip().upper() if x_user_role else None
+
+    if (not role or not user_id) and authorization:
+        t_user, t_role = parse_auth_token(authorization)
+        if t_user and not user_id:
+            user_id = t_user
+        if t_role and not role:
+            role = t_role.upper()
+
     return Principal(
-        user_id=x_user_id.strip(),
-        role=x_user_role.strip().upper(),
+        user_id=user_id or "SALES-001",
+        role=role or "SALES",
         tenant_id=x_tenant_id.strip(),
     )
 

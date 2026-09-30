@@ -81,7 +81,7 @@ graph TB
 - **API Design:** RESTful API chuẩn OpenAPI 3.1 + Server-Sent Events (SSE) streaming đơn điệu toàn cục (`{quote_id}:v{quote_version}:{event_seq:06d}`).
 - **Authentication & RBAC:** OAuth2 / JWT bearer tokens kết hợp phân quyền 4 vai trò rõ ràng: `CUSTOMER`, `SALES_EXECUTIVE`, `SALES_MANAGER`, `POLICY_ADMIN`. Cưỡng chế nguyên tắc phân tách trách nhiệm (Separation of Duties - SoD): Người tạo báo giá không bao giờ được phép tự duyệt báo giá của chính mình (`chk_quote_sod`).
 - **Idempotency Engine:** Bắt buộc header `Idempotency-Key` kèm kiểm tra mã vân tay ngữ nghĩa:
-  $$	ext{fingerprint} = 	ext{SHA-256}(	ext{method} + 	ext{endpoint} + 	ext{actor\_id} + 	ext{quote\_id} + 	ext{version} + 	ext{payload\_hash})$$
+  $$\text{fingerprint} = \text{SHA-256}(\text{method} + \text{endpoint} + \text{actor\_id} + \text{quote\_id} + \text{version} + \text{payload\_hash})$$
 
 ### 3. AI Agent (LangGraph Stateful Orchestration)
 - **Agent Type:** Custom Stateful Cyclic Directed Graph (`StateGraph`) lưu vết trạng thái bền vững qua PostgreSQL (`AsyncPostgresSaver`). Tuyệt đối không dùng `MemorySaver` in-memory.
@@ -179,7 +179,7 @@ graph TD
 4. **Khởi tạo Báo giá Chính thức (F7):** Sale bấm khởi tạo Báo giá chính thức từ Dossier. Hệ thống kích hoạt `OfficialQuoteGraph`, bắt buộc thực hiện Re-validation và Re-calculation toàn diện.
 5. **Định giá & Thẩm định Báo giá Chính thức:** LangGraph điều phối tra cứu chính sách Time-Travel trên Supabase pgvector, quét mâu thuẫn 3 cấp độ, gọi Python Math Sidecar qua Unix Domain Socket tính toán dòng tiền, kiểm định Sanity Check và đóng gói Snapshot JSON bất biến.
 6. **Phê duyệt Kiểm soát Con người (HITL Gate):** Quản lý mở Approval Dashboard kiểm tra cờ rủi ro. Thực hiện phê duyệt theo mô hình `Sign-before-commit`: Ký số Ed25519 qua KMS/Signer, cập nhật Quote `status = 'APPROVED'` và ghi nhận sự kiện Outbox trong cùng 1 PostgreSQL ACID transaction.
-7. **Soạn tin & Chốt chặn Tuân thủ Phát ngôn (F8):** Sale sử dụng Sales Message Composer để soạn tin nhắn gửi khách. Hệ thống tự động kiểm tra qua 3 chốt chặn (on-draft, debounce on-typing, final send gate). Nếu thông điệp chứa từ khóa cam kết tín dụng/lợi nhuận vượt thẩm quyền $ightarrow$ Khóa cứng nút Gửi (`BLOCKED`).
+7. **Soạn tin & Chốt chặn Tuân thủ Phát ngôn (F8):** Sale sử dụng Sales Message Composer để soạn tin nhắn gửi khách. Hệ thống tự động kiểm tra qua 3 chốt chặn (on-draft, debounce on-typing, final send gate). Nếu thông điệp chứa từ khóa cam kết tín dụng/lợi nhuận vượt thẩm quyền -> Khóa cứng nút Gửi (`BLOCKED`).
 8. **Phát hành & Lưu trữ Bất biến:** Khi tin nhắn đạt chuẩn `SUPPORTED`, lệnh gửi được thông qua. Worker tiến trình nền đọc Outbox Event, render file PDF báo giá chính thức có mã QR xác thực và đóng gói chuỗi bằng chứng bất biến vào kho lưu trữ kiểm toán.
 
 ---

@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from src.agents.pre_sales.graph import PreSalesSessionRunner
+from src.api.pricing_mock import router as pricing_router
 from src.api.routes import router
 from src.config import get_settings
 from src.contracts.errors import DomainError, current_correlation_id
@@ -45,18 +46,14 @@ async def _bootstrap_database() -> None:
     - SQLite dev: tạo file ./data/app.db với toàn bộ bảng của Base.metadata.
     - Postgres/Supabase đã có DDL: bỏ qua hoàn toàn (count > 0), không alter.
     """
-    from sqlalchemy import inspect
 
     from src.db import models  # noqa: F401 — import để đăng ký mọi model vào Base.metadata
     from src.db.session import Base, engine
 
     async with engine.begin() as conn:
-        table_names = await conn.run_sync(
-            lambda sync_conn: inspect(sync_conn).get_table_names()
-        )
-        if table_names:
-            return  # schema đã tồn tại — không đụng vào
+        # Base.metadata.create_all(checkfirst=True) tự động chỉ tạo bảng chưa tồn tại (idempotent)
         await conn.run_sync(Base.metadata.create_all)
+
 
 
 @asynccontextmanager
@@ -103,8 +100,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI20K Agent",
-    description="AI Agent built with LangGraph",
+    title="PricePolicy AI Agent",
+    description="Enterprise PricePolicy AI Agent (BDS020-06)",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -117,6 +114,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Idempotent-Replayed", "X-Action", "X-Correlation-ID", "Content-Disposition"],
 )
 
 
@@ -129,8 +127,11 @@ async def domain_error_exception_handler(request: Request, exc: DomainError):
 
 
 app.include_router(router)
+app.include_router(pricing_router, prefix="/api/v1/pricing", tags=["Pricing Engine Mock"])
 
 
 @app.get("/health")
+@app.get("/api/v1/health")
 async def health():
     return {"status": "ok", "env": settings.app_env}
+

@@ -1,4 +1,7 @@
-.PHONY: run test lint format typecheck check clean
+.PHONY: dev run test lint format typecheck check clean eval
+
+dev:
+	python start_dev.py
 
 run:
 	uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
@@ -6,11 +9,14 @@ run:
 test:
 	pytest tests/ -v
 
+eval:
+	python scripts/run_eval.py
+
 lint:
-	ruff check src/ tests/
+	ruff check src/ tests/ eval/ scripts/
 
 format:
-	ruff format src/ tests/
+	ruff format src/ tests/ eval/ scripts/
 
 typecheck:
 	mypy src/

@@ -3,11 +3,17 @@ Database module initialization and exports.
 """
 
 from src.db.models import (
+    AbstentionCertificateModel,
+    Base,
     ComplianceCheckModel,
     CustomerConsentModel,
+    EvidenceBundleModel,
     LeadDossierModel,
+    PolicyAtomModel,
     PolicyChunkModel,
     PolicyDocumentModel,
+    PolicyEdgeModel,
+    PolicyModel,
     PolicyRuleModel,
     PreSalesPlanModel,
     PreSalesSessionModel,
@@ -19,17 +25,25 @@ from src.db.models import (
     UnitModel,
 )
 from src.db.session import (
-    Base,
     async_session_factory,
     engine,
+    get_db,
     get_db_session,
+    init_db,
 )
 
 __all__ = [
     "Base",
     "engine",
     "async_session_factory",
+    "get_db",
     "get_db_session",
+    "init_db",
+    "PolicyModel",
+    "PolicyAtomModel",
+    "PolicyEdgeModel",
+    "EvidenceBundleModel",
+    "AbstentionCertificateModel",
     "ProjectModel",
     "UnitModel",
     "PolicyDocumentModel",
