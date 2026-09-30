@@ -75,7 +75,7 @@ class PricingClient:
             "PRICING_SIDECAR_SOCKET", getattr(settings, "pricing_sidecar_socket", "./data/pricing.sock")
         )
         self.host = host or os.environ.get("PRICING_SIDECAR_HOST", getattr(settings, "pricing_sidecar_host", "127.0.0.1"))
-        self.port = port or int(os.environ.get("PRICING_SIDECAR_PORT", str(getattr(settings, "pricing_sidecar_port", 8001))))
+        self.port = port or int(os.environ.get("PRICING_SIDECAR_PORT", str(getattr(settings, "pricing_sidecar_port", 28001))))
         self.timeout = timeout
         self.force_mock = force_mock or (
             os.environ.get("PRICING_USE_MOCK", "false").lower() in ("true", "1")

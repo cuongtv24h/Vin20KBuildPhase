@@ -50,7 +50,7 @@ logger = logging.getLogger("pricing_sidecar.server")
 # ---------------------------------------------------------------------------
 DEFAULT_SOCKET_PATH: str = "/var/run/pricing/engine.sock"
 DEFAULT_TCP_HOST: str = "127.0.0.1"
-DEFAULT_TCP_PORT: int = 8001
+DEFAULT_TCP_PORT: int = 28001
 MAX_REQUEST_SIZE: int = 1_048_576  # 1 MB
 DEFAULT_PROCESSING_TIMEOUT_SECONDS: float = 0.050  # 50 ms
 SOCKET_FILE_MODE: int = 0o660

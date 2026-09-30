@@ -255,10 +255,10 @@ async def auth_login(
             )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tài khoản hoặc email này không tồn tại trong hệ thống.",
+            detail="Tài khoản hoặc email không tồn tại trong hệ thống cơ sở dữ liệu.",
         )
 
-    # 2. Kiểm tra mật khẩu MD5
+    # 2. Khớp mật khẩu MD5 trực tiếp với giá trị lưu trong CSDL thật
     req_hash = hashlib.md5(req.password.strip().encode("utf-8")).hexdigest()
     if req_hash != user_db.password:
         raise HTTPException(

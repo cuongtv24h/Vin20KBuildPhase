@@ -48,7 +48,11 @@ class Principal:
     tenant_id: str
 
     def has_role(self, *roles: str) -> bool:
-        return self.role.upper() in [r.upper() for r in roles]
+        def _norm(r: str) -> str:
+            u = r.upper()
+            return "SALE" if u in ("SALE", "SALES") else u
+        user_role = _norm(self.role)
+        return any(user_role == _norm(r) for r in roles)
 
 
 # In-memory storage for Idempotency Cache (per-process fallback for tests & local dev)

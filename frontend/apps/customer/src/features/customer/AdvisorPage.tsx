@@ -6,6 +6,7 @@ import { OPTIMIZATION_OBJECTIVES } from '@pricepolicy/api-client/contracts'
 import { errorMessage, isApiError } from '@pricepolicy/api-client/errors'
 import { useConfirmConstraints, useGeneratePlan, useHandoff, usePreSalesEvents, usePreSalesSession, useSendPreSalesMessage, useStartPreSales } from '@pricepolicy/api-client/hooks'
 import { ErrorState, LoadingState } from '@pricepolicy/ui/components/common/PageStates'
+import { FormattedAiMessage } from '@pricepolicy/ui/components/common/FormattedAiMessage'
 import { MoneyInput } from '@pricepolicy/ui/components/common/MoneyInput'
 import { ReferencePlanView } from '@pricepolicy/ui/components/presales/ReferencePlanView'
 import { Button } from '@pricepolicy/ui/components/ui/button'
@@ -158,14 +159,15 @@ function Chat({ session, disabled }: { session: PreSalesSession; disabled: boole
       <CardContent className="flex-1 space-y-3 overflow-y-auto p-4" data-testid="chat">
         {session.messages.map((m) => (
           <div key={m.message_id} className={cn('flex', m.role === 'CUSTOMER' ? 'justify-end' : 'justify-start')}>
-            <p
-              className={cn(
-                'max-w-[85%] whitespace-pre-line rounded-2xl px-3.5 py-2 text-sm leading-relaxed',
-                m.role === 'CUSTOMER' ? 'rounded-br-sm bg-primary text-primary-foreground' : 'rounded-bl-sm bg-muted',
-              )}
-            >
-              {m.text}
-            </p>
+            {m.role === 'CUSTOMER' ? (
+              <p className="max-w-[85%] whitespace-pre-line rounded-2xl rounded-br-sm bg-primary px-3.5 py-2 text-sm leading-relaxed text-primary-foreground shadow-xs">
+                {m.text}
+              </p>
+            ) : (
+              <div className="max-w-[88%] rounded-2xl rounded-bl-sm border border-border/70 bg-card px-4 py-3 text-sm leading-relaxed text-card-foreground shadow-xs">
+                <FormattedAiMessage content={m.text} className="text-sm" />
+              </div>
+            )}
           </div>
         ))}
         {send.isPending && (
