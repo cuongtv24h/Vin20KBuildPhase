@@ -1,16 +1,21 @@
 import type {
+  AdminSetupStatus,
+  AdminUser,
   ApproveRequest,
   AuthSession,
   BenchmarkRun,
   ComplianceCheckRequest,
   ComplianceCheckResponse,
   ConfirmConstraintsRequest,
+  CreateUserPayload,
   DecisionReasonRequest,
   DraftMessage,
   DraftMessageRequest,
   ExtractRulesFields,
   HandoffReceipt,
   HandoffRequest,
+  InitAdminPayload,
+  LeadCreatePayload,
   LeadDossier,
   LoginRequest,
   MessageSendResult,
@@ -33,6 +38,7 @@ import type {
   RulesTestReport,
   SendMessageCommand,
   UnitSnapshot,
+  UpdateUserPayload,
 } from './contracts'
 import { buildPath, ENDPOINTS, type EndpointName } from './endpoints'
 import { http, type HttpRequest } from './http'
@@ -61,6 +67,17 @@ export const api = {
     logout: () => call<void>('authLogout'),
     reauth: (body: ReauthRequest, o: CommandOptions = {}) => call<ReauthGrant>('authReauth', {}, { json: body, ...o }),
   },
+
+  admin: {
+    setupStatus: () => call<AdminSetupStatus>('adminSetupStatus'),
+    setup: (body: InitAdminPayload) =>
+      call<{ status: string; message: string; access_token: string; expires_at: string; user: AdminUser }>('adminSetup', {}, { json: body }),
+    users: (query: { role?: string; search?: string } = {}) => call<AdminUser[]>('adminUsersList', {}, { query }),
+    createUser: (body: CreateUserPayload) => call<AdminUser>('adminUserCreate', {}, { json: body }),
+    updateUser: (userId: string, body: UpdateUserPayload) => call<AdminUser>('adminUserUpdate', { user_id: userId }, { json: body }),
+    deleteUser: (userId: string) => call<{ status: string; message: string }>('adminUserDelete', { user_id: userId }),
+  },
+
 
   catalog: {
     projects: () => call<ProjectOverview[]>('publicProjects'),
@@ -114,7 +131,13 @@ export const api = {
   },
 
   leads: {
-    list: () => call<LeadDossier[]>('leadList'),
+    list: async () => {
+      const res = await call<any>('leadList')
+      if (Array.isArray(res)) return res as LeadDossier[]
+      if (res && Array.isArray(res.items)) return res.items as LeadDossier[]
+      return []
+    },
+    create: (body: LeadCreatePayload, o: CommandOptions = {}) => call<LeadDossier>('leadCreate', {}, { json: body, ...o }),
     convertToQuote: (dossierId: string, body: QuoteCreateRequest, o: CommandOptions = {}) =>
       call<QuoteAccepted>('leadConvert', { dossier_id: dossierId }, { json: body, ...o }),
   },

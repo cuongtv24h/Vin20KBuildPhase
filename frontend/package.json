@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n mock,customer,internal -c yellow,cyan,magenta \"npm:dev:mock\" \"npm:dev:customer\" \"npm:dev:internal\"",
+    "dev:real": "concurrently -n customer,internal -c cyan,magenta \"npm:dev:customer\" \"npm:dev:internal\"",
     "dev:mock": "npm run dev -w @pricepolicy/mock-server",
     "dev:customer": "npm run dev -w @pricepolicy/customer",
     "dev:internal": "npm run dev -w @pricepolicy/internal",

@@ -67,6 +67,57 @@ export interface ReauthGrant {
   expires_at: string
 }
 
+// ─── Admin Control Panel (admin_cp) ──────────────────────────────────────────
+
+export interface AdminSetupStatus {
+  initialized: boolean
+  total_users: number
+  has_admin: boolean
+  message: string
+}
+
+export interface InitAdminPayload {
+  user: string
+  password: string
+  email: string
+  phone?: string
+  full_name?: string
+}
+
+export interface AdminUser {
+  user: string
+  password?: string
+  email: string
+  phone: string | null
+  role: UserRole
+  user_id?: string
+  full_name?: string
+  title?: string | null
+  is_active?: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface CreateUserPayload {
+  user: string
+  password: string
+  email: string
+  phone?: string
+  role: UserRole
+  full_name?: string
+}
+
+export interface UpdateUserPayload {
+  password?: string
+  email?: string
+  phone?: string
+  role?: UserRole
+  full_name?: string
+  title?: string
+  is_active?: boolean
+}
+
+
 // ─── Dự án & căn hộ (read-only snapshot từ CRM — AP-09) ──────────────────────
 
 export interface Project {
@@ -532,6 +583,20 @@ export interface HandoffRequest {
 export interface HandoffReceipt {
   dossier_id: string
   handed_off_at: string
+}
+
+export interface LeadCreatePayload {
+  customer_name: string
+  customer_phone: string
+  customer_segment?: CustomerSegment
+  project_id?: string
+  preferred_unit_code?: string | null
+  bedrooms?: number | null
+  own_funds_vnd?: number | null
+  monthly_capacity_vnd?: number | null
+  objective?: OptimizationObjective | null
+  temperature?: LeadTemperature
+  needs_summary?: string
 }
 
 export interface LeadDossier {

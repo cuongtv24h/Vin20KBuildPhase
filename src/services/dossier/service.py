@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.contracts.common import mask_phone
@@ -219,8 +220,11 @@ class PreSalesDossierService:
         status: LeadDossierStatus | None = None,
         limit: int = 50,
     ) -> list[LeadDossierModel]:
-        """Danh sách dossier cho Sales Dashboard, sắp xếp SLA gấp nhất trước."""
-        stmt = select(LeadDossierModel).order_by(LeadDossierModel.sla_expires_at.asc())
+        stmt = (
+            select(LeadDossierModel)
+            .options(selectinload(LeadDossierModel.session))
+            .order_by(LeadDossierModel.sla_expires_at.asc())
+        )
         if status is not None:
             stmt = stmt.where(LeadDossierModel.status == status.value)
         stmt = stmt.limit(limit)

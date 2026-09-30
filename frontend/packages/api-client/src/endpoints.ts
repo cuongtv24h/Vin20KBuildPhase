@@ -27,6 +27,14 @@ export const ENDPOINTS = {
   authLogout: def({ method: 'POST', path: '/auth/logout', source: 'PROPOSED', auth: 'staff' }),
   authReauth: def({ method: 'POST', path: '/auth/reauth', source: 'PROPOSED', auth: ['MANAGER'] }),
 
+  // Admin CP — Quản trị User & Khởi tạo ban đầu
+  adminSetupStatus: def({ method: 'GET', path: '/admin/setup-status', source: 'PROPOSED', auth: 'public' }),
+  adminSetup: def({ method: 'POST', path: '/admin/setup', source: 'PROPOSED', auth: 'public' }),
+  adminUsersList: def({ method: 'GET', path: '/admin/users', source: 'PROPOSED', auth: ['ADMIN'] }),
+  adminUserCreate: def({ method: 'POST', path: '/admin/users', source: 'PROPOSED', auth: ['ADMIN'] }),
+  adminUserUpdate: def({ method: 'PUT', path: '/admin/users/{user_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
+  adminUserDelete: def({ method: 'DELETE', path: '/admin/users/{user_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
+
   // Tham chiếu (read-only)
   publicProjects: def({ method: 'GET', path: '/public/projects', source: 'PROPOSED', auth: 'public' }),
   units: def({ method: 'GET', path: '/units', source: 'PROPOSED', auth: 'public' }),
@@ -52,6 +60,7 @@ export const ENDPOINTS = {
 
   // Lead Dossier — C-10
   leadList: def({ method: 'GET', path: '/leads', source: 'TD-4.4', auth: ['SALE'] }),
+  leadCreate: def({ method: 'POST', path: '/leads', source: 'PROPOSED', auth: ['SALE'] }),
   leadConvert: def({ method: 'POST', path: '/leads/{dossier_id}/convert-to-quote', source: 'TD-4.4', auth: ['SALE'] }),
 
   // Pre-Sales — C-09 (public)

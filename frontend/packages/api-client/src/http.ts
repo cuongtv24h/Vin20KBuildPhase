@@ -12,9 +12,14 @@ import { ApiError, fallbackMessage } from './errors'
  */
 
 let tokenProvider: () => string | null = () => null
+let sessionInfoProvider: () => { userId?: string; role?: string } | null = () => null
 
 export function setAuthTokenProvider(provider: () => string | null) {
   tokenProvider = provider
+}
+
+export function setSessionInfoProvider(provider: () => { userId?: string; role?: string } | null) {
+  sessionInfoProvider = provider
 }
 
 export function getAuthToken(): string | null {
@@ -52,6 +57,9 @@ export function buildHeaders(req: Pick<HttpRequest, 'method' | 'idempotencyKey' 
   if (req.json !== undefined) headers['Content-Type'] = 'application/json'
   const token = tokenProvider()
   if (token) headers.Authorization = `Bearer ${token}`
+  const info = sessionInfoProvider()
+  if (info?.userId) headers['X-User-Id'] = info.userId
+  if (info?.role) headers['X-User-Role'] = info.role
   if (req.method === 'POST') headers['Idempotency-Key'] = req.idempotencyKey ?? newRequestId()
   if (req.ifMatchVersion !== undefined) headers['If-Match'] = `"v${req.ifMatchVersion}"`
   return headers

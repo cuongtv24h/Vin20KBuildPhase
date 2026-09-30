@@ -93,6 +93,38 @@ class PolicyRAGService:
                 }
             )
 
+    def load_from_db(self) -> int:
+        """Loads all policy atoms directly from PostgreSQL into memory and retriever."""
+        try:
+            import psycopg
+            clean_url = self.settings.database_url.replace("postgresql+asyncpg://", "postgresql://").replace(
+                "postgresql+psycopg2://", "postgresql://"
+            )
+            with psycopg.connect(clean_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT node_id, text, metadata_ FROM data_policy_atoms ORDER BY id ASC")
+                    rows = cur.fetchall()
+            nodes = [
+                TextNode(
+                    id_=r[0],
+                    text=r[1],
+                    metadata=r[2] or {},
+                )
+                for r in rows
+            ]
+            if nodes:
+                self.load_nodes(nodes)
+                logger.info("Loaded %d real policy atoms from database into PolicyRAGService.", len(nodes))
+                return len(nodes)
+        except Exception as e:
+            logger.warning("Could not load policy atoms from DB: %s", e)
+        return 0
+
+    def _ensure_loaded(self) -> None:
+        """Ensure policy nodes are loaded from database if empty."""
+        if not self.nodes:
+            self.load_from_db()
+
     def load_edges(self, edges: list[dict[str, Any]]) -> None:
         """Register policy edges into service for TDEC closure."""
         self.edges = edges
@@ -121,6 +153,7 @@ class PolicyRAGService:
         top_k: int = 5,
     ) -> tuple[list[AttributedPolicyEvidence], list[ExclusionDecision]]:
         """Legacy & Facade retrieval interface."""
+        self._ensure_loaded()
         if not self._retriever:
             if self.nodes:
                 self._retriever = TimeTravelPolicyRetriever(nodes=self.nodes)
@@ -171,6 +204,7 @@ class PolicyRAGService:
         else:
             tx_date = date.today()
 
+        self._ensure_loaded()
         if not self._retriever:
             if self.nodes:
                 self._retriever = TimeTravelPolicyRetriever(nodes=self.nodes)

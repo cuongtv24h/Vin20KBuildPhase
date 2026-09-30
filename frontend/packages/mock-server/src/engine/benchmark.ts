@@ -21,6 +21,32 @@ interface BenchmarkCase {
  */
 export const BENCHMARK_CASES: BenchmarkCase[] = [
   {
+    id: 'BENCH-01',
+    name: 'Căn R-02.02 (2BR) — Thanh toán Sớm 95% nhận chiết khấu 8% (Δ = 0 VNĐ)',
+    listed_price_before_tax_vnd: 4_600_000_000,
+    discount_rates: [0.08],
+    expected: {
+      discount_vnd: 368_000_000,
+      net_price_before_tax_vnd: 4_232_000_000,
+      vat_vnd: 423_200_000,
+      kpbt_vnd: 84_640_000,
+      total_contract_price_vnd: 4_739_840_000,
+    },
+  },
+  {
+    id: 'BENCH-02',
+    name: 'Căn G-02.02 (3BR) — Tiến độ chuẩn 9 đợt nhận chiết khấu 2% + Quà tặng nội thất (Δ = 0 VNĐ)',
+    listed_price_before_tax_vnd: 6_320_000_000,
+    discount_rates: [0.02],
+    expected: {
+      discount_vnd: 126_400_000,
+      net_price_before_tax_vnd: 6_193_600_000,
+      vat_vnd: 619_360_000,
+      kpbt_vnd: 123_872_000,
+      total_contract_price_vnd: 6_936_832_000,
+    },
+  },
+  {
     id: 'TC-01',
     name: 'PRD §7/§8 — Cư dân (1.5%) + Thanh toán sớm (8.5%), ZEN-A-1205',
     listed_price_before_tax_vnd: 4_200_000_000,

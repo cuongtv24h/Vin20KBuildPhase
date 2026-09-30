@@ -19,6 +19,7 @@ import type {
 } from '@pricepolicy/api-client/contracts'
 
 export const ROLE_LABEL: Record<UserRole, string> = {
+  ADMIN: 'Quản trị viên hệ thống',
   SALE: 'Chuyên viên kinh doanh',
   MANAGER: 'Quản lý kinh doanh',
   POLICY_ADMIN: 'Quản trị chính sách',
@@ -148,6 +149,7 @@ export const CONSTRAINT_LABEL: Record<keyof CustomerConstraints, string> = {
 export const PROJECT_LABEL: Record<string, string> = {
   THE_ZEN_PARK: 'The Zen Park',
   VLANDFUTURE_SAPPHIRE: 'VLandFuture Sapphire',
+  'PROJECT-VLF-001': 'VLand Future Riverside',
 }
 
 export const MISSING_FIELD_LABEL: Record<string, string> = {

@@ -237,3 +237,7 @@ reports/
 team_docs/
 dataset/
 
+# Development startup scripts
+start_dev.bat
+start_dev.ps1
+start_dev.py

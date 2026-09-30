@@ -3,12 +3,20 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ApiError } from '@pricepolicy/api-client/errors'
-import { setAuthTokenProvider } from '@pricepolicy/api-client/http'
+import { setAuthTokenProvider, setSessionInfoProvider } from '@pricepolicy/api-client/http'
 import { getAccessToken, useSessionStore } from '@/auth/sessionStore'
 import App from './App.tsx'
 import './index.css'
 
 setAuthTokenProvider(getAccessToken)
+setSessionInfoProvider(() => {
+  const session = useSessionStore.getState().session
+  if (!session) return null
+  return {
+    userId: session.user.user_id,
+    role: session.user.role,
+  }
+})
 
 /** Phiên hết hạn / bị thu hồi → xoá phiên, RequireRole đưa về /login. */
 function handleAuthError(error: unknown) {

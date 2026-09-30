@@ -64,8 +64,8 @@ export type ConflictTier = 1 | 2 | 3
 
 export type RiskFlagColor = 'RED' | 'YELLOW' | 'GREEN'
 
-/** PRD §2 — 3 persona nội bộ. Khách hàng pre-sale không đăng nhập. */
-export type UserRole = 'SALE' | 'MANAGER' | 'POLICY_ADMIN'
+/** PRD §2 — Các vai trò nội bộ (RBAC). */
+export type UserRole = 'ADMIN' | 'SALE' | 'MANAGER' | 'POLICY_ADMIN'
 
 export type PolicyStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 

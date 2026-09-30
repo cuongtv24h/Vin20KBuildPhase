@@ -20,6 +20,11 @@ interface NavItem {
 }
 
 const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
+  ADMIN: [
+    { to: '/admin_cp', label: 'Quản trị Users', icon: ShieldCheck },
+    { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
+    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
+  ],
   SALE: [
     { to: '/sale/leads', label: 'Hồ sơ khách', icon: Inbox, badgeKey: 'openLeads' },
     { to: '/sale/quotes', label: 'Báo giá', icon: FileStack },
@@ -45,6 +50,7 @@ const NO_BADGES = () => ({ openLeads: 0, managerQueue: 0 })
 
 /** Mỗi vai trò chỉ gọi endpoint mình có quyền — không bắn request 403 ở nền. */
 const BADGE_HOOK: Record<UserRole, () => Record<NonNullable<NavItem['badgeKey']>, number>> = {
+  ADMIN: NO_BADGES,
   SALE: SaleBadges,
   MANAGER: ManagerBadges,
   POLICY_ADMIN: NO_BADGES,

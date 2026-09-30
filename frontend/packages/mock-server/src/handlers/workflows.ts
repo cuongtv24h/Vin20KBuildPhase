@@ -31,6 +31,46 @@ const iso = (ms: number) => new Date(ms).toISOString()
 export const leadHandlers = [
   route('leadList', ({ db, staff }) => ({ body: listDossiers(db, staff()) })),
   route(
+    'leadCreate',
+    async ({ db, staff, now, json }) => {
+      const payload = (await json<any>()) ?? {}
+      const user = staff()
+      const dossierId = `DOS-${Date.now().toString().slice(-6)}`
+      const newDossier = {
+        dossier_id: dossierId,
+        status: 'ASSIGNED' as const,
+        temperature: payload.temperature ?? 'HOT',
+        created_at: new Date(now).toISOString(),
+        sla_due_at: new Date(now + 2 * 3600 * 1000).toISOString(),
+        assigned_sale: user ? { user_id: user.user_id, full_name: user.full_name, role: user.role } : null,
+        source_session_id: `SES-${Date.now()}`,
+        customer: {
+          full_name: payload.customer_name || 'Khách hàng mới',
+          phone: payload.customer_phone || '0900000000',
+        },
+        consent: {
+          granted_at: new Date(now).toISOString(),
+          consent_text_version: 'v1.0',
+        },
+        needs_summary: payload.needs_summary || `Nhu cầu tìm căn hộ tại dự án ${payload.project_id || 'The Zen Park'}.`,
+        constraints: {
+          own_funds_vnd: payload.own_funds_vnd ?? 1_000_000_000,
+          monthly_capacity_vnd: payload.monthly_capacity_vnd ?? 25_000_000,
+          bedrooms: payload.bedrooms ?? 2,
+          project_id: payload.project_id ?? 'THE_ZEN_PARK',
+          preferred_unit_code: payload.preferred_unit_code ?? null,
+          objective: payload.objective ?? 'MIN_NET_PRICE',
+          customer_segment: payload.customer_segment ?? 'NEW_CUSTOMER',
+        },
+        reference_plan: null,
+        converted_quote_id: null,
+      }
+      db.dossiers.unshift(newDossier)
+      return { status: 201, body: newDossier }
+    },
+    { fixedDelayMs: 100 },
+  ),
+  route(
     'leadConvert',
     async ({ db, staff, params, now, json }) => ({ status: 202, body: await convertDossier(db, staff(), params.dossier_id, await json<QuoteCreateRequest>(), now) }),
     { fixedDelayMs: 150 },

@@ -2,7 +2,7 @@ import { Loader2, LogIn, ShieldCheck } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { errorMessage } from '@pricepolicy/api-client/errors'
-import { useLogin } from '@pricepolicy/api-client/hooks'
+import { useAdminSetupStatus, useLogin } from '@pricepolicy/api-client/hooks'
 import { ROLE_AREA, ROLE_HOME, getAccessToken, useSessionStore } from '@/auth/sessionStore'
 import { Button } from '@pricepolicy/ui/components/ui/button'
 import { Input } from '@pricepolicy/ui/components/ui/input'
@@ -14,7 +14,8 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const login = useLogin()
-  const [email, setEmail] = useState('')
+  const { data: setupStatus } = useAdminSetupStatus()
+  const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
 
   if (session && getAccessToken()) {
@@ -23,7 +24,7 @@ export function LoginPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const result = await login.mutateAsync({ email, password }).catch(() => null)
+    const result = await login.mutateAsync({ email: account.trim(), password }).catch(() => null)
     if (!result) return
     setSession(result)
     const redirect = params.get('redirect')
@@ -49,19 +50,32 @@ export function LoginPage() {
       <div className="flex items-center justify-center px-4 py-10">
         <div className="w-full max-w-sm space-y-6">
           <div className="space-y-1">
-            <h1 className="font-display text-2xl font-semibold tracking-tight">Đăng nhập</h1>
+            <h1 className="font-display text-2xl font-semibold tracking-tight">Đăng nhập nội bộ</h1>
+            <p className="text-sm text-muted-foreground">Nhập tài khoản hoặc email để truy cập theo phân quyền.</p>
           </div>
+
+          {setupStatus && !setupStatus.initialized && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+              <p className="font-semibold">Hệ thống chưa có tài khoản Quản trị viên</p>
+              <p className="mt-1">
+                Lần đầu vận hành?{' '}
+                <Link to="/admin_cp" className="font-bold underline hover:text-amber-900 dark:hover:text-amber-100">
+                  Khởi tạo Quản trị viên ban đầu tại đây →
+                </Link>
+              </p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="account">Tài khoản (user) hoặc Email</Label>
               <Input
-                id="email"
-                type="email"
+                id="account"
+                type="text"
                 autoComplete="username"
-                placeholder="ten.ho@vlandfuture.vn"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                placeholder="VD: admin, sale01 hoặc email"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
                 required
               />
             </div>
@@ -71,6 +85,7 @@ export function LoginPage() {
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                placeholder="Nhập mật khẩu"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -83,9 +98,9 @@ export function LoginPage() {
             </Button>
           </form>
 
-          <Link to="/" className="block text-center text-sm text-muted-foreground hover:text-foreground">
-            ← Về trang dự án
-          </Link>
+          <a href="http://localhost:5173" className="block text-center text-sm text-muted-foreground hover:text-foreground">
+            ← Đến Cổng thông tin khách hàng (Dự án & Căn hộ)
+          </a>
         </div>
       </div>
     </div>

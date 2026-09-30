@@ -31,14 +31,17 @@ export function getAccessToken(): string | null {
 
 /** Trang chủ (entry point) của từng vai trò sau khi đăng nhập. */
 export const ROLE_HOME: Record<UserRole, string> = {
-  SALE: '/sale/leads',
+  ADMIN: '/admin_cp',
+  SALE: '/sale',
   MANAGER: '/manager/approvals',
   POLICY_ADMIN: '/admin/policies',
 }
 
 /** Tiền tố route của từng vai trò — dùng để giữ lại đường dẫn sau khi đăng nhập lại. */
 export const ROLE_AREA: Record<UserRole, string> = {
+  ADMIN: '/admin_cp',
   SALE: '/sale',
   MANAGER: '/manager',
   POLICY_ADMIN: '/admin',
 }
+

@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,9 +28,18 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=1, ge=0, le=10)
 
     # Fallback LLM 1
-    fallback_openai_api_key: str | None = None
-    fallback_openai_base_url: str | None = None
-    fallback_model_name: str | None = None
+    fallback_openai_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("fallback_openai_api_key", "fallback1_openai_api_key"),
+    )
+    fallback_openai_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("fallback_openai_base_url", "fallback1_openai_base_url"),
+    )
+    fallback_model_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("fallback_model_name", "fallback1_model_name"),
+    )
 
     # Fallback LLM 2
     fallback2_openai_api_key: str | None = None

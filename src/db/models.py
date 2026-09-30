@@ -453,3 +453,37 @@ class ComplianceCheckModel(Base):
     plan_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     can_send: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+
+
+# ==============================================================================
+# 5. USER & AUTH MODELS
+# ==============================================================================
+
+
+class UserModel(Base):
+    """Bảng người dùng nội bộ: user | password | email | phone (role phân quyền)."""
+
+    __tablename__ = "users"
+
+    user: Mapped[str] = mapped_column("user", String(64), primary_key=True)
+    password: Mapped[str] = mapped_column("password", String(64), nullable=False)
+    email: Mapped[str] = mapped_column("email", String(255), unique=True, index=True, nullable=False)
+    phone: Mapped[str | None] = mapped_column("phone", String(32), nullable=True)
+    role: Mapped[str] = mapped_column("role", String(32), default="SALE", nullable=False)
+
+    @property
+    def user_id(self) -> str:
+        return self.user
+
+    @property
+    def password_hash(self) -> str:
+        return self.password
+
+    @property
+    def full_name(self) -> str:
+        return self.user
+
+    @property
+    def is_active(self) -> bool:
+        return True
+
