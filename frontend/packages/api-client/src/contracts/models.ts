@@ -599,6 +599,23 @@ export interface LeadCreatePayload {
   needs_summary?: string
 }
 
+export interface LeadUpdatePayload {
+  customer_name?: string
+  customer_phone?: string
+  customer_segment?: CustomerSegment
+  project_id?: string
+  preferred_unit_code?: string | null
+  bedrooms?: number | null
+  own_funds_vnd?: number | null
+  monthly_capacity_vnd?: number | null
+  objective?: OptimizationObjective | null
+  lead_temperature?: LeadTemperature
+  temperature?: LeadTemperature
+  status?: LeadDossierStatus
+  needs_summary?: string
+  assigned_sales_id?: string | null
+}
+
 export interface LeadDossier {
   dossier_id: string
   status: LeadDossierStatus
@@ -613,6 +630,19 @@ export interface LeadDossier {
   constraints: CustomerConstraints
   reference_plan: ReferencePlan | null
   converted_quote_id: string | null
+
+  // Backend response & CRM extension fields
+  customer_name?: string
+  customer_phone?: string
+  customer_phone_masked?: string
+  lead_temperature?: LeadTemperature
+  unit_code?: string | null
+  preferred_unit_code?: string | null
+  segment?: CustomerSegment
+  customer_segment?: CustomerSegment
+  assigned_sales_id?: string | null
+  customer_constraints?: CustomerConstraints
+  updated_at?: string
 }
 
 // ─── Compliance (C-11 / F8) ────────────────────────────────────────────────

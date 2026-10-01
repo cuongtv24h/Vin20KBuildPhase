@@ -60,7 +60,10 @@ export const ENDPOINTS = {
 
   // Lead Dossier — C-10
   leadList: def({ method: 'GET', path: '/leads', source: 'TD-4.4', auth: ['SALE'] }),
+  leadGet: def({ method: 'GET', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
   leadCreate: def({ method: 'POST', path: '/leads', source: 'PROPOSED', auth: ['SALE'] }),
+  leadUpdate: def({ method: 'PUT', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
+  leadDelete: def({ method: 'DELETE', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
   leadConvert: def({ method: 'POST', path: '/leads/{dossier_id}/convert-to-quote', source: 'TD-4.4', auth: ['SALE'] }),
 
   // Pre-Sales — C-09 (public)

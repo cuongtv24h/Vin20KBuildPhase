@@ -16,6 +16,7 @@ import type {
   HandoffRequest,
   InitAdminPayload,
   LeadCreatePayload,
+  LeadUpdatePayload,
   LeadDossier,
   LoginRequest,
   MessageSendResult,
@@ -137,7 +138,11 @@ export const api = {
       if (res && Array.isArray(res.items)) return res.items as LeadDossier[]
       return []
     },
+    get: (dossierId: string) => call<LeadDossier>('leadGet', { dossier_id: dossierId }),
     create: (body: LeadCreatePayload, o: CommandOptions = {}) => call<LeadDossier>('leadCreate', {}, { json: body, ...o }),
+    update: (dossierId: string, body: LeadUpdatePayload, o: CommandOptions = {}) =>
+      call<LeadDossier>('leadUpdate', { dossier_id: dossierId }, { json: body, ...o }),
+    delete: (dossierId: string, o: CommandOptions = {}) => call<{ deleted: boolean }>('leadDelete', { dossier_id: dossierId }, o),
     convertToQuote: (dossierId: string, body: QuoteCreateRequest, o: CommandOptions = {}) =>
       call<QuoteAccepted>('leadConvert', { dossier_id: dossierId }, { json: body, ...o }),
   },

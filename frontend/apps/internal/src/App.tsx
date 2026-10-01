@@ -20,6 +20,8 @@ const LeadInboxPage = page(() => import('@/features/sale/LeadInboxPage'), 'LeadI
 const QuoteFormPage = page(() => import('@/features/sale/QuoteFormPage'), 'QuoteFormPage')
 const SaleQuotesPage = page(() => import('@/features/sale/SaleQuotesPage'), 'SaleQuotesPage')
 const SaleQuoteDetailPage = page(() => import('@/features/sale/SaleQuoteDetailPage'), 'SaleQuoteDetailPage')
+const SaleMessagesPage = page(() => import('@/features/sale/SaleMessagesPage'), 'SaleMessagesPage')
+const SalePoliciesPage = page(() => import('@/features/sale/SalePoliciesPage'), 'SalePoliciesPage')
 const ApprovalQueuePage = page(() => import('@/features/manager/ApprovalQueuePage'), 'ApprovalQueuePage')
 const ApprovalWorkspacePage = page(() => import('@/features/manager/ApprovalWorkspacePage'), 'ApprovalWorkspacePage')
 const PolicyListPage = page(() => import('@/features/admin/PolicyListPage'), 'PolicyListPage')
@@ -90,24 +92,17 @@ function App() {
             <Route index element={<AdminCpPage />} />
           </Route>
 
-          {/* Nhân viên kinh doanh (Mặc định vào Sales Agent Workspace SCR-S00) */}
-          <Route
-            path="sale"
-            element={
-              <RequireRole role="SALE">
-                <Outlet />
-              </RequireRole>
-            }
-          >
-            <Route index element={<SalesWorkspacePage />} />
+          {/* Nhân viên kinh doanh */}
+          <Route path="sale" element={<StaffArea role="SALE" />}>
+            <Route index element={<Navigate to="workspace" replace />} />
             <Route path="workspace" element={<SalesWorkspacePage />} />
-            <Route element={<StaffLayout />}>
-              <Route path="leads" element={<LeadInboxPage />} />
-              <Route path="quotes" element={<SaleQuotesPage />} />
-              <Route path="quotes/new" element={<QuoteFormPage />} />
-              <Route path="quotes/:quoteId" element={<SaleQuoteDetailPage />} />
-              <Route path="quotes/:quoteId/revise" element={<QuoteFormPage />} />
-            </Route>
+            <Route path="leads" element={<LeadInboxPage />} />
+            <Route path="quotes" element={<SaleQuotesPage />} />
+            <Route path="quotes/new" element={<QuoteFormPage />} />
+            <Route path="quotes/:quoteId" element={<SaleQuoteDetailPage />} />
+            <Route path="quotes/:quoteId/revise" element={<QuoteFormPage />} />
+            <Route path="messages" element={<SaleMessagesPage />} />
+            <Route path="policies" element={<SalePoliciesPage />} />
           </Route>
 
           {/* Quản lý kinh doanh duyệt báo giá */}

@@ -81,7 +81,7 @@ export function QuoteFormPage() {
       unit_code: lead.data.reference_plan?.scenarios[0]?.unit_code ?? lead.data.constraints.preferred_unit_code ?? '',
     }
   }
-  return <QuoteForm key={quoteId ?? dossierId ?? 'new'} initial={initial} backTo={dossierId ? `/sale/leads?id=${dossierId}` : quoteId ? `/sale/quotes/${quoteId}` : '/sale/quotes'} />
+  return <QuoteForm key={quoteId ?? dossierId ?? 'new'} initial={initial} backTo={dossierId ? `/sale?id=${dossierId}` : quoteId ? `/sale/quotes/${quoteId}` : '/sale/quotes'} />
 }
 
 function QuoteForm({ initial, backTo }: { initial: FormState; backTo: string }) {

@@ -269,3 +269,62 @@ class PreSalesDossierService:
         dossier.quote_id = quote_id
         await db.flush()
         return dossier
+
+    async def get_dossier(
+        self, db: AsyncSession, dossier_id: str
+    ) -> LeadDossierModel:
+        dossier = (
+            await db.execute(
+                select(LeadDossierModel)
+                .options(selectinload(LeadDossierModel.session))
+                .where(LeadDossierModel.dossier_id == dossier_id)
+            )
+        ).scalars().first()
+        if dossier is None:
+            raise DomainError(
+                ErrorCode.NOT_FOUND,
+                f"Lead dossier '{dossier_id}' không tồn tại.",
+                details={"dossier_id": dossier_id},
+            )
+        return dossier
+
+    async def update_dossier(
+        self,
+        db: AsyncSession,
+        dossier_id: str,
+        customer_name: str | None = None,
+        customer_phone: str | None = None,
+        lead_temperature: str | None = None,
+        status: str | None = None,
+        assigned_sales_id: str | None = None,
+        constraints: dict[str, Any] | None = None,
+    ) -> LeadDossierModel:
+        dossier = await self.get_dossier(db, dossier_id)
+        if customer_name is not None and customer_name.strip():
+            dossier.customer_name = customer_name.strip()
+        if customer_phone is not None and customer_phone.strip():
+            dossier.customer_phone_masked = mask_phone(customer_phone.strip())
+        if lead_temperature is not None and lead_temperature.strip():
+            dossier.lead_temperature = lead_temperature.strip().upper()
+        if status is not None and status.strip():
+            dossier.status = status.strip().upper()
+        if assigned_sales_id is not None:
+            dossier.assigned_sales_id = assigned_sales_id.strip() if assigned_sales_id else None
+
+        if constraints is not None:
+            session = dossier.session
+            if session:
+                curr_c = dict(session.constraints_json or {})
+                curr_c.update(constraints)
+                session.constraints_json = curr_c
+
+        await db.flush()
+        return dossier
+
+    async def delete_dossier(
+        self, db: AsyncSession, dossier_id: str
+    ) -> bool:
+        dossier = await self.get_dossier(db, dossier_id)
+        await db.delete(dossier)
+        await db.flush()
+        return True

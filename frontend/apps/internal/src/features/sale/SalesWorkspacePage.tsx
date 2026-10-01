@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Inbox,
   FileStack,
@@ -20,6 +20,7 @@ import {
   Clock,
   ExternalLink,
   ShieldCheck,
+  Sparkles,
   Layers,
   RefreshCw,
   LogOut,
@@ -696,22 +697,28 @@ export function SalesWorkspacePage() {
     needs_summary: '',
   })
 
-  // Active Rail Navigation & Artifact Panel Tabs
-  const [activeRail, setActiveRail] = useState<'home' | 'khach' | 'baogia' | 'tinnhan' | 'chinhsach'>('home')
+  // Artifact Panel Tabs & Views
   const [activeTab, setActiveTab] = useState<'hoso' | 'baogia' | 'tinnhan' | 'chinhsach'>('hoso')
   const [panelView, setPanelView] = useState<'leads' | 'dossier' | 'pipeline' | 'quote_comparison' | 'messages' | 'policies'>('leads')
 
-  // Selected entities
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
-  // Không gán mặc định khách hàng đầu tiên — Copilot tự bắt ngữ cảnh từ hội thoại
+  // Selected entities & Context Chip
+  const [searchParams] = useSearchParams()
+  const initialParamLeadId = searchParams.get('id') || searchParams.get('lead')
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(initialParamLeadId)
+  const [contextLeadId, setContextLeadId] = useState<string>(initialParamLeadId || 'auto')
+
+  useEffect(() => {
+    if (initialParamLeadId) {
+      setSelectedLeadId(initialParamLeadId)
+      setContextLeadId(initialParamLeadId)
+    }
+  }, [initialParamLeadId])
+
+  // Không gán mặc định khách hàng đầu tiên — Copilot tự bắt ngữ cảnh từ hội thoại hoặc URL
   const selectedLead = useMemo(() => {
     if (!selectedLeadId) return null
     return leads.find((l) => l.dossier_id === selectedLeadId) ?? null
   }, [leads, selectedLeadId])
-
-
-  // Context Chip
-  const [contextLeadId, setContextLeadId] = useState<string>('auto')
 
   // Artifact panel: mặc định thu gọn, chỉ mở khi có ngữ cảnh (KPI/hành động từ Copilot)
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false)
@@ -1238,19 +1245,16 @@ export function SalesWorkspacePage() {
       setInputVal('/tim-khach ')
       inputTextAreaRef.current?.focus()
     } else if (cmd === '/khach-hang') {
-      setActiveRail('khach')
       setActiveTab('hoso')
       setPanelView('leads')
       setIsMobilePanelOpen(true)
     } else if (cmd === '/baogia') {
-      setActiveRail('baogia')
       setActiveTab('baogia')
       setPanelView('pipeline')
       setIsMobilePanelOpen(true)
     } else if (cmd === '/soan-tin') {
       startCopilotDrafting()
     } else if (cmd === '/chinh-sach') {
-      setActiveRail('chinhsach')
       setActiveTab('chinhsach')
       setPanelView('policies')
       setIsMobilePanelOpen(true)
@@ -1280,197 +1284,39 @@ export function SalesWorkspacePage() {
   }, [leads])
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground antialiased font-sans">
-      {/* ================= 1. HEADER (tối giản) ================= */}
-      <header className="z-40 flex h-14 shrink-0 items-center justify-between border-b border-border bg-primary px-4 text-primary-foreground shadow-xs">
+    <div className="flex h-full w-full flex-1 flex-col overflow-hidden bg-background text-foreground antialiased font-sans">
+      {/* ================= 1. WORKSPACE HEADER ================= */}
+      <header className="z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4 text-foreground shadow-xs">
         <div className="flex items-center gap-2.5">
-          <Link to="/sale" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-foreground/15 shadow-inner">
-              <ShieldCheck className="h-5 w-5 text-primary-foreground" />
-            </span>
-            <span className="font-display text-sm font-semibold tracking-wide">PricePolicy Workspace</span>
-          </Link>
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <div>
+            <span className="font-display text-xs font-bold tracking-wide">Trợ lý Copilot AI</span>
+            <span className="ml-2 text-[11px] text-muted-foreground hidden sm:inline">VLand Future Riverside</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden text-right leading-tight sm:block">
-            <span className="block text-xs font-semibold">{session?.user.full_name || 'Hải Nguyễn'}</span>
-            <span className="block text-[10px] text-primary-foreground/70">
-              {ROLE_LABEL[session?.user.role || 'SALE']} · {session?.user.email}
-            </span>
-          </div>
-
-          <div className="grid h-8 w-8 place-items-center rounded-full bg-gold font-display text-xs font-bold text-gold-foreground shadow-xs">
-            {session?.user.full_name ? session.user.full_name.slice(0, 2).toUpperCase() : 'HN'}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              clearSession()
-              navigate('/login')
-            }}
-            className="rounded-md p-1.5 text-primary-foreground/70 hover:bg-primary-foreground/10 hover:text-primary-foreground"
-            title="Đăng xuất"
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
+            🟢 Online · FCS v2.6
+          </Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate('/sale/leads')}
+            className="h-7 text-xs gap-1 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground"
           >
-            <LogOut className="h-4 w-4" />
-          </button>
+            <Users className="h-3 w-3" />
+            Mở CRM Khách hàng
+          </Button>
         </div>
       </header>
 
-      {/* ================= 2. 3-REGION WORKSPACE ================= */}
+      {/* ================= 2. WORKSPACE CONVERSATION & PANEL ================= */}
       <div className="flex min-h-0 flex-1">
-        {/* ----- REGION A: RAIL (64px) ----- */}
-        <nav className="flex w-16 shrink-0 flex-col items-center gap-1.5 border-r border-border bg-card py-3 shadow-xs select-none">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('home')
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `home-${Date.now()}`,
-                  type: 'agent',
-                  time: new Date().toTimeString().slice(0, 5),
-                  text: `Hôm nay anh đang quản lý **${leads.length} hồ sơ khách**, **${kanbanGroups.review.length} báo giá chờ phê duyệt**. Bấm vào bất kỳ mục nào trên panel để tra cứu chi tiết nhé.`,
-                },
-              ])
-              scrollChatToEnd()
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'home'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Tổng quan Workspace"
-          >
-            <Home className="h-5 w-5" />
-            <span className="mt-0.5">Tổng quan</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('khach')
-              setActiveTab('hoso')
-              setPanelView('leads')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'khach'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Hồ sơ khách hàng"
-          >
-            <Users className="h-5 w-5" />
-            <span className="mt-0.5">Khách</span>
-            {leads.length > 0 && (
-              <span className="absolute top-1 right-1 grid h-4 min-w-[16px] place-items-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
-                {leads.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('baogia')
-              setActiveTab('baogia')
-              setPanelView('pipeline')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'baogia'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Quản lý báo giá"
-          >
-            <FileStack className="h-5 w-5" />
-            <span className="mt-0.5">Báo giá</span>
-            {kanbanGroups.draft.length + kanbanGroups.review.length > 0 && (
-              <span className="absolute top-1 right-1 grid h-4 min-w-[16px] place-items-center rounded-full bg-muted-foreground/30 px-1 text-[9px] font-bold text-foreground">
-                {kanbanGroups.draft.length + kanbanGroups.review.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('tinnhan')
-              setActiveTab('tinnhan')
-              setPanelView('messages')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'tinnhan'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Soạn tin & Tuân thủ F8"
-          >
-            <MessageSquare className="h-5 w-5" />
-            <span className="mt-0.5">Tin nhắn</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('chinhsach')
-              setActiveTab('chinhsach')
-              setPanelView('policies')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'chinhsach'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Chính sách bán hàng (chỉ đọc)"
-          >
-            <ScrollText className="h-5 w-5" />
-            <span className="mt-0.5">Chính sách</span>
-          </button>
-
-          <div className="flex-1" />
-
-          <button
-            type="button"
-            onClick={() => navigate('/sale/leads')}
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Xem dạng bảng"
-          >
-            <Layers className="h-4 w-4" />
-          </button>
-        </nav>
-
-        {/* ----- REGION B: AGENT CONVERSATION (MAIN) ----- */}
+        {/* ----- AGENT CONVERSATION (MAIN) ----- */}
         <section className="flex min-w-0 flex-1 flex-col bg-background">
-          {/* Conversation Subheader (compact) */}
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4 py-2">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <ShieldCheck className="h-4 w-4" />
-              </span>
-              <div>
-                <span className="font-semibold text-xs text-foreground">Trợ lý Phân tích Bán hàng</span>
-                <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Sẵn sàng tư vấn
-                </span>
-              </div>
-            </div>
-            <Badge variant="outline" className="hidden font-mono text-[10.5px] sm:inline-flex">
-              FCS v2.6
-            </Badge>
-          </div>
           {/* Chat Stream Messages */}
           <div className="flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth">
             {messages.map((m) => {
@@ -1534,7 +1380,6 @@ export function SalesWorkspacePage() {
                         <button
                           type="button"
                           onClick={() => {
-                            setActiveRail('baogia')
                             setActiveTab('baogia')
                             setPanelView('pipeline')
                             setIsMobilePanelOpen(true)
@@ -1560,7 +1405,6 @@ export function SalesWorkspacePage() {
                         <button
                           type="button"
                           onClick={() => {
-                            setActiveRail('baogia')
                             setActiveTab('baogia')
                             setPanelView('pipeline')
                             setIsMobilePanelOpen(true)
@@ -1587,7 +1431,6 @@ export function SalesWorkspacePage() {
                           type="button"
                           onClick={() => {
                             setSelectedLeadId(urgentLeads[0].dossier_id)
-                            setActiveRail('khach')
                             setActiveTab('hoso')
                             setPanelView('dossier')
                             setIsMobilePanelOpen(true)
