@@ -267,17 +267,27 @@ function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) =
 
 // ---------------------------------------------------------------------------
 // Inline Parsing (Bold, Italic, Code, Slash Commands, Highlights)
-// ---------------------------------------------------------------------------
+// Danh sách các lệnh tắt chính thức được phép hiển thị dạng nút bấm
+const KNOWN_SLASH_COMMANDS = new Set([
+  '/tao-khach',
+  '/tim-khach',
+  '/khach-hang',
+  '/baogia',
+  '/chinh-sach',
+  '/tinh-lai',
+  '/soan-tin',
+])
 
 function renderInlineText(text: string, onCommandClick?: (cmd: string) => void): ReactNode {
   if (!text) return null
 
   // Regex nhận diện các thành phần inline:
-  // 1. Slash command: /\/[a-z0-9\-_]+/gi
-  // 2. Bold: \*\*(.*?)\*\*
-  // 3. Italic: \*(.*?)\*
-  // 4. Inline code: `(.*?)`
-  const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\/(?:tao-khach|tim-khach|khach-hang|baogia|chinh-sach|tinh-lai|soan-tin|[a-z0-9\-_]+))/g
+  // 1. Bold: \*\*(.*?)\*\*
+  // 2. Italic: \*(.*?)\*
+  // 3. Inline code: `(.*?)`
+  // 4. Lệnh tắt chính thức: chỉ bắt khi đứng độc lập (có khoảng trắng hoặc đầu dòng phía trước),
+  //    TUYỆT ĐỐI không bắt các từ tiếng Việt chứa dấu gạch chéo thông thường như 'anh/chị', 'm2/tháng', 'và/hoặc'
+  const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|(?<=^|\s)\/(?:tao-khach|tim-khach|khach-hang|baogia|chinh-sach|tinh-lai|soan-tin)(?=\s|[.,;!?)]|$))/g
 
   const parts = text.split(tokenRegex)
 
@@ -314,8 +324,8 @@ function renderInlineText(text: string, onCommandClick?: (cmd: string) => void):
       )
     }
 
-    // Slash command pill (/tao-khach, /baogia...)
-    if (part.startsWith('/') && /^\/[a-z0-9\-_]+$/i.test(part)) {
+    // Slash command pill (chỉ áp dụng cho lệnh hệ thống hợp lệ)
+    if (part.startsWith('/') && KNOWN_SLASH_COMMANDS.has(part.toLowerCase())) {
       return (
         <button
           key={index}
