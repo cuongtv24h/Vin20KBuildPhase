@@ -852,3 +852,8 @@ Sau đó vào **Quản trị → Nhà cung cấp LLM**, mở nhà cung cấp, **
 10. **"Test kết nối" với nhà cung cấp LLM thật**: đã sửa đúng nguyên nhân (UA mặc định bị Cloudflare chặn + chỉ thử `/models`)
    và khoá lại bằng test với server giả (§14), nhưng **chưa gọi được nhà cung cấp thật của Admin từ sandbox**. Cần bấm
    Test kết nối trên VM xác nhận: nếu xanh là xong; nếu còn đỏ, câu chẩn đoán mới sẽ nói rõ phải kiểm tra gì.
+11. **"Test kết nối" mới kiểm tra từng nhà cung cấp riêng lẻ**, chưa có nút mô phỏng cả chuỗi dự phòng
+    (chủ động làm nhà cung cấp chính lỗi để xem có tự chuyển sang nhà cung cấp kế tiếp không). Cơ chế
+    chuyển tiếp đã được chứng minh bằng test gọi thật (§14.6), nhưng một nút "Test cả chuỗi" trong màn hình
+    quản trị sẽ giúp Admin tự tin trước khi sự cố thật xảy ra — nên làm cùng lúc với việc hiển thị số lần
+    phải chuyển tiếp lên tab Chi phí & hiệu năng.
