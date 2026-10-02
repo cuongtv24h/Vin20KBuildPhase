@@ -88,6 +88,10 @@ export const ENDPOINTS = {
 
   // Evaluation
   benchmarkRun: def({ method: 'POST', path: '/evaluation/benchmark-runs', source: 'TD-4.4', auth: ['POLICY_ADMIN'] }),
+
+  // Sales Copilot (SCR-S00) — ReAct agent + streaming tiến trình suy luận
+  copilotChat: def({ method: 'POST', path: '/copilot/chat', source: 'PROPOSED', auth: 'staff' }),
+  copilotChatStream: def({ method: 'POST', path: '/copilot/chat/stream', source: 'PROPOSED', auth: 'staff' }),
 } as const
 
 export type EndpointName = keyof typeof ENDPOINTS

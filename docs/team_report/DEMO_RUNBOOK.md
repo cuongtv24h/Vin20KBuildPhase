@@ -21,7 +21,7 @@ bash scripts/demo_reset.sh
 
 # 3. Kiểm tra sức khỏe bộ test trước khi diễn tập
 py -3 -m pytest tests/ -q --no-header
-# Kỳ vọng: 71 passed (11 contracts + db + spike + pricing + api 8 + agents 39 + 6 E2E + 7 failure)
+# Kỳ vọng: 477 passed (đã gồm 34 test Copilot + eval harness; xem README §6)
 ```
 
 ---

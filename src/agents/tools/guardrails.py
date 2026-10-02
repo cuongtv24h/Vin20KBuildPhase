@@ -65,6 +65,19 @@ _INJECTION_PATTERNS: list[tuple[str, str, str]] = [
         "SQLI_PATTERN",
         "Potential SQL injection pattern in user input notes",
     ),
+    # Bổ sung khi rà soát 2026-10-02: 2 nhóm jailbreak chưa được phủ.
+    (
+        r"((cho|đưa|cung cấp|gửi|xin)\s+((tôi|mình|em)\s+)?(xem\s+)?(api[\s\-_]?key|mật\s*khẩu|password|token|secret|thông\s*tin\s*đăng\s*nhập|credential))"
+        r"|((give|show|tell|reveal|provide|send)\s+(me\s+)?(the\s+)?(api[\s\-_]?key|password|credentials?|secret|token))",
+        "CREDENTIAL_EXTRACTION",
+        "Yêu cầu lấy API key / mật khẩu / token — không bao giờ được cung cấp",
+    ),
+    (
+        r"(đóng vai|hãy là|bây giờ bạn là|giả làm)\s+(một\s+)?(ai|trợ\s*lý|chatbot|mô\s*hình)?\s*"
+        r"(không\s+bị\s+(ràng\s*buộc|giới\s*hạn)|vô\s+hạn\s+chế|unrestricted|tự\s+do\s+tuyệt\s+đối)",
+        "JAILBREAK_UNRESTRICTED_VI",
+        "Ép mô hình đóng vai không còn ràng buộc an toàn",
+    ),
 ]
 
 
@@ -115,7 +128,16 @@ def scan_prompt_injection(prompt: str) -> GuardrailScanResult:
         return GuardrailScanResult(is_safe=True, risk_level="SAFE")
 
     # Determine risk level
-    if any(k in detected for k in ["DELIMITER_INJECTION", "JAILBREAK_ROLEPLAY", "INSTRUCTION_OVERRIDE_VI"]):
+    if any(
+        k in detected
+        for k in [
+            "DELIMITER_INJECTION",
+            "JAILBREAK_ROLEPLAY",
+            "INSTRUCTION_OVERRIDE_VI",
+            "CREDENTIAL_EXTRACTION",
+            "JAILBREAK_UNRESTRICTED_VI",
+        ]
+    ):
         risk = "CRITICAL"
     else:
         risk = "HIGH"

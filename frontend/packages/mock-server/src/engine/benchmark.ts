@@ -10,7 +10,7 @@ interface BenchmarkCase {
 }
 
 /**
- * Formula Regression Benchmark Suite — 15 test cases cố định (input/expected-output
+ * Formula Regression Benchmark Suite — 17 test cases cố định (input/expected-output
  * khoá cứng trong code, không tự sinh ngẫu nhiên — theo đúng yêu cầu OP-02/MVP-05).
  *
  * TC-01 tái sử dụng nguyên số liệu minh hoạ tại PRD §7/§8 (căn ZEN-A-1205, chiết khấu
@@ -245,7 +245,7 @@ export const BENCHMARK_CASES: BenchmarkCase[] = [
 
 const FIELDS: (keyof BenchmarkAmounts)[] = ['discount_vnd', 'net_price_before_tax_vnd', 'vat_vnd', 'kpbt_vnd', 'total_contract_price_vnd']
 
-/** Chạy 15 golden case — so khớp tuyệt đối từng trường (Δ = 0 VNĐ). */
+/** Chạy 17 golden case — so khớp tuyệt đối từng trường (Δ = 0 VNĐ). */
 export function runBenchmark(runId: string, startedAt: string, finishedAt: string): BenchmarkRun {
   const cases: BenchmarkCaseResult[] = BENCHMARK_CASES.map((c) => {
     const { total_discount_rate: _rate, ...actual } = calculateAmounts(c.listed_price_before_tax_vnd, c.discount_rates)

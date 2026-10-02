@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Inbox,
   FileStack,
@@ -18,28 +18,26 @@ import {
   AlertTriangle,
   Copy,
   Clock,
-  ExternalLink,
   ShieldCheck,
   Sparkles,
   Layers,
   RefreshCw,
-  LogOut,
   X,
   Search,
   ChevronRight,
 } from 'lucide-react'
 
 // Hooks & Store
+import { useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '@/auth/sessionStore'
-import { useLeads, useCreateLead, useQuotes, usePolicies, useProjectOverviews } from '@pricepolicy/api-client/hooks'
+import { api } from '@pricepolicy/api-client/client'
+import { useLeads, useCreateLead, useQuotes, usePolicies, useProjectOverviews, useCopilotTurn } from '@pricepolicy/api-client/hooks'
 import type {
   LeadDossier,
   LeadCreatePayload,
-  Quote,
-  PolicyDocument,
-  CustomerSegment,
-  OptimizationObjective,
-  LeadTemperature,
+  CopilotCitation,
+  CopilotFinalPayload,
+  CopilotReasoningStep,
 } from '@pricepolicy/api-client/contracts'
 
 // Design System Components from @pricepolicy/ui
@@ -56,14 +54,16 @@ import {
   TemperatureBadge,
   QuoteStatusBadge,
   PolicyStatusBadge,
-  ComplianceBadge,
 } from '@pricepolicy/ui/components/common/StatusBadge'
 import { MoneyText } from '@pricepolicy/ui/components/common/MoneyText'
-import { EmptyState, LoadingState } from '@pricepolicy/ui/components/common/PageStates'
+import { EmptyState, ErrorState, LoadingState, QueryState } from '@pricepolicy/ui/components/common/PageStates'
 import { FormattedAiMessage } from '@pricepolicy/ui/components/common/FormattedAiMessage'
-import { API_BASE_URL } from '@pricepolicy/api-client/config'
+import { CitationChips, ReasoningTrace } from '@pricepolicy/ui/components/common/ReasoningTrace'
+import { SlashCommandPalette } from '@pricepolicy/ui/components/common/SlashCommandPalette'
+import { filterCommands, type SlashCommand } from '@pricepolicy/ui/lib/slashCommands'
+import { CopilotContextChips } from '@pricepolicy/ui/components/common/CopilotContextChips'
 import { formatVnd } from '@pricepolicy/ui/lib/format'
-import { DOSSIER_STATUS_LABEL, OBJECTIVE_LABEL, ROLE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
+import { OBJECTIVE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
 import { cn } from '@pricepolicy/ui/lib/utils'
 
 // --- EVIDENCE KNOWLEDGE BASE ---
@@ -72,6 +72,10 @@ interface LegalEvidence {
   p: string
   e: string
   h: string
+  /** Điều/khoản đầy đủ (nếu có) — hiển thị riêng để Sale đối chiếu nhanh. */
+  clause?: string
+  /** Hash tài liệu đầy đủ — dùng cho nút sao chép đối soát. */
+  hash?: string
 }
 
 const EVIDENCE_DB: Record<number, LegalEvidence> = {
@@ -211,6 +215,7 @@ type StreamItemType =
   | 'smart_scenario_compare'
   | 'smart_units_browse'
   | 'smart_compose_message'
+  | 'reasoning'
 
 interface StreamItem {
   id: string
@@ -667,12 +672,12 @@ function SmartComposeMessageCard({
 
 export function SalesWorkspacePage() {
   const session = useSessionStore((s) => s.session)
-  const clearSession = useSessionStore((s) => s.clearSession)
   const navigate = useNavigate()
 
   // Real backend queries
   const leadsQuery = useLeads()
   const createLeadMutation = useCreateLead()
+  const queryClient = useQueryClient()
   const quotesQuery = useQuotes({}, { live: true })
   const policiesQuery = usePolicies()
   const projectsQuery = useProjectOverviews()
@@ -720,8 +725,28 @@ export function SalesWorkspacePage() {
     return leads.find((l) => l.dossier_id === selectedLeadId) ?? null
   }, [leads, selectedLeadId])
 
+  // Ngữ cảnh Copilot: chip cho Sale kiểm tra/sửa trước khi gửi (D2)
+  const [copilotUnit, setCopilotUnit] = useState<string | null>(null)
+  const [copilotTxDate, setCopilotTxDate] = useState<string | null>('2026-09-26')
+  // Lệnh gạch chéo dùng gần đây (D1) — lưu cục bộ, không gửi lên server
+  const [recentCommands, setRecentCommands] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('copilot.recentSlash')
+      return raw ? (JSON.parse(raw) as string[]) : []
+    } catch {
+      return []
+    }
+  })
+  // Câu bị lỗi để Sale bấm "Thử lại" (C4) — chạy lại đúng câu + đúng ngữ cảnh cũ
+  const [failedTurn, setFailedTurn] = useState<{ text: string; context: Record<string, string | null> } | null>(null)
+
   // Artifact panel: mặc định thu gọn, chỉ mở khi có ngữ cảnh (KPI/hành động từ Copilot)
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false)
+
+  useEffect(() => {
+    const preferred = selectedLead?.constraints?.preferred_unit_code ?? null
+    setCopilotUnit(preferred)
+  }, [selectedLead?.dossier_id, selectedLead?.constraints?.preferred_unit_code])
 
   // Chat Stream State
   const [messages, setMessages] = useState<StreamItem[]>([])
@@ -733,15 +758,32 @@ export function SalesWorkspacePage() {
   const [undoSeconds, setUndoSeconds] = useState(8)
   const [undoActive, setUndoActive] = useState(false)
   const [undoQuoteCode, setUndoQuoteCode] = useState('Q-00092 V1')
+  const [undoQuoteVersion, setUndoQuoteVersion] = useState(1)
 
   // Evidence Modal State
   const [evidenceId, setEvidenceId] = useState<number | null>(null)
+  /** Căn cứ động do Copilot trả về (citation) — mở cùng modal với EVIDENCE_DB tĩnh. */
+  const [evidenceDetail, setEvidenceDetail] = useState<LegalEvidence | null>(null)
+
+  // Copilot ReAct stream: lịch sử rút gọn gửi kèm để LLM giữ mạch hội thoại
+  const copilotHistory = useMemo(
+    () =>
+      messages
+        .filter((m) => (m.type === 'user' || m.type === 'agent') && (m.text || '').trim())
+        .slice(-6)
+        .map((m) => ({ role: m.type === 'user' ? ('user' as const) : ('assistant' as const), content: m.text || '' })),
+    [messages],
+  )
+  const copilot = useCopilotTurn(copilotHistory)
+  const reasoningMsgIdRef = useRef<string | null>(null)
+  const appliedFinalRef = useRef<CopilotFinalPayload | null>(null)
+
 
   // Copilot Composer State
   const [draftContent, setDraftContent] = useState(
     'Dạ em chào anh An, em gửi anh phương án báo giá chuẩn căn R-02.02 ạ [2]. Khách hàng chọn thanh toán sớm 95% nhận chiết khấu 8% [1]. Anh quét mã QR trên báo giá để đối soát pháp lý nhé!'
   )
-  const [draftAnchors, setDraftAnchors] = useState<number[]>([2, 1])
+  const [draftAnchors] = useState<number[]>([2, 1])
   const [complianceResult, setComplianceResult] = useState<ComplianceCheckState>(runLocalComplianceCheck(draftContent))
   const [isCheckingCompliance, setIsCheckingCompliance] = useState(false)
   const complianceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -812,6 +854,153 @@ export function SalesWorkspacePage() {
     scrollChatToEnd()
   }, [])
 
+  // ===== COPILOT REACT STREAM → CHAT STREAM =====
+  // Đồng bộ tiến trình suy luận thật (thought/action/observation) vào bong bóng "reasoning",
+  // rồi khi có `final` mới chèn câu trả lời + Smart Card + citation. Không còn stepper giả.
+  const citationToEvidence = (citation: CopilotCitation): LegalEvidence => ({
+    q: citation.quote || 'Chưa có trích dẫn nguyên văn cho căn cứ này.',
+    p: `${citation.policy_id}${citation.section ? ` — ${citation.section}` : ''}${
+      citation.policy_title ? ` (${citation.policy_title})` : ''
+    }`,
+    e:
+      citation.effective_from || citation.effective_to
+        ? `${citation.effective_from ?? '?'} → ${citation.effective_to ?? '?'}`
+        : citation.source || 'Nguồn hệ thống',
+    h: citation.document_hash ? `${citation.document_hash.slice(0, 12)}…` : citation.clause_id || citation.source || '—',
+    clause: citation.clause_id || undefined,
+    hash: citation.document_hash || undefined,
+  })
+
+  useEffect(() => {
+    if (copilot.error && copilot.lastMessage) {
+      setFailedTurn({ text: copilot.lastMessage, context: (copilot.lastContext ?? {}) as Record<string, string | null> })
+    }
+  }, [copilot.error, copilot.lastMessage, copilot.lastContext])
+
+  useEffect(() => {
+    const msgId = reasoningMsgIdRef.current
+    if (!msgId) return
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              data: {
+                ...m.data,
+                steps: copilot.steps,
+                streaming: copilot.streaming,
+                degraded: copilot.degraded,
+                error: copilot.error,
+              },
+            }
+          : m,
+      ),
+    )
+  }, [copilot.steps, copilot.streaming, copilot.degraded, copilot.error])
+
+  useEffect(() => {
+    const final = copilot.final
+    const msgId = reasoningMsgIdRef.current
+    if (!final || !msgId || appliedFinalRef.current === final) return
+    appliedFinalRef.current = final
+
+    const time = new Date().toTimeString().slice(0, 5)
+    setMessages((prev) => {
+      const list = prev.map((m) =>
+        m.id === msgId ? { ...m, data: { ...m.data, streaming: false, steps: copilot.steps } } : m,
+      )
+      list.push({
+        id: `agent-${Date.now()}`,
+        type: 'agent',
+        time,
+        text: final.reply,
+        suggested_actions: final.suggested_actions,
+        data: { citations: final.citations ?? [], grounded: final.grounded, mode: final.mode },
+      })
+      if (final.action_type) {
+        list.push({
+          id: `card-${Date.now()}`,
+          type: final.action_type as StreamItemType,
+          time,
+          data: final.action_data || {},
+        })
+      }
+      return list
+    })
+    if (!final.grounded && final.mode !== 'react') {
+      showToast('Câu trả lời chưa đối chiếu được dữ liệu — anh kiểm tra lại giúp em')
+    }
+    scrollChatToEnd()
+  }, [copilot.final, copilot.steps])
+
+  /**
+   * Nudge THẬT: khi danh sách báo giá (polling/SSE) cho thấy có hồ sơ cần Sale xử lý
+   * (bị yêu cầu sửa / bị từ chối), chèn nhắc việc kèm lý do thật của quản lý.
+   * Trước đây chỗ này là `setTimeout` bịa "Mr. Hùng đang xem Q-00092".
+   */
+  const nudgedQuotesRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const needsAction = quotes.find((q) => q.status === 'NEEDS_REVISION' || q.status === 'REJECTED')
+    if (!needsAction) return
+    const key = `${needsAction.quote_id}#${needsAction.quote_version}#${needsAction.status}`
+    if (nudgedQuotesRef.current.has(key)) return
+    nudgedQuotesRef.current.add(key)
+    const reason = needsAction.approval?.reason
+    const decidedBy = needsAction.approval?.decided_by?.full_name
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `nudge-${key}`,
+        type: 'nudge',
+        time: new Date().toTimeString().slice(0, 5),
+        data: {
+          title: `Báo giá ${needsAction.quote_id} V${needsAction.quote_version} ${needsAction.status === 'REJECTED' ? 'bị từ chối' : 'cần chỉnh sửa'}`,
+          sub:
+            (decidedBy ? `${decidedBy}: ` : '') +
+            (reason || 'Mở tab Báo giá để xem chi tiết và xử lý.'),
+        },
+      },
+    ])
+    scrollChatToEnd()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes])
+
+  /**
+   * Nudge chủ động theo SLA hồ sơ (P2): còn ≤ 10 phút tới hạn phản hồi thì nhắc trong khung chat.
+   * Chạy lại mỗi phút; mỗi hồ sơ chỉ nhắc một lần cho mỗi mốc hạn (kể cả khi Sale đổi mốc SLA).
+   */
+  const slaNudgedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const check = () => {
+      const now = Date.now()
+      const urgent = leads.find((l) => {
+        if (!l.sla_due_at) return false
+        const remaining = new Date(l.sla_due_at).getTime() - now
+        if (remaining <= 0 || remaining > 10 * 60_000) return false
+        return !slaNudgedRef.current.has(`${l.dossier_id}#${l.sla_due_at}`)
+      })
+      if (!urgent) return
+      slaNudgedRef.current.add(`${urgent.dossier_id}#${urgent.sla_due_at}`)
+      const minutes = Math.max(1, Math.round((new Date(urgent.sla_due_at).getTime() - now) / 60_000))
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `sla-nudge-${urgent.dossier_id}-${urgent.sla_due_at}`,
+          type: 'nudge',
+          time: new Date().toTimeString().slice(0, 5),
+          data: {
+            title: `SLA còn ${minutes} phút — hồ sơ ${urgent.customer.full_name}`,
+            sub: `${urgent.dossier_id} cần phản hồi trước ${new Date(urgent.sla_due_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}. Anh/chị mở hồ sơ để xử lý ngay.`,
+          },
+        },
+      ])
+    }
+    check()
+    const timer = setInterval(check, 60_000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads])
+
   // Action: Create customer lead and inject into Copilot context
   const executeCustomerCreation = async (payload: LeadCreatePayload) => {
     try {
@@ -865,10 +1054,35 @@ export function SalesWorkspacePage() {
     scrollChatToEnd()
   }
 
-  // Confirm quote creation
-  const handleConfirmQuoteAction = () => {
+  /**
+   * Xác nhận lập báo giá — gọi API THẬT thay vì animation giả.
+   *
+   * Trước đây hàm này vẽ 4 bước bằng `setInterval` rồi in ra kết quả bịa ("Đề xuất PA-VAY…").
+   * Nay: tra giá niêm yết thật của căn → gọi `POST /quotes` → cập nhật tiến trình theo đúng
+   * vòng đời thật (gửi yêu cầu → engine trả kết quả). Không suy diễn thêm số liệu nào.
+   */
+  const handleConfirmQuoteAction = async () => {
     const time = new Date().toTimeString().slice(0, 5)
     const stepMsgId = `step-${Date.now()}`
+    const unitCode = copilotUnit || selectedLead?.constraints?.preferred_unit_code || null
+    const projectId = selectedLead?.constraints?.project_id ?? null
+
+    if (!unitCode || !projectId) {
+      // Không đủ dữ kiện thì nói thẳng — không dựng tiến trình cho có.
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `need-unit-${Date.now()}`,
+          type: 'agent',
+          time,
+          text: 'Anh/chị chọn giúp em **mã căn** và **dự án** trước khi lập báo giá nhé — em không tự suy diễn giá khi thiếu dữ liệu.',
+        },
+      ])
+      showToast('Thiếu mã căn/dự án để lập báo giá')
+      scrollChatToEnd()
+      return
+    }
+
     setMessages((prev) => [
       ...prev,
       {
@@ -876,39 +1090,66 @@ export function SalesWorkspacePage() {
         type: 'stepper',
         time,
         data: {
-          steps: ['Hiểu yêu cầu dossier', 'Tra cứu chính sách 10/03', 'Deterministic Math Engine FCS v2.6', 'Xếp hạng & đối soát chứng cứ'],
+          steps: ['Đọc ràng buộc hồ sơ khách', `Tra giá niêm yết căn ${unitCode}`, 'Gọi engine định giá (tất định)', 'Nhận kết quả & mở bảng phương án'],
           current: 0,
+          failed: false,
         },
       },
     ])
     scrollChatToEnd()
+    const advance = (current: number, failed = false) =>
+      setMessages((prev) => prev.map((m) => (m.id === stepMsgId ? { ...m, data: { ...m.data, current, failed } } : m)))
 
-    let idx = 0
-    const interval = setInterval(() => {
-      idx++
-      setMessages((prev) =>
-        prev.map((m) => (m.id === stepMsgId ? { ...m, data: { ...m.data, current: idx } } : m))
-      )
-      if (idx >= 4) {
-        clearInterval(interval)
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `done-${Date.now()}`,
-              type: 'agent',
-              time: new Date().toTimeString().slice(0, 5),
-              text: '✓ Đã lập bảng so sánh 3 phương án tại **Panel bên phải** (P-04). Đề xuất **PA-VAY** tối ưu dòng tiền ban đầu. Lưu ý: POL-EARLY hết hạn ngày 30/06/2026.',
-            },
-          ])
-          setActiveTab('baogia')
-          setPanelView('quote_comparison')
-          setIsMobilePanelOpen(true)
-          showToast('→ Bảng so sánh phương án đã mở tại tab Báo giá')
-          scrollChatToEnd()
-        }, 300)
-      }
-    }, 450)
+    try {
+      advance(1)
+      const units = await api.catalog.units({ project_id: projectId })
+      const unit = units.find((u) => u.unit_code === unitCode)
+      if (!unit) throw new Error(`Không tìm thấy căn ${unitCode} trong giỏ hàng dự án`)
+
+      advance(2)
+      const created = await api.quotes.create({
+        project_id: projectId,
+        unit_code: unit.unit_code,
+        listed_price_before_tax_vnd: unit.listed_price_before_tax_vnd,
+        own_funds_vnd: selectedLead?.constraints?.own_funds_vnd ?? undefined,
+        monthly_capacity_vnd: selectedLead?.constraints?.monthly_capacity_vnd ?? undefined,
+        objective: 'MIN_INITIAL_CASH',
+      })
+
+      advance(3)
+      const quoteCode =
+        'quote_version' in created ? `${created.quote_id} V${created.quote_version}` : String((created as { quote_id: string }).quote_id)
+      const status = 'status' in created ? String(created.status) : 'CREATED'
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `done-${Date.now()}`,
+          type: 'agent',
+          time: new Date().toTimeString().slice(0, 5),
+          text: `✓ Hệ thống đã nhận yêu cầu lập báo giá **${quoteCode}** cho căn **${unit.unit_code}** — trạng thái hiện tại: **${status}**. Anh/chị xem chi tiết ở tab Báo giá.`,
+        },
+      ])
+      setActiveTab('baogia')
+      setPanelView('quote_comparison')
+      setIsMobilePanelOpen(true)
+      showToast('→ Đã gửi yêu cầu lập báo giá tới hệ thống')
+      void queryClient.invalidateQueries({ queryKey: ['quotes'] })
+      scrollChatToEnd()
+    } catch (err) {
+      advance(4, true)
+      const message = err instanceof Error ? err.message : 'Không gọi được API lập báo giá'
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `quote-error-${Date.now()}`,
+          type: 'agent',
+          time: new Date().toTimeString().slice(0, 5),
+          text: `⚠️ Chưa lập được báo giá: ${message}. Anh/chị kiểm tra lại kết nối rồi thử lại giúp em.`,
+        },
+      ])
+      showToast('Lập báo giá thất bại — xem chi tiết trong khung chat')
+      scrollChatToEnd()
+    }
   }
 
   // Action: Launch Submit Review Flow
@@ -931,55 +1172,103 @@ export function SalesWorkspacePage() {
     scrollChatToEnd()
   }
 
-  // Confirm submission -> Receipt with 8s Undo
-  const handleConfirmSubmitAction = () => {
+  /**
+   * Trình duyệt báo giá — gọi API THẬT (`POST /quotes/{id}/submit`).
+   *
+   * Trước đây hàm này chỉ chèn thẻ "đã trình Q-00092 cho Mr. Hùng" rồi hẹn giờ bịa một nudge SSE.
+   * Nay: lấy đúng báo giá thật của hồ sơ đang chọn, gọi submit, và chỉ hiện receipt khi server
+   * xác nhận. Không có báo giá nào đủ điều kiện → nói thẳng, không diễn.
+   */
+  const handleConfirmSubmitAction = async () => {
     const time = new Date().toTimeString().slice(0, 5)
-    setUndoSeconds(8)
-    setUndoActive(true)
-    setUndoQuoteCode('Q-00092 V1')
+    const targetQuote =
+      quotes.find((q) => q.source_dossier_id && q.source_dossier_id === selectedLead?.dossier_id && q.status === 'READY_FOR_REVIEW') ??
+      quotes.find((q) => q.status === 'READY_FOR_REVIEW') ??
+      quotes.find((q) => q.status === 'DRAFT')
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `rcp-${Date.now()}`,
-        type: 'receipt',
-        time,
-        data: { id: 'Q-00092 V1', approver: 'Mr. Hùng' },
-      },
-    ])
-    scrollChatToEnd()
-
-    // Realtime SSE Manager Viewing notice simulation
-    setTimeout(() => {
+    if (!targetQuote) {
       setMessages((prev) => [
         ...prev,
         {
-          id: `sse-nudge-${Date.now()}`,
-          type: 'nudge',
-          time: new Date().toTimeString().slice(0, 5),
+          id: `no-quote-${Date.now()}`,
+          type: 'agent',
+          time,
+          text: 'Chưa có báo giá nào ở trạng thái sẵn sàng trình duyệt. Anh/chị lập báo giá trước rồi em gửi trình duyệt ngay.',
+        },
+      ])
+      showToast('Chưa có báo giá đủ điều kiện trình duyệt')
+      scrollChatToEnd()
+      return
+    }
+
+    try {
+      const submitted = await api.quotes.submit(targetQuote.quote_id, {
+        idempotencyKey: crypto.randomUUID(),
+        expectedVersion: targetQuote.quote_version,
+      })
+      setUndoSeconds(8)
+      setUndoActive(true)
+      setUndoQuoteCode(`${submitted.quote_id} V${submitted.quote_version}`)
+      setUndoQuoteVersion(submitted.quote_version)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `rcp-${Date.now()}`,
+          type: 'receipt',
+          time,
           data: {
-            title: 'Mr. Hùng đang xem Q-00092',
-            sub: '14:06 — sự kiện thời gian thực từ SSE timeline',
+            id: `${submitted.quote_id} V${submitted.quote_version}`,
+            approver: submitted.approval?.decided_by?.full_name || 'Quản lý phụ trách',
           },
         },
       ])
-      scrollChatToEnd()
-    }, 6000)
+      void queryClient.invalidateQueries({ queryKey: ['quotes'] })
+      showToast(`Đã trình duyệt ${submitted.quote_id} V${submitted.quote_version}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không gửi được yêu cầu trình duyệt'
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `submit-error-${Date.now()}`,
+          type: 'agent',
+          time,
+          text: `⚠️ Trình duyệt thất bại: ${message}. Anh/chị thử lại giúp em.`,
+        },
+      ])
+      showToast('Trình duyệt thất bại — xem chi tiết trong khung chat')
+    }
+    scrollChatToEnd()
   }
 
-  // Handle 8s Undo
-  const handleUndoSubmission = () => {
-    setUndoActive(false)
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `undone-${Date.now()}`,
-        type: 'agent',
-        time: new Date().toTimeString().slice(0, 5),
-        text: '↩ Đã hoàn tác trình duyệt Q-00092 — hồ sơ đã trở về trạng thái Nháp an toàn.',
-      },
-    ])
-    showToast('Đã hoàn tác thành công — hồ sơ chưa phát tán ra ngoài')
+  /**
+   * Trong 8 giây đầu sau khi trình, Sale được gửi YÊU CẦU SỬA (endpoint thật
+   * `POST /quotes/{id}/revision`). Đây thay cho nút "Hoàn tác" trước đây vốn chỉ đổi state
+   * phía UI trong khi hồ sơ đã nằm ở server — một lời hứa sai.
+   */
+  const handleRequestRevision = async () => {
+    const quoteId = undoQuoteCode.split(' ')[0]
+    try {
+      await api.quotes.requestRevision(
+        quoteId,
+        { reason: 'Sale xin điều chỉnh ngay sau khi trình duyệt' },
+        { idempotencyKey: crypto.randomUUID(), expectedVersion: undoQuoteVersion },
+      )
+      setUndoActive(false)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `revision-${Date.now()}`,
+          type: 'agent',
+          time: new Date().toTimeString().slice(0, 5),
+          text: `↩ Đã gửi **yêu cầu sửa** cho ${undoQuoteCode} tới quản lý — hồ sơ sẽ trở lại trạng thái cần chỉnh sửa.`,
+        },
+      ])
+      void queryClient.invalidateQueries({ queryKey: ['quotes'] })
+      showToast('Đã gửi yêu cầu sửa cho quản lý')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không gửi được yêu cầu sửa'
+      showToast(`Yêu cầu sửa thất bại: ${message}`)
+    }
     scrollChatToEnd()
   }
 
@@ -1032,7 +1321,7 @@ export function SalesWorkspacePage() {
       if (byId) return byId
     }
     // Tự phát hiện: tên khách (>=2 ký tự) hoặc mã căn xuất hiện trong câu
-    const unitMatch = text.toUpperCase().match(/\b([A-Z]+\-\d+\.\d+)\b/)
+    const unitMatch = text.toUpperCase().match(/\b([A-Z]+-\d+\.\d+)\b/)
     const byUnit = unitMatch ? leads.find((l) => (l.constraints?.preferred_unit_code || '').toUpperCase() === unitMatch[1]) : null
     if (byUnit) return byUnit
     const nameHits = leads.filter((l) => {
@@ -1082,113 +1371,38 @@ export function SalesWorkspacePage() {
       return
     }
 
-    // 2. Phím tắt mở nhanh panel hồ sơ khách hàng An / SLA
-    if (/an.*sao rồi|hồ sơ an|sla/i.test(text)) {
-      setActiveTab('hoso')
-      setPanelView('dossier')
-      setIsMobilePanelOpen(true)
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `qa-${Date.now()}`,
-          type: 'agent',
-          time,
-          text: 'Đây là hồ sơ của **Nguyễn Minh An** tại panel. Khách còn 1 băn khoăn: *"chuyển nhượng sớm được không?"* — nên giải thích trước khi tư vấn tiến độ.',
-        },
-      ])
-      scrollChatToEnd()
-      return
-    }
-
-    // 3. Phím tắt mở nhanh chính sách P09
-    if (/p09|chính sách mới|bãi bỏ/i.test(text)) {
-      setActiveTab('chinhsach')
-      setPanelView('policies')
-      setIsMobilePanelOpen(true)
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `qa-${Date.now()}`,
-          type: 'agent',
-          time,
-          text: 'Chính sách **P09** bãi bỏ ưu đãi cộng dồn trả nhanh + HTLS. Mọi tính toán mới sẽ áp dụng công thức mới (bất biến, version cũ chuyển SUPERSEDED).',
-        },
-      ])
-      scrollChatToEnd()
-      return
-    }
-
-    // 4. Mọi câu lệnh nghiệp vụ tự nhiên (Tạo khách hàng, Lập báo giá, So sánh phương án, Tra cứu căn...)
-    // Chuyển toàn bộ đến Copilot LLM Backend để bóc tách thực thể sâu bằng AI.
-
-    // 7. Mặc định: Gửi đến Copilot LLM backend thật
-    const thinkingId = `thinking-${Date.now()}`
+    // 2. Mọi câu lệnh còn lại đi vào ReAct Copilot (tool thật + stream tiến trình).
+    //    Không còn câu trả lời hardcode theo kịch bản demo.
+    const reasoningId = `reasoning-${Date.now()}`
+    reasoningMsgIdRef.current = reasoningId
+    appliedFinalRef.current = null
     setMessages((prev) => [
       ...prev,
       {
-        id: thinkingId,
-        type: 'agent',
+        id: reasoningId,
+        type: 'reasoning',
         time,
-        text: 'Đang tra cứu cơ sở dữ liệu và chính sách...',
+        data: { steps: [] as CopilotReasoningStep[], streaming: true },
       },
     ])
     scrollChatToEnd()
-
-    fetch(`${API_BASE_URL}/copilot/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: text,
-        current_unit: ctxLead?.constraints?.preferred_unit_code || null,
-        lead_dossier_id: ctxLead?.dossier_id,
-        history: messages.slice(-6).map((m) => ({
-          role: m.type === 'user' ? 'user' : 'assistant',
-          content: m.text || '',
-        })),
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((data) => {
-        setMessages((prev) => {
-          const list = prev.map((m) =>
-            m.id === thinkingId
-              ? {
-                  ...m,
-                  text: data.reply || 'Em đã ghi nhận yêu cầu của anh.',
-                  suggested_actions: data.suggested_actions,
-                }
-              : m
-          )
-          if (data.action_type) {
-            list.push({
-              id: `card-${Date.now()}`,
-              type: data.action_type as StreamItemType,
-              time: new Date().toTimeString().slice(0, 5),
-              data: data.action_data || {},
-            })
-          }
-          return list
-        })
-        scrollChatToEnd()
-      })
-      .catch(() => {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === thinkingId
-              ? {
-                  ...m,
-                  type: 'fallback',
-                  text: 'Em chưa chắc chắn hiểu yêu cầu. Anh có thể chọn nhanh thao tác nghiệp vụ:',
-                }
-              : m
-          )
-        )
-        scrollChatToEnd()
-      })
+    const context = {
+      currentUnit: copilotUnit ?? ctxLead?.constraints?.preferred_unit_code ?? null,
+      leadDossierId: ctxLead?.dossier_id ?? null,
+      transactionDate: copilotTxDate,
+      projectId: ctxLead?.constraints?.project_id ?? null,
+    }
+    setFailedTurn(null)
+    copilot.send(text, context)
   }
+
+  /** Thử lại đúng câu vừa lỗi với đúng ngữ cảnh cũ (C4). */
+  const handleRetryFailedTurn = () => {
+    if (!failedTurn) return
+    setFailedTurn(null)
+    copilot.send(failedTurn.text, failedTurn.context)
+  }
+
 
   // Trigger Smart Action from Quick Chips
   const triggerSmartAction = (promptText: string) => {
@@ -1221,24 +1435,44 @@ export function SalesWorkspacePage() {
     }, 150)
   }
 
-  // Slash commands list
-  const SLASH_COMMANDS = [
-    { cmd: '/tao-khach', label: 'Khởi tạo hồ sơ khách hàng mới', icon: UserPlus },
-    { cmd: '/tim-khach', label: 'Tìm kiếm khách hàng theo tên / SĐT / căn', icon: Search },
-    { cmd: '/khach-hang', label: 'Xem danh sách hồ sơ khách', icon: Users },
-    { cmd: '/baogia', label: 'Mở pipeline báo giá', icon: FileStack },
-    { cmd: '/soan-tin', label: 'Soạn tin nhắn Copilot (F8)', icon: MessageSquare },
-    { cmd: '/chinh-sach', label: 'Tra cứu chính sách bán hàng', icon: ScrollText },
-    { cmd: '/tinh-lai', label: 'Lập báo giá mới theo chính sách', icon: RotateCcw },
-  ]
-
-  const filteredCommands = SLASH_COMMANDS.filter((c) =>
-    c.cmd.toLowerCase().includes(inputVal.toLowerCase())
+  // Danh mục lệnh gạch chéo (D1) — có từ khoá không dấu để gõ "bao gia" vẫn khớp "/baogia"
+  const SLASH_COMMANDS: SlashCommand[] = useMemo(
+    () => [
+      { cmd: '/tao-khach', label: 'Khởi tạo hồ sơ khách hàng mới', icon: UserPlus, keywords: ['tao khach', 'khach moi', 'lead'] },
+      { cmd: '/tim-khach', label: 'Tìm khách hàng theo tên / SĐT / mã hồ sơ', icon: Search, keywords: ['tim khach', 'tra cuu khach'] },
+      { cmd: '/khach-hang', label: 'Xem danh sách hồ sơ khách', icon: Users, keywords: ['danh sach khach'] },
+      { cmd: '/baogia', label: 'Mở pipeline báo giá', icon: FileStack, keywords: ['bao gia', 'pipeline'] },
+      { cmd: '/soan-tin', label: 'Soạn tin nhắn Copilot (tự kiểm F8)', icon: MessageSquare, keywords: ['soan tin', 'zalo', 'tin nhan'] },
+      { cmd: '/chinh-sach', label: 'Tra cứu chính sách đang hiệu lực', icon: ScrollText, keywords: ['chinh sach', 'chiet khau'] },
+      { cmd: '/tinh-lai', label: 'Lập báo giá mới theo chính sách', icon: RotateCcw, keywords: ['tinh lai', 'lap bao gia'] },
+      { cmd: '/gio-hang', label: 'Hỏi Copilot giỏ hàng còn căn nào', icon: Home, keywords: ['gio hang', 'ro hang', 'con can'] },
+    ],
+    [],
   )
+
+  const filteredCommands = useMemo(() => filterCommands(SLASH_COMMANDS, inputVal), [SLASH_COMMANDS, inputVal])
+
+  // Đổi từ khoá thì đưa con trỏ về dòng đầu, tránh chọn nhầm lệnh ngoài danh sách mới
+  useEffect(() => {
+    setSlashIndex(0)
+  }, [inputVal])
+
+  const rememberCommand = (cmd: string) => {
+    setRecentCommands((prev) => {
+      const next = [cmd, ...prev.filter((c) => c !== cmd)].slice(0, 4)
+      try {
+        window.localStorage.setItem('copilot.recentSlash', JSON.stringify(next))
+      } catch {
+        /* chế độ riêng tư: bỏ qua, không chặn thao tác */
+      }
+      return next
+    })
+  }
 
   const handleExecuteSlash = (cmd: string) => {
     setSlashOpen(false)
     setInputVal('')
+    rememberCommand(cmd)
     if (cmd === '/tao-khach') {
       setCreateCustomerOpen(true)
     } else if (cmd === '/tim-khach') {
@@ -1260,6 +1494,9 @@ export function SalesWorkspacePage() {
       setIsMobilePanelOpen(true)
     } else if (cmd === '/tinh-lai') {
       startQuoteCreationFlow()
+    } else if (cmd === '/gio-hang') {
+      setInputVal('Giỏ hàng còn căn nào?')
+      inputTextAreaRef.current?.focus()
     }
   }
 
@@ -1318,7 +1555,12 @@ export function SalesWorkspacePage() {
         {/* ----- AGENT CONVERSATION (MAIN) ----- */}
         <section className="flex min-w-0 flex-1 flex-col bg-background">
           {/* Chat Stream Messages */}
-          <div className="flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth">
+          <div
+            role="log"
+            aria-live="polite"
+            aria-label="Hội thoại với trợ lý Copilot"
+            className="flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth"
+          >
             {messages.map((m) => {
               if (m.type === 'user') {
                 return (
@@ -1336,6 +1578,12 @@ export function SalesWorkspacePage() {
                   <div key={m.id} className="flex flex-col items-start gap-1.5 w-full">
                     <div className="max-w-[92%] rounded-2xl rounded-bl-xs border border-border/80 bg-card/95 px-4 py-3 text-xs text-foreground shadow-sm">
                       <FormattedAiMessage content={m.text || ''} onCommandClick={(cmd) => triggerSmartAction(cmd)} />
+                      {Array.isArray(m.data?.citations) && m.data.citations.length > 0 && (
+                        <CitationChips
+                          citations={m.data.citations as CopilotCitation[]}
+                          onOpen={(citation) => setEvidenceDetail(citationToEvidence(citation))}
+                        />
+                      )}
                     </div>
                     {/* Suggested actions pills */}
                     {m.suggested_actions && m.suggested_actions.length > 0 && (
@@ -1576,26 +1824,56 @@ export function SalesWorkspacePage() {
                 )
               }
 
+              if (m.type === 'reasoning') {
+                const steps = (m.data?.steps || []) as CopilotReasoningStep[]
+                return (
+                  <ReasoningTrace
+                    key={m.id}
+                    steps={steps}
+                    streaming={Boolean(m.data?.streaming)}
+                    degraded={Boolean(m.data?.degraded)}
+                    error={(m.data?.error as string | null) ?? null}
+                    onRetry={() => copilot.retry()}
+                    onOpenCitation={(citation) => setEvidenceDetail(citationToEvidence(citation))}
+                    compact
+                  />
+                )
+              }
+
               if (m.type === 'stepper') {
                 const current = m.data?.current || 0
+                const failed = Boolean(m.data?.failed)
                 return (
-                  <div key={m.id} className="flex flex-wrap gap-1.5 rounded-xl border border-border bg-card p-3 shadow-xs">
+                  <div
+                    key={m.id}
+                    role="status"
+                    aria-live="polite"
+                    className={cn(
+                      'flex flex-wrap gap-1.5 rounded-xl border bg-card p-3 shadow-xs',
+                      failed ? 'border-destructive/40' : 'border-border',
+                    )}
+                  >
                     {m.data?.steps.map((st: string, idx: number) => {
-                      const isDone = idx < current
-                      const isRun = idx === current
+                      const isFailed = failed && idx === current
+                      const isDone = idx < current && !isFailed
+                      const isRun = idx === current && !failed
                       return (
                         <span
                           key={st}
                           className={cn(
                             'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all',
-                            isDone
+                            isFailed
+                              ? 'bg-destructive/10 text-destructive border border-destructive/30 font-semibold'
+                              : isDone
                               ? 'bg-success/10 text-success border border-success/30 font-semibold'
                               : isRun
                               ? 'bg-primary/10 text-primary border border-primary/30 font-semibold animate-pulse'
-                              : 'bg-muted text-muted-foreground'
+                              : 'bg-muted text-muted-foreground',
                           )}
                         >
-                          {isDone ? (
+                          {isFailed ? (
+                            <AlertTriangle className="h-3 w-3" />
+                          ) : isDone ? (
                             <CheckCircle2 className="h-3 w-3" />
                           ) : isRun ? (
                             <RefreshCw className="h-3 w-3 animate-spin" />
@@ -1624,14 +1902,14 @@ export function SalesWorkspacePage() {
                           variant="outline"
                           size="sm"
                           disabled={!undoActive}
-                          onClick={handleUndoSubmission}
+                          onClick={handleRequestRevision}
                           className="h-7 text-xs border-border bg-card text-foreground hover:text-destructive"
                         >
                           <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                          {undoActive ? `Hoàn tác (${undoSeconds}s)` : 'Hết hạn hoàn tác'}
+                          {undoActive ? `Yêu cầu sửa (${undoSeconds}s)` : 'Đã khóa'}
                         </Button>
                         <span className="text-[11px] text-muted-foreground">
-                          {undoActive ? 'Cho phép thu hồi trong 8s' : 'Đã khóa gửi xét duyệt'}
+                          {undoActive ? 'Gửi yêu cầu sửa cho quản lý trong 8s' : 'Hồ sơ đang chờ quản lý xử lý'}
                         </span>
                       </div>
                     </CardContent>
@@ -1693,14 +1971,7 @@ export function SalesWorkspacePage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2.5 p-3.5 text-xs">
-                      <div
-                        className="text-foreground text-[11.5px] leading-relaxed"
-                        dangerouslySetInnerHTML={{
-                          __html: (m.data?.message || '')
-                            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-                            .replace(/\*(.*?)\*/g, '<i>$1</i>'),
-                        }}
-                      />
+                      <FormattedAiMessage content={m.data?.message || ''} className="text-[11.5px]" />
                       <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2.5 text-[11px]">
                         <div>
                           <span className="text-muted-foreground">Mã hồ sơ:</span>
@@ -1839,7 +2110,7 @@ export function SalesWorkspacePage() {
                   <div key={m.id} className="w-full">
                     <SmartQuoteCard
                       initialData={m.data}
-                      onGenerateQuote={(uCode, sc) => {
+                      onGenerateQuote={() => {
                         startQuoteCreationFlow(selectedLead?.customer.full_name)
                         handleConfirmQuoteAction()
                       }}
@@ -1853,7 +2124,7 @@ export function SalesWorkspacePage() {
                   <div key={m.id} className="w-full">
                     <SmartScenarioCompareCard
                       unitCode={m.data?.unit_code || undefined}
-                      onSelectScenario={(sc) => {
+                      onSelectScenario={() => {
                         startQuoteCreationFlow(selectedLead?.customer.full_name)
                         handleConfirmQuoteAction()
                       }}
@@ -1961,26 +2232,117 @@ export function SalesWorkspacePage() {
                 ✉️ Soạn tin tư vấn F8
               </Button>
             </div>
+            {/* Ngữ cảnh gửi kèm (D2) — Sale thấy đúng căn/hồ sơ/ngày trước khi hỏi */}
+            <CopilotContextChips
+              value={{
+                unitCode: copilotUnit,
+                dossierLabel: (contextLeadId !== 'auto' ? selectedLead?.customer.full_name : null) ?? null,
+                transactionDate: copilotTxDate,
+                projectLabel: selectedLead ? PROJECT_LABEL[selectedLead.constraints?.project_id ?? ''] ?? null : null,
+              }}
+              onClearUnit={() => setCopilotUnit(null)}
+              onClearDossier={() => {
+                setContextLeadId('none')
+                setSelectedLeadId(null)
+              }}
+              onTransactionDateChange={setCopilotTxDate}
+            />
+
+            {/* Banner lỗi + thử lại (C4) — mọi lỗi mạng đều có đường thoát */}
+            {(copilot.error || failedTurn) && (
+              <div
+                role="alert"
+                className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11.5px] text-foreground"
+              >
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                  {copilot.error ? `Trợ lý gián đoạn: ${copilot.error}` : 'Lượt trả lời trước bị gián đoạn.'}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-[11px]"
+                  onClick={handleRetryFailedTurn}
+                  disabled={!failedTurn || copilot.streaming}
+                >
+                  <RefreshCw className="mr-1 h-3 w-3" /> Thử lại
+                </Button>
+              </div>
+            )}
+
             {/* Input & Send Action */}
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
+              <SlashCommandPalette
+                open={slashOpen}
+                commands={SLASH_COMMANDS}
+                query={inputVal}
+                recent={recentCommands}
+                activeIndex={slashIndex}
+                onActiveIndexChange={setSlashIndex}
+                onSelect={(command) => handleExecuteSlash(command.cmd)}
+              />
               <textarea
                 ref={inputTextAreaRef}
                 value={inputVal}
-                onChange={(e) => setInputVal(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setInputVal(next)
+                  setSlashOpen(next.startsWith('/'))
+                }}
                 onKeyDown={(e) => {
                   // Enter = xuống dòng. Gửi = Ctrl/Cmd + Enter hoặc nút Gửi.
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault()
                     handleSendChatMessage()
                   }
+                  // Điều hướng menu gạch chéo bằng bàn phím (↑/↓/Enter/Esc).
+                  if (slashOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                    e.preventDefault()
+                    setSlashIndex((idx) =>
+                      e.key === 'ArrowDown'
+                        ? (idx + 1) % Math.max(filteredCommands.length, 1)
+                        : (idx - 1 + filteredCommands.length) % Math.max(filteredCommands.length, 1),
+                    )
+                  }
+                  if (slashOpen && e.key === 'Enter' && !e.ctrlKey && !e.metaKey && filteredCommands[slashIndex]) {
+                    e.preventDefault()
+                    handleExecuteSlash(filteredCommands[slashIndex].cmd)
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setSlashOpen(false)
+                  }
                 }}
                 rows={1}
+                aria-label="Nhập yêu cầu cho trợ lý Copilot"
                 placeholder="Ra lệnh cho Copilot… (Enter: xuống dòng · Ctrl+Enter: gửi)"
                 className="max-h-24 flex-1 resize-none rounded-xl border border-input bg-background px-3.5 py-2 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              <Button type="button" size="sm" onClick={handleSendChatMessage} className="h-9 px-3">
-                <Send className="h-4 w-4" />
-              </Button>
+              {copilot.streaming ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    copilot.cancel()
+                    showToast('Đã dừng yêu cầu cho trợ lý')
+                  }}
+                  className="h-9 px-3"
+                  title="Dừng suy luận"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSendChatMessage}
+                  className="h-9 px-3"
+                  aria-label="Gửi yêu cầu"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
         </section>
@@ -2096,25 +2458,31 @@ export function SalesWorkspacePage() {
                   </div>
                 </div>
 
-                {leadsQuery.isLoading ? (
-                  <LoadingState className="py-12" />
-                ) : leads.length === 0 ? (
-                  <EmptyState
-                    icon={Inbox}
-                    title="Chưa có hồ sơ khách hàng mới"
-                    action={
-                      <Button
-                        size="sm"
-                        onClick={() => setCreateCustomerOpen(true)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-                      >
-                        <UserPlus className="h-3.5 w-3.5" /> Tạo khách hàng mới
-                      </Button>
-                    }
-                  />
-                ) : (
+                <QueryState
+                  query={leadsQuery}
+                  isEmpty={(data) => data.length === 0}
+                  loadingLabel="Đang tải danh sách khách hàng…"
+                  className="py-12"
+                  empty={
+                    <EmptyState
+                      icon={Inbox}
+                      title="Chưa có hồ sơ khách hàng mới"
+                      description="Khi khách để lại thông tin ở kênh Pre-Sales, hồ sơ sẽ tự chảy về đây trong vòng 15 phút."
+                      action={
+                        <Button
+                          size="sm"
+                          onClick={() => setCreateCustomerOpen(true)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                        >
+                          <UserPlus className="h-3.5 w-3.5" /> Tạo khách hàng mới
+                        </Button>
+                      }
+                    />
+                  }
+                >
+                  {(data) => (
                   <div className="space-y-2">
-                    {leads.map((l) => (
+                    {data.map((l) => (
                       <Card
                         key={l.dossier_id}
                         className={cn(
@@ -2140,11 +2508,24 @@ export function SalesWorkspacePage() {
                       </Card>
                     ))}
                   </div>
-                )}
+                  )}
+                </QueryState>
               </div>
             )}
 
-            {/* TAB HỒ SƠ: DOSSIER DETAIL */}
+            {/* TAB HỒ SƠ: DOSSIER DETAIL — chưa chọn hồ sơ thì nói rõ, không để panel trống */}
+            {activeTab === 'hoso' && panelView === 'dossier' && !selectedLead && (
+              <EmptyState
+                icon={Users}
+                title="Chưa chọn hồ sơ khách hàng"
+                description="Chọn một hồ sơ ở danh sách bên cạnh để xem ràng buộc tài chính và tiến trình chăm sóc."
+                action={
+                  <Button size="sm" variant="outline" onClick={() => setPanelView('leads')}>
+                    Xem danh sách khách hàng
+                  </Button>
+                }
+              />
+            )}
             {activeTab === 'hoso' && panelView === 'dossier' && selectedLead && (
               <div className="space-y-3 text-xs">
                 <div className="flex items-center justify-between">
@@ -2221,6 +2602,20 @@ export function SalesWorkspacePage() {
                   </Button>
                 </div>
 
+                <QueryState
+                  query={quotesQuery}
+                  isEmpty={(data) => data.length === 0}
+                  loadingLabel="Đang tải pipeline báo giá…"
+                  className="py-12"
+                  empty={
+                    <EmptyState
+                      icon={FileText}
+                      title="Pipeline chưa có báo giá nào"
+                      description="Lập báo giá cho một hồ sơ khách hàng, hồ sơ sẽ xuất hiện ở đây theo từng trạng thái."
+                    />
+                  }
+                >
+                {() => (
                 <div className="space-y-2.5">
                   {/* Nháp */}
                   <div className="rounded-xl border border-border bg-muted/20 p-2.5">
@@ -2308,11 +2703,34 @@ export function SalesWorkspacePage() {
                     )}
                   </div>
                 </div>
+                )}
+                </QueryState>
               </div>
             )}
 
             {/* TAB BÁO GIÁ: 3-PLAN COMPARISON TABLE */}
-            {activeTab === 'baogia' && panelView === 'quote_comparison' && (
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && quotesQuery.isLoading && (
+              <LoadingState label="Đang tải bảng phương án…" className="py-12" />
+            )}
+
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && quotesQuery.error && quotes.length === 0 && (
+              <ErrorState error={quotesQuery.error} onRetry={() => void quotesQuery.refetch()} />
+            )}
+
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && !quotesQuery.isLoading && !(quotesQuery.error && quotes.length === 0) && quotes.length === 0 && (
+              <EmptyState
+                icon={FileText}
+                title="Chưa có bảng phương án để so sánh"
+                description="Bảng so sánh chỉ hiện khi đã có ít nhất một báo giá cho hồ sơ khách hàng."
+                action={
+                  <Button size="sm" onClick={() => setPanelView('pipeline')}>
+                    Về pipeline báo giá
+                  </Button>
+                }
+              />
+            )}
+
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && quotes.length > 0 && (
               <div className="space-y-3 text-xs">
                 <div className="flex items-center justify-between">
                   <Button variant="ghost" size="sm" className="h-6 p-0 text-xs text-primary" onClick={() => setPanelView('pipeline')}>
@@ -2526,13 +2944,22 @@ export function SalesWorkspacePage() {
                   </Button>
                 </div>
 
-                {policiesQuery.isLoading ? (
-                  <LoadingState className="py-12" />
-                ) : policies.length === 0 ? (
-                  <EmptyState icon={ScrollText} title="Chưa có dữ liệu chính sách bán hàng" />
-                ) : (
+                <QueryState
+                  query={policiesQuery}
+                  isEmpty={(data) => data.length === 0}
+                  loadingLabel="Đang tải chính sách bán hàng…"
+                  className="py-12"
+                  empty={
+                    <EmptyState
+                      icon={ScrollText}
+                      title="Chưa có dữ liệu chính sách bán hàng"
+                      description="Chạy `python scripts/seed_data.py` hoặc kiểm tra kết nối máy chủ để nạp danh mục chính sách."
+                    />
+                  }
+                >
+                  {(data) => (
                   <div className="space-y-2">
-                    {policies.map((p) => (
+                    {data.map((p) => (
                       <Card key={p.policy_id} className="border-border">
                         <CardContent className="p-3 space-y-1">
                           <div className="flex items-center justify-between">
@@ -2548,7 +2975,8 @@ export function SalesWorkspacePage() {
                       </Card>
                     ))}
                   </div>
-                )}
+                  )}
+                </QueryState>
               </div>
             )}
           </div>
@@ -2596,6 +3024,79 @@ export function SalesWorkspacePage() {
             </div>
             <div className="border-t border-border p-3 text-right">
               <Button size="sm" variant="secondary" onClick={() => setEvidenceId(null)}>
+                Đóng
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: CĂN CỨ ĐỘNG TỪ COPILOT ================= */}
+      {evidenceDetail && (
+        <div
+          onClick={() => setEvidenceDetail(null)}
+          className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Căn cứ pháp lý từ Copilot"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-card text-xs shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3">
+              <span className="font-semibold text-foreground">🔗 Căn cứ pháp lý</span>
+              <button
+                type="button"
+                onClick={() => setEvidenceDetail(null)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Đóng"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 p-4">
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 leading-relaxed text-foreground">
+                “{evidenceDetail.q}”
+              </div>
+              <div className="divide-y divide-border text-[11.5px]">
+                <div className="flex justify-between gap-3 py-1.5">
+                  <span className="shrink-0 text-muted-foreground">Văn bản:</span>
+                  <span className="text-right font-semibold text-foreground">{evidenceDetail.p}</span>
+                </div>
+                <div className="flex justify-between gap-3 py-1.5">
+                  <span className="shrink-0 text-muted-foreground">Hiệu lực / nguồn:</span>
+                  <span className="text-right font-semibold text-foreground">{evidenceDetail.e}</span>
+                </div>
+                {evidenceDetail.clause && (
+                  <div className="flex justify-between gap-3 py-1.5">
+                    <span className="shrink-0 text-muted-foreground">Điều / khoản:</span>
+                    <span className="text-right font-semibold text-foreground">{evidenceDetail.clause}</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3 py-1.5">
+                  <span className="shrink-0 text-muted-foreground">Mã đối soát (hash):</span>
+                  <span className="text-right font-mono text-foreground">{evidenceDetail.h}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-border p-3">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const parts = [`Trích dẫn: ${evidenceDetail.q}`, `Văn bản: ${evidenceDetail.p}`, `Hiệu lực/nguồn: ${evidenceDetail.e}`]
+                  if (evidenceDetail.clause) parts.push(`Điều/khoản: ${evidenceDetail.clause}`)
+                  if (evidenceDetail.hash) parts.push(`Hash tài liệu: ${evidenceDetail.hash}`)
+                  void navigator.clipboard?.writeText(parts.join('\n')).then(
+                    () => showToast('Đã sao chép căn cứ kèm hash đối soát'),
+                    () => showToast('Trình duyệt chặn clipboard — anh/chị sao chép thủ công'),
+                  )
+                }}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" /> Sao chép căn cứ
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setEvidenceDetail(null)}>
                 Đóng
               </Button>
             </div>

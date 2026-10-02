@@ -367,6 +367,14 @@ export interface QuoteCreatePayload {
 }
 
 /** Response thật của POST/GET /api/v1/quotes (đồng bộ, 201) — không có scenarios/stream_url. */
+/**
+ * Kết quả POST /quotes tuỳ backend:
+ * - TD-4.1 / mock-server: 202 + `stream_url` để theo dõi tiến trình qua SSE.
+ * - FastAPI thật: 201 đồng bộ, trả hồ sơ đầy đủ ngay (không có `stream_url`).
+ * UI phải xử lý được cả hai — dùng `stream_url` nếu có, nếu không thì đọc thẳng trạng thái.
+ */
+export type QuoteCreateOutcome = QuoteCreateResult & { stream_url?: string | null }
+
 export interface QuoteCreateResult {
   quote_id: string
   tenant_id: string

@@ -8,7 +8,7 @@ import { Button } from '@pricepolicy/ui/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@pricepolicy/ui/components/ui/table'
 import { formatDateTime, formatPercent, formatVnd } from '@pricepolicy/ui/lib/format'
 
-/** Formula Regression Benchmark 1-click (MVP-05) — 15 golden case, so khớp tuyệt đối Δ = 0 VNĐ. */
+/** Formula Regression Benchmark 1-click (MVP-05) — 17 golden case, so khớp tuyệt đối Δ = 0 VNĐ. */
 export function BenchmarkPage() {
   const run = useRunBenchmark()
   const [count, setCount] = useState(0)
@@ -27,7 +27,7 @@ export function BenchmarkPage() {
             disabled={run.isPending}
             data-testid="run-benchmark"
           >
-            {run.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Chạy 15 ca kiểm thử
+            {run.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Chạy 17 ca kiểm thử
           </Button>
         }
       />

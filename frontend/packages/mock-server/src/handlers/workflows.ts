@@ -70,6 +70,48 @@ export const leadHandlers = [
     },
     { fixedDelayMs: 100 },
   ),
+  route('leadGet', ({ db, params }) => {
+    const dossier = db.dossiers.find((d) => d.dossier_id === params.dossier_id)
+    if (!dossier) throw notFound(`hồ sơ ${params.dossier_id}`)
+    return { body: dossier }
+  }),
+
+  /** PUT /leads/{id} — Sale cập nhật nhu cầu/ràng buộc; giữ nguyên các trường không gửi lên. */
+  route('leadUpdate', async ({ db, params, json, now }) => {
+    const index = db.dossiers.findIndex((d) => d.dossier_id === params.dossier_id)
+    if (index < 0) throw notFound(`hồ sơ ${params.dossier_id}`)
+    const body = (await json<Record<string, unknown>>()) ?? {}
+    const current = db.dossiers[index]
+    const constraints = { ...current.constraints }
+    for (const key of ['customer_segment', 'project_id', 'preferred_unit_code', 'bedrooms', 'own_funds_vnd', 'monthly_capacity_vnd', 'objective'] as const) {
+      if (body[key] !== undefined) (constraints as Record<string, unknown>)[key] = body[key]
+    }
+    const updated = {
+      ...current,
+      constraints,
+      status: (body.status as typeof current.status) ?? current.status,
+      temperature: (body.lead_temperature ?? body.temperature ?? current.temperature) as typeof current.temperature,
+      needs_summary: typeof body.needs_summary === 'string' ? body.needs_summary : current.needs_summary,
+      customer: {
+        full_name: typeof body.customer_name === 'string' ? body.customer_name : current.customer.full_name,
+        phone: typeof body.customer_phone === 'string' ? body.customer_phone : current.customer.phone,
+      },
+      updated_at: iso(now),
+    }
+    db.dossiers[index] = updated
+    return { body: updated }
+  }),
+
+  route('leadDelete', ({ db, params }) => {
+    const index = db.dossiers.findIndex((d) => d.dossier_id === params.dossier_id)
+    if (index < 0) throw notFound(`hồ sơ ${params.dossier_id}`)
+    if (db.dossiers[index].status === 'CONVERTED_TO_QUOTE') {
+      throw transition('Hồ sơ đã chuyển thành báo giá — không thể xóa.')
+    }
+    db.dossiers.splice(index, 1)
+    return { body: { deleted: true } }
+  }),
+
   route(
     'leadConvert',
     async ({ db, staff, params, now, json }) => ({ status: 202, body: await convertDossier(db, staff(), params.dossier_id, await json<QuoteCreateRequest>(), now) }),

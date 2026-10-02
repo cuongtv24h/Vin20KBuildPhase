@@ -95,13 +95,13 @@ export function AdvisorPage() {
       ) : !session.data ? (
         <LoadingState label="Đang mở phiên tư vấn…" />
       ) : (
-        <Advisor session={session.data} />
+        <Advisor session={session.data} onRefresh={() => void session.refetch()} />
       )}
     </div>
   )
 }
 
-function Advisor({ session }: { session: PreSalesSession }) {
+function Advisor({ session, onRefresh }: { session: PreSalesSession; onRefresh?: () => void }) {
   // Giữ kết nối SSE sống khi đang lập phương án — sự kiện PRE_SALES_PLAN_READY tự làm mới session
   // (qua invalidateQueries), nhờ đó nhánh render dưới đây tự chuyển từ "đang lập" sang phương án
   // thật mà không cần đọc trực tiếp giá trị trả về ở đây.
@@ -122,7 +122,7 @@ function Advisor({ session }: { session: PreSalesSession }) {
         ) : generating ? (
           <Card>
             <CardContent className="p-5">
-              <PlanSteps />
+              <PlanSteps onRetry={onRefresh} />
             </CardContent>
           </Card>
         ) : (
@@ -211,23 +211,44 @@ function Chat({ session, disabled }: { session: PreSalesSession; disabled: boole
   )
 }
 
-const PLAN_STEPS = ['Đã hiểu nhu cầu', 'Đang kiểm tra chính sách', 'Đang tính phương án', 'Đã kiểm tra điều kiện']
-
-function PlanSteps() {
-  const [step, setStep] = useState(1)
+/**
+ * Tiến trình lập phương án — chỉ hiển thị trạng thái THẬT:
+ * bước 1 đã xong (khách vừa xác nhận ràng buộc), các bước sau đang chờ server.
+ * Không còn timer giả "tự chạy" các bước; thêm đồng hồ thời gian chờ và nút tải lại
+ * để khách không bị treo cảm giác khi mạng chậm.
+ */
+function PlanSteps({ onRetry }: { onRetry?: () => void }) {
+  const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
-    const t = setInterval(() => setStep((s) => Math.min(s + 1, PLAN_STEPS.length - 1)), 700)
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(t)
   }, [])
+  const slow = elapsed >= 20
   return (
-    <ol className="space-y-2" data-testid="plan-steps">
-      {PLAN_STEPS.map((label, i) => (
-        <li key={label} className="flex items-center gap-2 text-sm">
-          {i < step ? <CheckCircle2 className="h-4 w-4 text-success" /> : i === step ? <Loader2 className="h-4 w-4 animate-spin text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground/40" />}
-          <span className={i <= step ? 'font-medium' : 'text-muted-foreground'}>{label}</span>
+    <div className="space-y-3" data-testid="plan-steps">
+      <ol className="space-y-2" aria-live="polite">
+        <li className="flex items-center gap-2 text-sm">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden />
+          <span className="font-medium">Đã hiểu nhu cầu của anh/chị</span>
         </li>
-      ))}
-    </ol>
+        <li className="flex items-center gap-2 text-sm">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
+          <span className="font-medium">Đang kiểm tra chính sách hiệu lực &amp; tính phương án…</span>
+        </li>
+        <li className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Circle className="h-4 w-4 shrink-0 text-muted-foreground/40" aria-hidden />
+          <span>Sẽ đối chiếu điều kiện và gửi phương án tham khảo</span>
+        </li>
+      </ol>
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>Đã chờ {elapsed}s · kết quả sẽ tự hiện khi xong, anh/chị không cần tải lại trang.</span>
+        {slow && onRetry && (
+          <Button variant="ghost" size="sm" onClick={onRetry}>
+            <RotateCcw className="h-3.5 w-3.5" /> Kiểm tra lại
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }
 

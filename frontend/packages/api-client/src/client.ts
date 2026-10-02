@@ -1,5 +1,7 @@
 import type {
   AdminSetupStatus,
+  CopilotChatRequest,
+  CopilotChatResponse,
   AdminUser,
   ApproveRequest,
   AuthSession,
@@ -28,9 +30,9 @@ import type {
   Quote,
   QuoteAccepted,
   QuoteAudit,
+  QuoteCreateOutcome,
   QuoteCreatePayload,
   QuoteCreateRequest,
-  QuoteCreateResult,
   QuoteEvidence,
   QuoteListParams,
   QuotePdf,
@@ -41,6 +43,7 @@ import type {
   UnitSnapshot,
   UpdateUserPayload,
 } from './contracts'
+import { streamCopilotChat } from './copilotStream'
 import { buildPath, ENDPOINTS, type EndpointName } from './endpoints'
 import { http, type HttpRequest } from './http'
 import { normalizeQuote } from './normalizeQuote'
@@ -106,8 +109,12 @@ export const api = {
       const res = await call<Record<string, unknown>>('quoteDetail', { quote_id: quoteId }, { query: { version } })
       return normalizeQuote(res)
     },
-    /** POST /api/v1/quotes thật — đồng bộ, trả về hồ sơ đầy đủ ngay (không phải 202 + SSE). */
-    create: (body: QuoteCreatePayload, o: CommandOptions = {}) => call<QuoteCreateResult>('quoteCreate', {}, { json: body, ...o }),
+    /**
+     * POST /api/v1/quotes. Body nhận cả `QuoteCreatePayload` (backend thật, đồng bộ)
+     * lẫn `TransactionContext` (TD-4.1/mock: 202 + SSE) — xem `QuoteCreateOutcome`.
+     */
+    create: (body: QuoteCreatePayload | QuoteCreateRequest, o: CommandOptions = {}) =>
+      call<QuoteCreateOutcome>('quoteCreate', {}, { json: body, ...o }),
     newVersion: (quoteId: string, body: QuoteCreateRequest, o: VersionedCommandOptions) =>
       call<QuoteAccepted>('quoteNewVersion', { quote_id: quoteId }, { json: body, idempotencyKey: o.idempotencyKey, ifMatchVersion: o.expectedVersion }),
     submit: (quoteId: string, o: VersionedCommandOptions) =>
@@ -179,5 +186,17 @@ export const api = {
 
   evaluation: {
     runBenchmark: (o: CommandOptions = {}) => call<BenchmarkRun>('benchmarkRun', {}, o),
+  },
+
+  copilot: {
+    /** Chat gom (không stream) — dùng khi môi trường chặn SSE. */
+    chat: (body: CopilotChatRequest, signal?: AbortSignal) =>
+      call<CopilotChatResponse>('copilotChat', {}, { json: body, signal }),
+    /**
+     * Chat stream tiến trình ReAct. Trả về hàm huỷ.
+     * Caller tự quản lý state qua handlers.onEvent.
+     */
+    stream: (body: CopilotChatRequest, handlers: Parameters<typeof streamCopilotChat>[1], signal?: AbortSignal) =>
+      streamCopilotChat(body, handlers, signal),
   },
 }
