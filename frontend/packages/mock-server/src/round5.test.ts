@@ -202,9 +202,22 @@ describe('Admin tự khai báo nhà cung cấp LLM', () => {
     expect(updated.has_api_key).toBe(true)
     expect(updated.input_price_per_1m).toBe(0.2)
 
-    // Kiểm tra kết nối (mock chạy offline, trả kết quả tất định) và xoá → quay lại ENV.
+    // Kiểm tra kết nối (mock chạy offline, trả kết quả tất định) — đúng luồng “lưu rồi Test kết nối”
+    // trong hộp thoại khai báo nhà cung cấp.
     const test = await api.llmAdmin.testProvider(created.provider_id)
     expect(test.ok).toBe(true)
+    expect(test.status).toBe('OK')
+    expect(test.provider_id).toBe(created.provider_id)
+    expect(test.detail).toContain('thành công')
+    expect(test.latency_ms).toBeGreaterThan(0)
+
+    // Kết quả kiểm tra phải đọng lại trong danh sách — nếu không, bảng vẫn hiện “Chưa kiểm tra”
+    // dù Admin vừa bấm Test.
+    const tested = (await api.llmAdmin.providers()).items.find((p) => p.provider_id === created.provider_id)
+    expect(tested?.last_test_status).toBe('OK')
+    expect(tested?.last_test_latency_ms).toBeGreaterThan(0)
+    expect(tested?.last_tested_at).toBeTruthy()
+
     await api.llmAdmin.deleteProvider(created.provider_id)
     expect((await api.llmAdmin.providers()).source).toBe('env')
   })

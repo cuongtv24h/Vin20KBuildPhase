@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Mic, Plus, RefreshCw, Trash2, Volume2, Zap } from 'lucide-react'
 import { useState } from 'react'
 
-import type { LlmProvider, LlmProviderPayload } from '@pricepolicy/api-client/contracts'
+import type { LlmProvider, LlmProviderPayload, LlmProviderTestResult } from '@pricepolicy/api-client/contracts'
 import {
   useCreateLlmProvider,
   useDeleteLlmProvider,
@@ -66,15 +66,24 @@ function ProviderFormDialog({
 }) {
   const createProvider = useCreateLlmProvider()
   const updateProvider = useUpdateLlmProvider()
+  const testProvider = useTestLlmProvider()
   const [form, setForm] = useState<LlmProviderPayload>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [initialisedFor, setInitialisedFor] = useState<string | null>(null)
+  /** Nhà cung cấp vừa lưu trong hộp thoại này — có id mới bật được nút “Test kết nối”. */
+  const [savedId, setSavedId] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<LlmProviderTestResult | null>(null)
+  /** Bản che của khoá vừa lưu (khoá thô bị xoá khỏi form ngay sau khi lưu). */
+  const [savedMasked, setSavedMasked] = useState<string | null>(null)
 
   // Nạp dữ liệu khi mở dialog (tạo mới → form trắng; sửa → dữ liệu hiện có, khoá để trống).
   const target = editing?.provider_id ?? 'new'
   if (open && initialisedFor !== target) {
     setInitialisedFor(target)
     setError(null)
+    setSavedId(null)
+    setTestResult(null)
+    setSavedMasked(null)
     setForm(
       editing
         ? {
@@ -96,6 +105,7 @@ function ProviderFormDialog({
   if (!open && initialisedFor !== null) setInitialisedFor(null)
 
   const pending = createProvider.isPending || updateProvider.isPending
+  const testing = testProvider.isPending
 
   async function submit() {
     setError(null)
@@ -103,26 +113,58 @@ function ProviderFormDialog({
       setError('Cần nhập tên gợi nhớ và model.')
       return
     }
-    if (!editing && !form.api_key?.trim()) {
+    if (!editing && !savedId && !form.api_key?.trim()) {
       setError('Cần nhập API key cho nhà cung cấp mới.')
       return
     }
     try {
-      if (editing) {
-        await updateProvider.mutateAsync({ providerId: editing.provider_id, payload: form })
-        toast.success(`Đã cập nhật ${form.name}`)
-      } else {
-        await createProvider.mutateAsync(form)
-        toast.success(`Đã khai báo nhà cung cấp ${form.name}`)
-      }
-      onClose()
+      // Lưu xong KHÔNG đóng hộp thoại: giữ lại để Admin bấm “Test kết nối” ngay với cấu hình vừa lưu
+      // (test luôn dùng bản đã lưu trong DB, nên phải lưu trước mới có ý nghĩa).
+      // Đã lưu trong hộp thoại này rồi (savedId) thì lần bấm sau là CẬP NHẬT — nếu vẫn gọi create
+      // sẽ sinh nhà cung cấp trùng, vì hộp thoại giờ không tự đóng sau khi lưu.
+      const targetId = editing?.provider_id ?? savedId
+      const saved = targetId
+        ? await updateProvider.mutateAsync({ providerId: targetId, payload: form })
+        : await createProvider.mutateAsync(form)
+      setSavedId(saved.provider_id)
+      setTestResult(null)
+      setSavedMasked(saved.api_key_masked)
+      // Không giữ khoá thô trong state sau khi đã lưu; lần lưu sau để trống = giữ khoá cũ.
+      setForm((f) => ({ ...f, api_key: '' }))
+      toast.success(editing ? `Đã cập nhật ${form.name}` : `Đã khai báo nhà cung cấp ${form.name}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không lưu được cấu hình nhà cung cấp.')
     }
   }
 
-  const set = <K extends keyof LlmProviderPayload>(key: K, value: LlmProviderPayload[K]) =>
+  /** Gọi nhà cung cấp thật (backend gọi `/models`) để biết cấu hình vừa lưu có dùng được không. */
+  async function runTest() {
+    if (!savedId) return
+    setTestResult(null)
+    try {
+      const result = await testProvider.mutateAsync(savedId)
+      setTestResult(result)
+      if (result.ok) toast.success(`Kết nối OK (${result.latency_ms} ms)`)
+      else toast.error(result.detail)
+    } catch (err) {
+      setTestResult({
+        provider_id: savedId,
+        ok: false,
+        latency_ms: 0,
+        status: 'ERROR',
+        detail: err instanceof Error ? err.message : 'Không kiểm tra được kết nối.',
+      })
+    }
+  }
+
+  const set = <K extends keyof LlmProviderPayload>(key: K, value: LlmProviderPayload[K]) => {
     setForm((f) => ({ ...f, [key]: value }))
+    // Sửa tiếp sau khi lưu ⇒ cấu hình trên form khác bản đã lưu; bỏ kết quả test cũ để không gây hiểu nhầm.
+    if (savedId) {
+      setSavedId(null)
+      setTestResult(null)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -135,7 +177,16 @@ function ProviderFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        {/* Bọc trong <form autoComplete="off">: Chrome suy luận "ô text + ô password = form đăng nhập"
+            rồi tự điền tài khoản/mật khẩu đã lưu vào Base URL và API key (đúng lỗi đã gặp). */}
+        <form
+          className="grid gap-4 sm:grid-cols-2"
+          autoComplete="off"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void submit()
+          }}
+        >
           {error && (
             <div className="sm:col-span-2 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -145,35 +196,59 @@ function ProviderFormDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="llm-name">Tên gợi nhớ *</Label>
-            <Input id="llm-name" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="OpenAI chính" />
+            <Input id="llm-name" name="llm-name" autoComplete="off" data-form-type="other" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="OpenAI chính" />
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="llm-provider">Nhà cung cấp</Label>
-            <Input id="llm-provider" value={form.provider} onChange={(e) => set('provider', e.target.value)} placeholder="openai / anthropic / gemini" />
+            <Input id="llm-provider" name="llm-provider" autoComplete="off" data-form-type="other" value={form.provider} onChange={(e) => set('provider', e.target.value)} placeholder="openai / anthropic / gemini" />
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="llm-model">Model *</Label>
-            <Input id="llm-model" value={form.model_name} onChange={(e) => set('model_name', e.target.value)} placeholder="gpt-4o-mini" />
+            <Input id="llm-model" name="llm-model" autoComplete="off" data-form-type="other" value={form.model_name} onChange={(e) => set('model_name', e.target.value)} placeholder="gpt-4o-mini" />
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="llm-base">Base URL</Label>
-            <Input id="llm-base" value={form.base_url ?? ''} onChange={(e) => set('base_url', e.target.value)} placeholder="https://api.openai.com/v1" />
+            <Input
+              id="llm-base"
+              name="llm-base-url"
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore
+              data-bwignore
+              value={form.base_url ?? ''}
+              onChange={(e) => set('base_url', e.target.value)}
+              placeholder="https://api.openai.com/v1"
+            />
           </div>
 
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="llm-key">
-              API key {editing ? '(bỏ trống để giữ khoá cũ)' : '*'}
+              API key {editing || savedId ? '(bỏ trống để giữ khoá cũ)' : '*'}
             </Label>
+            {/* `new-password` (không phải `off`): trình duyệt hiểu đây là khoá MỚI, không phải mật khẩu
+                đăng nhập — nhờ vậy không tự điền bản đã lưu và cũng không hỏi "lưu mật khẩu?". */}
             <Input
               id="llm-key"
+              name="llm-api-key"
               type="password"
-              autoComplete="off"
+              autoComplete="new-password"
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore
+              data-bwignore
               value={form.api_key ?? ''}
               onChange={(e) => set('api_key', e.target.value)}
-              placeholder={editing ? `${editing.api_key_masked} — nhập để thay mới` : 'sk-...'}
+              placeholder={
+                savedMasked ?? editing?.api_key_masked
+                  ? `${savedMasked ?? editing?.api_key_masked} — nhập để thay mới`
+                  : 'sk-...'
+              }
             />
             <p className="text-[11px] text-muted-foreground">
               Khoá được mã hoá khi lưu và chỉ hiển thị dạng che (ví dụ <code>sk-t…abcd</code>).
@@ -206,7 +281,7 @@ function ProviderFormDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="llm-currency">Đơn vị tiền tệ</Label>
-            <Input id="llm-currency" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} placeholder="USD" />
+            <Input id="llm-currency" name="llm-currency" autoComplete="off" data-form-type="other" value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} placeholder="USD" />
           </div>
 
           <div className="space-y-1.5">
@@ -242,16 +317,60 @@ function ProviderFormDialog({
             />
             Đang hoạt động (tắt để tạm dừng dùng nhà cung cấp này)
           </label>
-        </div>
+        </form>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={pending}>
-            Hủy
-          </Button>
-          <Button onClick={submit} disabled={pending}>
-            {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {editing ? 'Lưu thay đổi' : 'Khai báo'}
-          </Button>
+        {/* Kết quả kiểm tra kết nối — hiện ngay trong hộp thoại sau khi lưu. */}
+        {savedId && (
+          <div className="space-y-2">
+            {testResult ? (
+              <div
+                className={
+                  'flex items-start gap-2 rounded-lg border p-3 text-xs ' +
+                  (testResult.ok
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                    : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-500')
+                }
+              >
+                {testResult.ok ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                ) : (
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                )}
+                <div>
+                  <p className="font-medium">
+                    {testResult.ok ? 'Kết nối thành công' : 'Kết nối chưa dùng được'} · {testResult.status}
+                    {testResult.latency_ms > 0 && ` · ${testResult.latency_ms} ms`}
+                  </p>
+                  <p className="mt-0.5">{testResult.detail}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                Đã lưu cấu hình — bấm “Test kết nối” để gọi thử nhà cung cấp bằng khoá vừa lưu.
+              </p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:justify-between">
+          <div>
+            {savedId && (
+              <Button variant="outline" onClick={() => void runTest()} disabled={testing || pending}>
+                {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
+                Test kết nối
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={onClose} disabled={pending}>
+              {savedId ? 'Đóng' : 'Hủy'}
+            </Button>
+            <Button onClick={() => void submit()} disabled={pending}>
+              {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editing || savedId ? 'Lưu thay đổi' : 'Khai báo'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

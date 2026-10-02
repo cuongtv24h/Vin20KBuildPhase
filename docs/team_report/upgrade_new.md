@@ -640,6 +640,67 @@ nằm bên trái cạnh tiêu đề, khung lịch sử ẩn sẵn, bấm mới h
 
 ---
 
+## 13. Đợt 9 (2026-10-02) — Khai báo LLM: chặn điền nhầm user/password & nút Test kết nối ngay sau khi lưu
+
+### 13.1 Lỗi 1 — trình duyệt tự điền tài khoản/mật khẩu vào `Base URL` và `API key`
+
+Ảnh người dùng gửi: ô **Base URL** bị điền "sale", ô **API key** hiện dấu chấm tròn — đây là **tài khoản/mật
+khẩu đã lưu trong trình duyệt**, không phải dữ liệu người dùng gõ.
+
+**Nguyên nhân:** trong hộp thoại, ngay trước ô `API key` (`type="password"`) là các ô text. Chrome/Edge suy
+luận "ô text + ô password = form đăng nhập" rồi tự điền. Bản cũ chỉ đặt `autoComplete="off"` cho ô khoá —
+mà trình duyệt **bỏ qua `off` với ô password** (đây là hành vi có chủ đích của Chrome để không phá trình
+quản lý mật khẩu).
+
+**Đã sửa:**
+
+| Việc | Chi tiết |
+| :--- | :--- |
+| Bọc cả lưới field trong `<form autoComplete="off">` | Chrome không còn coi cả hộp thoại là form đăng nhập; Enter trong ô nhập cũng lưu luôn (submit handler riêng) |
+| Ô API key | `autoComplete="new-password"` (hiểu là khoá MỚI, không điền bản đã lưu và không hỏi "lưu mật khẩu?") + `name="llm-api-key"` |
+| Ô Base URL | `type="url"` + `inputMode="url"` + `name="llm-base-url"` + `autoComplete="off"` (ô `type=url` không bị coi là username) |
+| Các ô text khác (tên, provider, model, currency) | `autoComplete="off"` + `name` riêng |
+| Trình quản lý mật khẩu bên thứ ba | `data-lpignore` (LastPass), `data-1p-ignore` (1Password), `data-bwignore` (Bitwarden), `data-form-type="other"` (Dashlane) |
+
+### 13.2 Lỗi 2 — "lưu xong rồi, Test kết nối ở đâu?"
+
+Thực tế **đã có** nút kiểm tra kết nối, nhưng chỉ là icon ⚡ nhỏ trong cột "Thao tác" của bảng — Admin vừa
+điền form xong **không thấy** nó, vì hộp thoại tự đóng ngay sau khi lưu.
+
+**Đã sửa — luồng mới đúng như mô tả:** điền → **lưu** → hộp thoại **giữ nguyên** → hiện dòng
+"Đã lưu cấu hình — bấm **Test kết nối**…" và nút **Test kết nối**; bấm thì gọi backend (`POST
+/admin/llm/providers/{id}/test`, backend gọi `/models` của nhà cung cấp thật), rồi hiện kết quả **ngay trong
+hộp thoại**: xanh "Kết nối thành công · OK · 123 ms" hoặc vàng "Kết nối chưa dùng được" + lý do cụ thể
+(HTTP 401, không gọi được, chưa có API key…). Lỗi mạng cũng hiện trong hộp thoại thay vì im lặng.
+
+Kèm theo, ba chỗ phải chỉnh cho khớp vì hộp thoại không tự đóng nữa:
+
+1. **Chống tạo trùng:** bấm "Khai báo" lần hai giờ là **cập nhật** đúng nhà cung cấp vừa tạo (trước đây
+   `editing` vẫn null nên sẽ tạo thêm bản ghi trùng).
+2. **Không giữ khoá thô** trong state sau khi lưu; để trống ở lần lưu sau = giữ khoá cũ (đúng ngữ nghĩa
+   `update` của backend), placeholder hiện bản che vừa lưu.
+3. **Sửa form sau khi lưu** thì kết quả test cũ bị bỏ (tránh hiểu nhầm "đã test" trong khi cấu hình trên
+   form đã khác bản đã lưu).
+
+### 13.3 Kiểm chứng (chạy thật)
+
+| Lệnh / kịch bản | Kết quả |
+| :--- | :--- |
+| `npx tsc -b apps/internal` | exit 0 (bao gồm cả thuộc tính `data-1p-ignore` trong JSX) |
+| `npm run lint` | 0 error, 124 warning (không tăng) |
+| `npm run build -w @pricepolicy/internal` | OK |
+| `grep -F` trong bundle `dist/assets` | có đủ: `new-password`, `1p-ignore`, `lpignore`, `bwignore`, `llm-base-url`, `llm-api-key`, "Test kết nối", "Đã lưu cấu hình" |
+| `cd frontend && npm test` | **39/39** — bổ sung assertion: sau khi test, `last_test_status = OK`, `last_test_latency_ms > 0`, `last_tested_at` có giá trị **trong danh sách** (nếu không, bảng vẫn hiện "Chưa kiểm tra" dù vừa bấm Test) |
+| `.venv/bin/python -m pytest -q` | **536 passed** |
+| `ruff check src/ tests/` | All checks passed |
+
+**Chưa kiểm chứng:** hành vi autofill thật của Chrome/Edge — phải thử bằng trình duyệt có lưu mật khẩu
+(sandbox không có trình duyệt). Cách kiểm nhanh: mở hộp thoại khai báo, xác nhận 2 ô trống; nếu vẫn bị
+điền, xoá mật khẩu đã lưu cho domain rồi thử lại và báo lại để thêm cách chặn khác (`readOnly` đến khi focus).
+
+
+---
+
 ## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
