@@ -208,3 +208,61 @@ async def test_usage_endpoints_chi_admin(client: AsyncClient, tmp_path, monkeypa
     records = await client.get("/api/v1/admin/llm/usage/records?limit=5", headers=ADMIN_HEADERS)
     assert records.status_code == 200
     assert records.json()["items"][0]["model_name"] == "gpt-4o-mini"
+
+
+# ─── Test kết nối: đúng ca Cloudflare chặn /models nhưng chat vẫn chạy ────────
+# Bối cảnh: Admin bấm "Test kết nối" và nhận HTTP 403 kèm trang "Just a moment..." của Cloudflare,
+# dù API dùng tốt từ ứng dụng khác. Endpoint phải: gửi User-Agent rõ ràng, thử tiếp /chat/completions,
+# và trả về câu chẩn đoán đọc được (không đổ HTML thô).
+
+
+@pytest.mark.asyncio
+async def test_test_ket_noi_qua_duoc_cloudflare_va_bao_ro_duong_da_dung(
+    client: AsyncClient, provider_server
+) -> None:
+    """Provider trỏ vào server giả: /models bị Cloudflare chặn, /chat/completions OK → kết luận OK."""
+    base, _ = provider_server("cloudflare-models-only")
+    created = (
+        await client.post(
+            "/api/v1/admin/llm/providers",
+            json={**PAYLOAD, "base_url": base},
+            headers=ADMIN_HEADERS,
+        )
+    ).json()
+
+    resp = await client.post(f"/api/v1/admin/llm/providers/{created['provider_id']}/test", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True, body["detail"]
+    assert body["status"] == "OK"
+    assert "chat/completions" in body["detail"]
+    assert "Cloudflare" in body["detail"]
+    assert body["latency_ms"] > 0
+
+    # Kết quả phải đọng lại trong danh sách để bảng không còn hiện "Chưa kiểm tra".
+    listed = (await client.get("/api/v1/admin/llm/providers", headers=ADMIN_HEADERS)).json()
+    row = next(p for p in listed["items"] if p["provider_id"] == created["provider_id"])
+    assert row["last_test_status"] == "OK"
+    assert row["last_test_latency_ms"] is not None
+    assert row["last_tested_at"]
+
+
+@pytest.mark.asyncio
+async def test_test_ket_noi_bi_cloudflare_chan_ca_hai_thi_bao_loi_doc_duoc(
+    client: AsyncClient, provider_server
+) -> None:
+    base, _ = provider_server("cloudflare-both")
+    created = (
+        await client.post(
+            "/api/v1/admin/llm/providers",
+            json={**PAYLOAD, "base_url": base},
+            headers=ADMIN_HEADERS,
+        )
+    ).json()
+
+    resp = await client.post(f"/api/v1/admin/llm/providers/{created['provider_id']}/test", headers=ADMIN_HEADERS)
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["status"] == "ERROR"
+    assert "Cloudflare" in body["detail"]
+    assert "<!DOCTYPE" not in body["detail"] and "<html" not in body["detail"]

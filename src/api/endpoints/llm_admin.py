@@ -13,11 +13,9 @@ Thứ tự ưu tiên khi chạy: DB (theo `priority`) → ENV (chỉ khi DB tr�
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -27,6 +25,7 @@ from src.api.deps import Principal, get_current_principal
 from src.db.models import LLMProviderModel
 from src.db.session import get_db_session
 from src.services import llm_usage
+from src.services.llm_probe import probe_llm_provider
 from src.services.llm_providers import cache_source, refresh_provider_cache
 from src.services.llm_secrets import decrypt_api_key, encrypt_api_key, mask_api_key
 
@@ -214,31 +213,29 @@ async def test_provider(
     _: Principal = Depends(require_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> ProviderTestResult:
-    """Kiểm tra kết nối thật tới nhà cung cấp (gọi endpoint `/models`) và ghi lại kết quả."""
-    row = await _get_or_404(session, provider_id)
-    api_key = decrypt_api_key(row.api_key_encrypted)
-    base_url = (row.base_url or "https://api.openai.com/v1").rstrip("/")
-    started = time.perf_counter()
-    ok, status_text, detail = False, "NOT_CONFIGURED", "Chưa có API key."
-    if api_key:
-        try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.get(f"{base_url}/models", headers={"Authorization": f"Bearer {api_key}"})
-            if resp.status_code == 200:
-                ok, status_text, detail = True, "OK", f"Kết nối thành công ({len(resp.json().get('data', []))} model)."
-            else:
-                status_text = "ERROR"
-                detail = f"Nhà cung cấp trả HTTP {resp.status_code}: {resp.text[:160]}"
-        except Exception as exc:  # noqa: BLE001 — hiển thị lỗi mạng cho Admin, không raise
-            status_text, detail = "UNREACHABLE", f"Không gọi được: {exc}"
-    latency = (time.perf_counter() - started) * 1000.0
+    """Kiểm tra kết nối thật tới nhà cung cấp và ghi lại kết quả.
 
-    row.last_test_status = status_text
-    row.last_test_latency_ms = round(latency, 2)
+    Việc gọi mạng nằm ở `src/services/llm_probe.py` (test được, không cần DB): ưu tiên `GET /models`,
+    tự thử tiếp `POST /chat/completions` — endpoint ứng dụng thật dùng, cũng là đường đi qua được
+    Cloudflare khi nhà cung cấp chặn client lạ. Lỗi trả về luôn là câu đọc được, không đổ HTML thô.
+    """
+    row = await _get_or_404(session, provider_id)
+    probe = await probe_llm_provider(
+        row.base_url,
+        decrypt_api_key(row.api_key_encrypted),
+        row.model_name,
+    )
+
+    row.last_test_status = probe.status
+    row.last_test_latency_ms = probe.latency_ms
     row.last_tested_at = datetime.now(UTC)
     await session.commit()
     return ProviderTestResult(
-        provider_id=provider_id, ok=ok, latency_ms=round(latency, 2), status=status_text, detail=detail
+        provider_id=provider_id,
+        ok=probe.ok,
+        latency_ms=probe.latency_ms,
+        status=probe.status,
+        detail=probe.detail,
     )
 
 

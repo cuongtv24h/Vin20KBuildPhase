@@ -701,6 +701,95 @@ Kèm theo, ba chỗ phải chỉnh cho khớp vì hộp thoại không tự đó
 
 ---
 
+## 14. Đợt 10 (2026-10-02) — "Test kết nối" báo `HTTP 403` + trang Cloudflare, dù API vẫn chạy từ ứng dụng khác
+
+### 14.1 Người dùng báo gì (nguyên văn)
+
+> **Kết nối chưa dùng được · ERROR · 62.57 ms**
+> Nhà cung cấp trả HTTP 403: `<!DOCTYPE html>…<title>Just a moment...</title>…`
+>
+> API của tôi đang hoạt động bình thường khi test gọi từ ứng dụng khác, nhưng trong mục test kết nối hiện tại thì đang gặp lỗi này.
+
+### 14.2 Nguyên nhân gốc — lỗi ở phía mình, không phải cấu hình của Admin
+
+Bản cũ của nút Test kết nối chỉ làm đúng một việc: `GET {base_url}/models` bằng `httpx` với tuỳ chọn mặc định.
+Có hai vấn đề, và cả hai đều nằm ở phía mình:
+
+1. **Thiếu `User-Agent` khai báo tử tế.** `httpx` mặc định gửi `User-Agent: python-httpx/<version>`. Nhà cung cấp
+   nào đứng sau **Cloudflare bật chống bot** sẽ trả `403` kèm trang challenge `"Just a moment..."` cho client
+   "trông giống bot". Ứng dụng khác của Admin chạy được vì nó gửi UA của chính nó (trình duyệt/SDK) → đúng như
+   Admin nói: **cấu hình không sai, đường test của mình sai**.
+2. **Chỉ thử `/models`.** Nhiều gateway OpenAI-compatible **không mở `/models`** nhưng vẫn chạy tốt
+   `/chat/completions` — endpoint mà PricePolicy thật sự dùng khi gọi Copilot. Test một endpoint không dùng
+   rồi kết luận "kết nối chưa dùng được" là kết luận sai.
+
+Lỗi phụ: khi nhà cung cấp trả HTML, màn hình Admin nhận nguyên đoạn `<!DOCTYPE html>…` — vô nghĩa với người
+đang cần biết phải sửa gì.
+
+### 14.3 Đã sửa
+
+Việc gọi mạng được tách sang `src/services/llm_probe.py` (`probe_llm_provider()` + `ProbeResult`) — không phụ
+thuộc FastAPI/DB nên test được trực tiếp. Endpoint `POST /admin/llm-providers/{id}/test` chỉ còn gọi probe và
+ghi `last_test_status` / `last_test_latency_ms` / `last_tested_at`.
+
+| Trước | Sau |
+| :--- | :--- |
+| UA mặc định của httpx | `P096-VLandFuture-Healthcheck/1.0 (+https://demoday.work.gd)`, `Accept: application/json`, `follow_redirects=True`, timeout 8 s |
+| Chỉ `GET /models` | `GET /models` → nếu không dùng được thì `POST /chat/completions` (`max_tokens: 1`, model theo cấu hình) — đúng đường app thật gọi |
+| Không kiểm tra `base_url` | Nếu cả hai hỏng và Base URL chưa có `/vN` → thử thêm `{base_url}/v1/chat/completions`; nếu đường này sống thì trả lời thẳng **"API trả lời ở …/v1 nhưng KHÔNG trả lời ở Base URL hiện tại — sửa Base URL thành …/v1 rồi lưu lại"** (vẫn `ERROR` vì cấu hình đang sai, nhưng kèm đúng cách sửa) |
+| `detail = f"… {resp.text[:160]}"` | Chẩn đoán tiếng Việt theo tình huống; HTML thô **không bao giờ** hiển thị |
+| 200 + HTML bị coi là thành công | Cả hai đường phải trả **JSON** mới tính là thành công (một số server trả HTML trang chủ cho mọi đường dẫn) |
+
+Chẩn đoán theo tình huống: Cloudflare (nói rõ 3 việc cần kiểm tra: Base URL phải là địa chỉ API thường có `/v1`;
+nhà cung cấp có cho gọi từ IP máy chủ không; allowlist đường dẫn API trong Cloudflare) · HTML không phải
+Cloudflare → "thường phải thêm `/v1`" · 401 → khoá bị từ chối · 403 → khoá thiếu quyền hoặc IP bị chặn ·
+404 → không thấy endpoint, kiểm tra `/v1` · 429 → bị giới hạn tốc độ. `detail` gọn ≤ ~200 ký tự, gộp khoảng trắng.
+
+### 14.4 Kiểm chứng (chạy thật)
+
+`tests/test_services/test_llm_probe.py` dựng **server nhà cung cấp giả trong tiến trình** (`HTTPServer` ở cổng
+trống, khai báo qua fixture `provider_server(scenario)` trong `tests/conftest.py`) đóng đúng các hành vi đã gặp:
+
+| Kịch bản | Kỳ vọng — và đã đạt |
+| :--- | :--- |
+| Cloudflare chặn `/models`, `/chat/completions` chạy | **OK** qua `POST /chat/completions`; `detail` nói rõ vì sao `/models` không dùng được |
+| Cloudflare chặn cả hai | `ERROR`, câu chẩn đoán có "Cloudflare"/"Just a moment"/`/v1`/`allowlist`, **không có** `<!DOCTYPE` hay `<html` |
+| Server bình thường | OK qua `GET /models`, nêu số model |
+| Server giả ghi lại `User-Agent` nhận được | đúng bằng `USER_AGENT` của mình (**không bao giờ** là `python-httpx`) |
+| Base URL trỏ vào trang chủ (200 + HTML) | Không còn bị coi là thành công; gợi ý thiếu `/v1` |
+| Base URL thiếu `/v1` nhưng API sống ở `/v1` | Chỉ đúng cách sửa, vẫn `ERROR` |
+| 401 | Nói rõ khoá bị từ chối |
+| Chưa có API key | `NOT_CONFIGURED` |
+
+| Lệnh | Kết quả |
+| :--- | :--- |
+| `.venv/bin/python -m pytest -q` | **546 passed** (543 trước khi thêm ca "thiếu `/v1`" + 3 ca dùng lại fixture) |
+| `pytest tests/test_api/test_llm_admin.py` | 9 passed — có ca endpoint thật gặp Cloudflare, và `last_test_*` được ghi vào danh sách |
+| `ruff check src/ tests/` | All checks passed |
+
+**Chưa kiểm chứng:** nhà cung cấp thật của Admin (sandbox không gọi ra được dịch vụ đó). Sửa này loại bỏ đúng
+nguyên nhân đã thấy trong ảnh — UA mặc định bị Cloudflare chặn — và chuyển sang đúng endpoint ứng dụng dùng;
+xác nhận cuối cùng phải bấm Test kết nối trên VM.
+
+### 14.5 Trên VM cần làm gì
+
+Đây là sửa **backend** (không đổi giao diện):
+
+```bash
+cd /opt/vin20k 2>/dev/null || cd ~/Vin20KBuildPhase
+git pull origin develop && git up --force
+```
+
+Sau đó vào **Quản trị → Nhà cung cấp LLM**, mở nhà cung cấp, **Lưu thay đổi** (không cần nhập lại key), rồi bấm
+**Test kết nối**. Kỳ vọng:
+
+* API chạy được → xanh, ghi rõ đã kết nối qua đường nào (`GET /models` hay `POST /chat/completions`);
+* Base URL còn thiếu `/v1` → đỏ nhưng kèm câu "sửa Base URL thành …/v1" — sửa xong bấm Test lại là xanh;
+* Bị Cloudflare chặn thật (cả hai đường) → câu tiếng Việt nói rõ Cloudflare và 3 việc cần kiểm tra. Nếu gặp
+  trường hợp này, gửi lại ảnh để đối chiếu: lúc đó mới cần nhà cung cấp allowlist đường dẫn API hoặc cho phép IP máy chủ.
+
+---
+
 ## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
@@ -725,3 +814,6 @@ Kèm theo, ba chỗ phải chỉnh cho khớp vì hộp thoại không tự đó
    khung lịch sử (§12) mới xác nhận ở mức mã nguồn + bundle + typecheck. Cần một vòng chạy tay trên
    `demoday.work.gd` (Ctrl+Shift+R) để chốt: ẩn mặc định, bấm mới hiện, đổi trang rồi quay lại vẫn còn hội thoại,
    và mở lại được cuộc cũ trong danh sách.
+10. **"Test kết nối" với nhà cung cấp LLM thật**: đã sửa đúng nguyên nhân (UA mặc định bị Cloudflare chặn + chỉ thử `/models`)
+   và khoá lại bằng test với server giả (§14), nhưng **chưa gọi được nhà cung cấp thật của Admin từ sandbox**. Cần bấm
+   Test kết nối trên VM xác nhận: nếu xanh là xong; nếu còn đỏ, câu chẩn đoán mới sẽ nói rõ phải kiểm tra gì.
