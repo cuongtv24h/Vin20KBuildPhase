@@ -398,6 +398,94 @@ theo quy mô và các câu hỏi cần chốt (ngân sách, dữ liệu có đư
 
 ---
 
+## 11. Đợt 7 (2026-10-02) — Vá lỗi `git up` trên VM & viết lại script triển khai
+
+### 11.1 Lỗi gốc (người dùng dán nguyên văn)
+
+```
+Updating f34acb0..acffa01
+error: Your local changes to the following files would be overwritten by merge:
+        frontend/package-lock.json
+Please commit your changes or stash them before you merge.
+Aborting
+```
+
+**Nguyên nhân:** script deploy cũ chạy `npm install` trên server. `npm install` **tự sửa**
+`frontend/package-lock.json` (khác lockfile trong git), nên lần deploy sau `git pull` từ chối ghi đè
+thay đổi cục bộ và dừng giữa đường — code mới không về, service vẫn chạy bản cũ mà người deploy
+không biết. Vấn đề lặp lại mỗi lần `npm install` chạm lockfile, không phải sự cố một lần.
+
+Đã kiểm chứng trong sandbox: `npm ci` (bản mới dùng) **không** làm đổi `package-lock.json` (md5 trước/sau giống nhau).
+
+### 11.2 Đã viết gì
+
+| File | Nội dung |
+| :--- | :--- |
+| `deploy/deploy.sh` (viết lại, 512 dòng) | `git fetch` + `checkout -B` thay `git pull`; sao lưu drift thành patch rồi mới dọn; `npm ci` thay `npm install`; bỏ qua bước không cần; `flock`; health-check; tự lùi khi hỏng; `--dry-run`; log + state |
+| `deploy/rollback.sh` (mới) | Lùi về commit đã deploy thành công (`--to <sha>` / `--auto`), build lại, reload pm2, kiểm tra `/health`, ghi lại state để lùi tiếp được |
+| `deploy/install-git-up.sh` (mới) | Cài alias `git up` (sao lưu `~/.gitconfig`, dọn drift đang chặn deploy, tự chạy thử `--dry-run`) |
+| `deploy/README.md` (mới) | Runbook: 3 bước cho VM hiện tại, bảng cờ, xử lý sự cố, mô tả file log/state |
+
+**Điểm quan trọng:** bản deploy cũ **không** hề cài `deploy/p096.nginx.conf` vào `/etc/nginx/...` — nếu
+sửa file này thì reload vô nghĩa. Bản mới tự copy vào `/etc/nginx/sites-available/p096.conf` khi file
+đổi (chỉ khi `sudo -n true` chạy được, tức không hỏi mật khẩu), `nginx -t` trước, và tự khôi phục bản
+cũ nếu config mới sai.
+
+### 11.3 Tối ưu (bản cũ luôn chạy hết mọi bước)
+
+| Bước | Bản cũ | Bản mới |
+| :--- | :--- | :--- |
+| Cập nhật code | `git pull` (kẹt khi server có drift) | `fetch` + `checkout -B` — không bao giờ kẹt; drift được sao lưu trước khi dọn |
+| Python deps | `.venv/bin/pip install -r requirements.txt` mỗi lần | chỉ khi `requirements.txt` đổi (sha256 trong `.deploy-stamps/`) hoặc chưa có `.venv` |
+| Node deps | `npm install` mỗi lần (sửa lockfile!) | `npm ci` chỉ khi lockfile đổi hoặc chưa có `node_modules` |
+| Build | build **cả 2 app** mỗi lần | chỉ khi `frontend/` đổi; mặc định chỉ app nội bộ (nginx phục vụ nó) — `--all-apps` khi cần |
+| pm2 | `reload` + `save` mỗi lần | chỉ reload khi backend/requirements đổi; zero-downtime |
+| nginx | `nginx -t` + `reload` mỗi lần | chỉ khi `p096.nginx.conf` đổi (và có quyền sudo không mật khẩu) |
+| Kiểm tra sau deploy | không có (báo "thành công" dù backend chết) | curl `/health` (dừng ngay khi OK) + restart 1 lần + **tự lùi** về commit tốt gần nhất |
+| Deploy chồng nhau | không chặn | `flock logs/.deploy.lock` — lần thứ hai báo lỗi rõ, không build chồng |
+| Kiểm tra trước | không có | node ≥ 20, ổ đĩa ≥ 1 GB, nhánh tồn tại trên origin |
+| Sửa file `deploy.sh` giữa lúc chạy | bash đọc dở file → script đứt tay | tự chạy bằng bản sao `/tmp/p096-deploy-*.sh` (giữ PID/tham số) |
+| Thời gian điển hình | luôn ~2–4 phút | sửa backend ~10–20 giây; sửa frontend ~1–2 phút |
+
+### 11.4 Kiểm chứng (chạy thật trong sandbox, không phải trên VM thật)
+
+Vì sandbox không có SSH tới VM, việc kiểm chứng được làm bằng **repo fixture** (repo bare giả làm
+`origin`, một clone giả làm server) + `pm2` giả + health server giả:
+
+| Kịch bản | Kết quả |
+| :--- | :--- |
+| `bash -n` cả 3 script | exit 0 |
+| Server có drift `frontend/package-lock.json` + file rác + `.env`/`data/` | deploy chạy hết: drift lưu `logs/deploy-backups/dirty-*.patch` (patch hợp lệ, `git apply --check --reverse` pass), file rác bị dọn, `.env`/`data/`/`.venv`/`.deploy-stamps` **giữ nguyên**; kết thúc sạch (`git status` rỗng), `HEAD == origin` |
+| Tái hiện lỗi cũ (drift + `git pull`) | không còn xảy ra vì không dùng `git pull` |
+| Chạy lại khi không có commit mới | bỏ qua cập nhật code, bỏ qua pip/npm/build/reload, vẫn health-check → thành công |
+| Commit mới chỉ chạm `src/` | `pip=0 npm-ci=0 build=0 backend=1` → chỉ reload pm2 |
+| Commit mới chạm `requirements.txt` + `frontend/` + `src/` + nginx | `requirements=1 lockfile=1 frontend=1 backend=1 nginx=1` → chạy đủ bước |
+| Backend chết (health 500) sau khi reload | `die()` → tự lùi về commit tốt gần nhất (`state.current`), health OK sau 14s, `logs/deploy-state` ghi `rolled_back=1`, exit code 1 |
+| Deploy khi đang có tiến trình khác | thoát ngay với mã 3 + thông báo rõ (không build chồng) |
+| `install-git-up.sh` (HOME giả) | sao lưu `.gitconfig`, in alias cũ, đặt alias mới; `git up`, `git up develop`, `git up develop --dry-run --check` truyền tham số **một lần** (không nhân đôi) |
+| `rollback.sh` sau deploy thành công | `HEAD` detached đúng commit trước, state đảo `prev/current`, `git up` lần sau tự về nhánh `develop` |
+
+**Chưa kiểm chứng:** chạy thật trên VM (không có SSH từ sandbox) và đường đi `nginx` (sandbox không có nginx/sudo).
+Ba lệnh ở §11.5 là bước chạy thật trên VM.
+
+### 11.5 Người dùng cần chạy (một lần, ~1 phút)
+
+```bash
+cd ~/vland
+git checkout -- frontend/package-lock.json   # gỡ kẹt do npm install cũ
+git pull origin develop                      # lấy script mới
+bash deploy/install-git-up.sh                # cài alias git up (tự chạy thử --dry-run)
+git up                                       # deploy thật từ nay
+```
+
+Nếu chỉ muốn gỡ kẹt để deploy tiếp mà chưa đổi script: `git checkout -- frontend/package-lock.json && git pull`.
+
+### 11.6 Chống tái phát
+
+Thêm bước CI `bash -n deploy/*.sh` (`.github/workflows/ci.yml`) để script deploy sai cú pháp không lọt vào nhánh.
+
+---
+
 ## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
@@ -414,3 +502,7 @@ theo quy mô và các câu hỏi cần chốt (ngân sách, dữ liệu có đư
 5. **124 cảnh báo oxlint** còn lại: chủ yếu `no-unused-vars` ở `LeadInboxPage`, `PolicyListPage`… — dọn tiếp là việc cơ học, không rủi ro (đợt 5 không làm phát sinh cảnh báo mới).
 6. **Cache tool hiện trong-một-lượt** (theo phiên chat). Cache xuyên lượt/TTL cần thêm khoá theo `transaction_date` + chính sách hiệu lực để không trả dữ liệu cũ — nên làm cùng lúc với dashboard chi phí.
 7. **Eval mới chạy offline tất định** (không cần API key). Muốn đo chất lượng LLM thật thì chạy `python scripts/run_copilot_eval.py --mode llm` khi có `OPENAI_API_KEY`; bộ ngưỡng CI hiện bám chế độ offline để phù hợp môi trường không có key.
+8. **Script deploy mới chưa chạy trên VM thật** (sandbox không SSH được vào `ip-172-31-4-117`): đã test end-to-end bằng
+   repo fixture + pm2/health giả (§11.4). Việc cần làm: chạy 3 lệnh ở §11.5 trên VM, rồi deploy thử một commit nhỏ
+   (đổi 1 file backend) để xác nhận log `pip=0 npm-ci=0 build=0` và thời gian ~10–20 giây. Đường nginx chỉ được
+   kiểm chứng một phần (sandbox không có nginx/sudo) — nếu VM yêu cầu mật khẩu sudo, script in ra lệnh chạy tay.

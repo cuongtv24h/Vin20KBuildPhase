@@ -148,6 +148,10 @@ trace_*.jsonl
 profile/
 eval/results/rag_eval_report_*.md
 !eval/results/report.md
+# Trạng thái deploy (deploy/deploy.sh): dấu vết dependencies tại chỗ
+# (logs/ đã được bỏ qua ở LAYER 6 phía trên)
+.deploy-stamps/
+
 # Log phản hồi của Sale sinh ra lúc chạy (runtime data, không commit)
 eval/results/copilot_feedback.jsonl
 eval/results/*.jsonl
