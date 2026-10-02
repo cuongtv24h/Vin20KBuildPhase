@@ -60,7 +60,10 @@ export const ENDPOINTS = {
 
   // Lead Dossier — C-10
   leadList: def({ method: 'GET', path: '/leads', source: 'TD-4.4', auth: ['SALE'] }),
+  leadGet: def({ method: 'GET', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
   leadCreate: def({ method: 'POST', path: '/leads', source: 'PROPOSED', auth: ['SALE'] }),
+  leadUpdate: def({ method: 'PUT', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
+  leadDelete: def({ method: 'DELETE', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
   leadConvert: def({ method: 'POST', path: '/leads/{dossier_id}/convert-to-quote', source: 'TD-4.4', auth: ['SALE'] }),
 
   // Pre-Sales — C-09 (public)
@@ -83,8 +86,38 @@ export const ENDPOINTS = {
   policyRulesTest: def({ method: 'POST', path: '/policies/{policy_id}/rules/test', source: 'TD-4.4', auth: ['POLICY_ADMIN'] }),
   policyPublish: def({ method: 'POST', path: '/policies/{policy_id}/publish', source: 'TD-4.4', auth: ['POLICY_ADMIN'] }),
 
-  // Evaluation
-  benchmarkRun: def({ method: 'POST', path: '/evaluation/benchmark-runs', source: 'TD-4.4', auth: ['POLICY_ADMIN'] }),
+  // Evaluation — nav "Kiểm thử công thức" hiển thị cho cả ADMIN lẫn POLICY_ADMIN
+  // nên quyền endpoint phải khớp (trước đây ADMIN bấm vào bị 403 ở mock server).
+  benchmarkRun: def({ method: 'POST', path: '/evaluation/benchmark-runs', source: 'TD-4.4', auth: ['POLICY_ADMIN', 'ADMIN'] }),
+
+  // Sales Copilot (SCR-S00) — ReAct agent + streaming tiến trình suy luận
+  copilotChat: def({ method: 'POST', path: '/copilot/chat', source: 'PROPOSED', auth: 'staff' }),
+  copilotChatStream: def({ method: 'POST', path: '/copilot/chat/stream', source: 'PROPOSED', auth: 'staff' }),
+  copilotFeedback: def({ method: 'POST', path: '/copilot/feedback', source: 'PROPOSED', auth: 'staff' }),
+  copilotFeedbackSummary: def({ method: 'GET', path: '/copilot/feedback/summary', source: 'PROPOSED', auth: 'staff' }),
+  copilotFeedbackRecent: def({ method: 'GET', path: '/copilot/feedback/recent', source: 'PROPOSED', auth: ['ADMIN', 'POLICY_ADMIN'] }),
+
+  // Lịch sử hội thoại Copilot — giữ qua các trang, tra cứu lại được (chỉ chủ sở hữu)
+  copilotConversations: def({ method: 'GET', path: '/copilot/conversations', source: 'PROPOSED', auth: 'staff' }),
+  copilotConversationCreate: def({ method: 'POST', path: '/copilot/conversations', source: 'PROPOSED', auth: 'staff' }),
+  copilotConversationDetail: def({ method: 'GET', path: '/copilot/conversations/{conversation_id}', source: 'PROPOSED', auth: 'staff' }),
+  copilotConversationTurn: def({ method: 'POST', path: '/copilot/conversations/turns', source: 'PROPOSED', auth: 'staff' }),
+  copilotConversationRename: def({ method: 'PATCH', path: '/copilot/conversations/{conversation_id}', source: 'PROPOSED', auth: 'staff' }),
+  copilotConversationDelete: def({ method: 'DELETE', path: '/copilot/conversations/{conversation_id}', source: 'PROPOSED', auth: 'staff' }),
+
+  // Quản trị nhà cung cấp LLM & đo chi phí/hiệu năng (ADMIN)
+  llmProviders: def({ method: 'GET', path: '/admin/llm/providers', source: 'PROPOSED', auth: ['ADMIN'] }),
+  llmProviderCreate: def({ method: 'POST', path: '/admin/llm/providers', source: 'PROPOSED', auth: ['ADMIN'] }),
+  llmProviderUpdate: def({ method: 'PUT', path: '/admin/llm/providers/{provider_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
+  llmProviderDelete: def({ method: 'DELETE', path: '/admin/llm/providers/{provider_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
+  llmProviderTest: def({ method: 'POST', path: '/admin/llm/providers/{provider_id}/test', source: 'PROPOSED', auth: ['ADMIN'] }),
+  llmUsageSummary: def({ method: 'GET', path: '/admin/llm/usage/summary', source: 'PROPOSED', auth: ['ADMIN'] }),
+  llmUsageRecords: def({ method: 'GET', path: '/admin/llm/usage/records', source: 'PROPOSED', auth: ['ADMIN'] }),
+
+  // Đọc câu trả lời Copilot (TTS) — thiết lập dùng chung/riêng + phản hồi giọng đọc (mọi nhân viên)
+  ttsSettings: def({ method: 'GET', path: '/settings/tts', source: 'PROPOSED', auth: 'staff' }),
+  ttsSettingsUpdate: def({ method: 'PUT', path: '/settings/tts', source: 'PROPOSED', auth: 'staff' }),
+  ttsFeedback: def({ method: 'POST', path: '/settings/tts/feedback', source: 'PROPOSED', auth: 'staff' }),
 } as const
 
 export type EndpointName = keyof typeof ENDPOINTS

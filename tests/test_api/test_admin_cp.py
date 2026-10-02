@@ -11,13 +11,13 @@ import pytest
 from sqlalchemy import delete
 
 from src.db.models import UserModel
-from src.db.session import async_session_factory
+from tests.conftest import async_test_session_factory
 
 
 @pytest.mark.asyncio
 async def test_admin_cp_lifecycle_and_md5_auth(client):
     # Dọn dẹp trước khi chạy test
-    async with async_session_factory() as session:
+    async with async_test_session_factory() as session:
         await session.execute(delete(UserModel).where(UserModel.email.like("%@test-vland.vn")))
         await session.commit()
 
@@ -51,7 +51,6 @@ async def test_admin_cp_lifecycle_and_md5_auth(client):
 
     # Kiểm tra mật khẩu trong DB được mã hóa MD5
     expected_md5 = hashlib.md5(admin_pass.encode("utf-8")).hexdigest()
-    from tests.conftest import async_test_session_factory
     async with async_test_session_factory() as session:
         from sqlalchemy import select
         user_in_db = await session.scalar(select(UserModel).where(UserModel.user == admin_user))
@@ -135,6 +134,6 @@ async def test_admin_cp_lifecycle_and_md5_auth(client):
     assert del_res.status_code == 200
 
     # Dọn dẹp dữ liệu test
-    async with async_session_factory() as session:
+    async with async_test_session_factory() as session:
         await session.execute(delete(UserModel).where(UserModel.email.like("%@test-vland.vn")))
         await session.commit()

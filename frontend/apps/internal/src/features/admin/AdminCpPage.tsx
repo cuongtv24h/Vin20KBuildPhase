@@ -1,6 +1,8 @@
 import {
   AlertCircle,
   Edit3,
+  ExternalLink,
+  Gauge,
   Loader2,
   Lock,
   LogOut,
@@ -65,8 +67,10 @@ import {
   TableRow,
 } from '@pricepolicy/ui/components/ui/table'
 import { toast } from '@pricepolicy/ui/state/toastStore'
+import { cn } from '@pricepolicy/ui/lib/utils'
 
 import { useSessionStore } from '@/auth/sessionStore'
+import { LlmProvidersTab, LlmUsageTab, TtsTab } from './LlmAdminTabs'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trang Quản trị Hệ thống (Admin CP)
@@ -259,9 +263,7 @@ function InitialAdminSetup({ onSetupSuccess }: { onSetupSuccess: () => void }) {
 // 2. Bảng điều khiển Quản trị Người dùng & Phân quyền (Admin CP Dashboard)
 // Cấu trúc hiển thị: user | password | email | phone | role
 // ─────────────────────────────────────────────────────────────────────────────
-function AdminUserManagementDashboard() {
-  const currentUser = useSessionStore((s) => s.session?.user)
-  const clearSession = useSessionStore((s) => s.clearSession)
+function AdminUsersTab() {
 
   const [roleFilter, setRoleFilter] = useState<string>('ALL')
   const [search, setSearch] = useState('')
@@ -304,19 +306,8 @@ function AdminUserManagementDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Banner Action */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold tracking-tight">Quản trị Người dùng & Phân quyền</h2>
-            <Badge variant="outline" className="border-primary/30 text-primary text-xs">
-              admin_cp
-            </Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Quản trị danh sách người dùng và phân quyền hệ thống.
-          </p>
-        </div>
+      {/* Banner Action — tiêu đề chung đã ở khung tab phía trên */}
+      <div className="flex items-center justify-end">
         <Button onClick={() => setIsAddOpen(true)} className="shadow">
           <UserPlus className="mr-2 h-4 w-4" />
           Thêm tài khoản mới
@@ -356,6 +347,29 @@ function AdminUserManagementDashboard() {
             </CardHeader>
           </Card>
         </div>
+
+        {/* Lối vào trang chất lượng AI — tách riêng vì khác vai với quản trị tài khoản */}
+        <Card className="border-primary/25 bg-primary/[0.03]">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10">
+                <Gauge className="h-4.5 w-4.5 text-primary" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Chất lượng Copilot</p>
+                <p className="text-xs text-muted-foreground">
+                  Theo dõi đánh giá 👍/👎 của Sale: tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê và nội dung
+                  từng lượt bị chê (đã che PII khách). Số liệu này cũng được nạp lại vào prompt của trợ lý.
+                </p>
+              </div>
+            </div>
+            <Button asChild variant="outline" className="shrink-0">
+              <Link to="/admin/copilot-quality">
+                Mở trang chất lượng <ExternalLink className="ml-2 h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Filter bar */}
         <Card>
@@ -526,6 +540,68 @@ function AdminUserManagementDashboard() {
           </DialogContent>
         </Dialog>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2b. Bảng điều khiển Admin CP — 3 khu vực tách tab
+//     · Người dùng & phân quyền
+//     · Nhà cung cấp LLM (tự khai báo API key, đơn giá) — không cần sửa ENV
+//     · Chi phí & hiệu năng (đo token, độ trễ, chi phí mỗi lượt gọi)
+// ─────────────────────────────────────────────────────────────────────────────
+type AdminTab = 'users' | 'providers' | 'usage' | 'tts'
+
+function AdminUserManagementDashboard() {
+  const [tab, setTab] = useState<AdminTab>('users')
+
+  const tabs: Array<{ id: AdminTab; label: string; hint: string }> = [
+    { id: 'users', label: 'Người dùng & phân quyền', hint: 'Tài khoản, vai trò, khởi tạo' },
+    { id: 'providers', label: 'Nhà cung cấp LLM', hint: 'API key + đơn giá, không cần sửa ENV' },
+    { id: 'usage', label: 'Chi phí & hiệu năng', hint: 'Token, độ trễ, chi phí mỗi lượt gọi' },
+    { id: 'tts', label: 'Giọng đọc (TTS)', hint: 'Copilot đọc câu trả lời: nhà cung cấp, giọng, đơn giá' },
+  ]
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold tracking-tight">Quản trị Hệ thống</h2>
+          <Badge variant="outline" className="border-primary/30 text-primary text-xs">
+            admin_cp
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Tài khoản &amp; phân quyền, cấu hình nhà cung cấp LLM và đo lường chi phí/hiệu năng của trợ lý AI.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Khu vực quản trị">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            title={t.hint}
+            className={cn(
+              'rounded-lg border px-3 py-2 text-left transition-colors',
+              tab === t.id
+                ? 'border-primary/40 bg-primary/10 text-foreground'
+                : 'border-border bg-card text-muted-foreground hover:bg-muted/50',
+            )}
+          >
+            <span className="block text-sm font-semibold">{t.label}</span>
+            <span className="block text-[11px] text-muted-foreground">{t.hint}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === 'users' && <AdminUsersTab />}
+      {tab === 'providers' && <LlmProvidersTab />}
+      {tab === 'usage' && <LlmUsageTab />}
+      {tab === 'tts' && <TtsTab />}
     </div>
   )
 }

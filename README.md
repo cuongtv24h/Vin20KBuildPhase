@@ -1,6 +1,6 @@
 # PricePolicy AI Agent — Hệ Thống Trợ Lý AI Định Giá & Tư Vấn Chính Sách Bất Động Sản Doanh Nghiệp (P-096)
 
-[![CI - Pytest](https://img.shields.io/badge/pytest-32%2F32%20passed-brightgreen.svg)](tests/)
+[![CI - Pytest](https://img.shields.io/badge/pytest-498%2F498%20passed-brightgreen.svg)](tests/)
 [![Code Style - Ruff](https://img.shields.io/badge/code%20style-ruff%20clean-blue.svg)](ruff.toml)
 [![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue.svg)](requirements.txt)
 [![Architecture](https://img.shields.io/badge/architecture-PEC--RAG%20%7C%20TDEC-orange.svg)](ARCHITECTURE.md)
@@ -94,11 +94,11 @@ P-096/
 │   ├── models/              # Data contracts: pec_contracts.py, rag_schemas.py
 │   ├── config.py            # Cấu hình Pydantic settings (.env)
 │   └── main.py              # Điểm khởi chạy ứng dụng FastAPI
-├── tests/
-│   ├── test_services/       # 24 tests: test_rag/, test_evidence/, test_compliance/, test_llm
-│   ├── test_agents/         # 3 tests: test_graph, test_policy_search
-│   ├── test_api/            # 7 tests: test_routes, test_pricing_mock
-│   └── test_rag/            # 12 legacy regression tests
+├── tests/                   # 455 test (pytest tests/ -q) — chạy ~10 s
+│   ├── test_services/       # RAG, evidence, compliance, pricing sidecar, LLM
+│   ├── test_agents/         # graph Pre-Sales/Official Quote, ReAct Copilot
+│   ├── test_api/            # routers, hợp đồng endpoint, copilot, admin CP
+│   └── test_pricing_sidecar/ # Enums, input/output contracts, arithmetic
 ├── scripts/
 │   ├── seed_data.py         # [C-03] Nạp Markdown chính sách vào PostgreSQL pgvector
 │   ├── run_eval.py          # [C-02] Đánh giá benchmark RAG tự động
@@ -153,9 +153,14 @@ uvicorn src.main:app --reload --port 8000
 
 ## 6. Kiểm Thử & Đo Lường Chất Lượng (Quality & Eval)
 
-### Chạy Toàn Bộ Test Suite (32/32 Passed in 1.70s)
+### Chạy Toàn Bộ Test Suite (498 passed, ~12 s)
 ```bash
-.venv/bin/pytest tests/ -v
+.venv/bin/pytest tests/ -q
+```
+
+### Chạy Test Frontend (24 test trên MSW, không cần backend)
+```bash
+cd frontend && npm test
 ```
 
 ### Kiểm Tra Chuẩn Code (Ruff Clean)
@@ -173,6 +178,27 @@ python scripts/run_eval.py
 - **Conflict Completeness:** `100.00%`
 - **Cryptographic Hash Integrity:** `100.00%`
 - **Mean Retrieval Latency:** `4.78 ms`
+
+### Chạy Eval Trợ Lý Copilot (32 câu vàng, offline)
+```bash
+.venv/bin/python scripts/run_copilot_eval.py
+```
+**Kết quả mới nhất** (`eval/results/copilot_report.json`):
+
+| Chỉ số | Ngưỡng CI | Kết quả |
+| :--- | :--- | :--- |
+| Tool selection accuracy | ≥ 0.90 | **1.00** |
+| Citation precision | ≥ 0.90 | **1.00** |
+| Hallucination rate | ≤ 0.05 | **0.00** |
+| p95 latency | < 2000 ms | **4 ms** |
+| Critic gắn cờ (câu vàng) | ≤ 3 | **0** |
+| Câu trả lời nhiều bước (planner) | ≥ 1 | **2** |
+
+Phản hồi của Sale (P2) được ghi qua `POST /api/v1/copilot/feedback` và dùng làm "điều cần tránh"
+trong prompt các lượt sau. Quản trị viên theo dõi chất lượng ở **trang riêng `/admin/copilot-quality`**
+(mục "Chất lượng Copilot" trên menu; có thẻ chỉ đường ngay trong `/admin_cp`; quyền ADMIN + POLICY_ADMIN):
+tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê, và danh sách lượt bị chê — nội dung do server
+**che PII** (SĐT/email khách) trước khi trả về.
 
 ---
 

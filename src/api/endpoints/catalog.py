@@ -6,6 +6,7 @@ Cung cấp dữ liệu thực tế cho Frontend UI (Customer & Internal) kết n
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.deps import Principal, create_access_token, get_current_principal
 from src.db.models import UserModel
 from src.db.session import get_db_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["catalog-auth"])
 
@@ -255,10 +258,10 @@ async def auth_login(
             )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tài khoản hoặc email này không tồn tại trong hệ thống.",
+            detail="Tài khoản hoặc email không tồn tại trong hệ thống cơ sở dữ liệu.",
         )
 
-    # 2. Kiểm tra mật khẩu MD5
+    # 2. Khớp mật khẩu MD5 trực tiếp với giá trị lưu trong CSDL thật
     req_hash = hashlib.md5(req.password.strip().encode("utf-8")).hexdigest()
     if req_hash != user_db.password:
         raise HTTPException(
@@ -492,6 +495,7 @@ async def fetch_db_policies() -> list[dict[str, Any]]:
     """Loads all real policies and clauses directly from PostgreSQL database."""
     try:
         from sqlalchemy import text
+
         from src.db.session import async_session_factory
 
         async with async_session_factory() as session:

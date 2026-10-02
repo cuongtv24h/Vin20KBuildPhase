@@ -21,7 +21,7 @@ bash scripts/demo_reset.sh
 
 # 3. Kiểm tra sức khỏe bộ test trước khi diễn tập
 py -3 -m pytest tests/ -q --no-header
-# Kỳ vọng: 71 passed (11 contracts + db + spike + pricing + api 8 + agents 39 + 6 E2E + 7 failure)
+# Kỳ vọng: 498 passed (đã gồm 59 test Copilot + eval harness + phản hồi + trang chất lượng; xem README §6)
 ```
 
 ---
@@ -87,6 +87,7 @@ Script thực hiện 5 bước (tổng thời gian < 15 giây):
 3. **Chặng 3-4 (Official Quote):** dừng màn hình ở N-16 cho khán giả thấy HITL quản lý; SoD chặn creator tự duyệt chính mình (test `test_sod_blocks_creator_self_approval`).
 4. **Chặng 5 (F8):** gõ trực tiếp tin "Cam kết sinh lời 20%" để khán giả thấy chặn đỏ 403.
 5. **Kết:** chạy `bash scripts/demo_reset.sh` live để chứng minh reset < 15s.
+6. **Chặng đo lường (nếu khán giả hỏi "lấy gì chứng minh công thức đúng"):** mở `/admin/benchmark` → bấm **Chạy 17 ca kiểm thử** (17/17, Δ = 0 VNĐ, gắn nhãn văn bản đối chiếu). Sau đó ở `PolicyDetailPage` bấm **Kiểm tra trước ban hành** để thấy cổng chạy lại 17 ca + cảnh báo `GOLDEN_ALIGNMENT` khi văn bản mới chưa có bộ ca vàng riêng — điểm nhấn Zero-Trust: hệ thống **nói thẳng cái chưa kiểm chứng được** thay vì báo xanh giả.
 
 ---
 

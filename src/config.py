@@ -20,12 +20,42 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     cors_origins: str = "http://localhost:3000"
 
+    #: Khoá mã hoá API key của nhà cung cấp LLM (`src/services/llm_secrets.py`).
+    #: Nhận cả `LLM_SECRET_KEY` và `SECRET_KEY`. Đặt trong `.env` là đủ — không cần export ra shell,
+    #: vì giá trị trong `.env` chỉ được pydantic-settings nạp vào Settings, KHÔNG tự vào `os.environ`.
+    llm_secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("llm_secret_key", "LLM_SECRET_KEY", "SECRET_KEY"),
+    )
+
+    #: Chế độ header HTTP khi gọi nhà cung cấp LLM (xem `src/services/llm_http.py`):
+    #: `app` = khai báo tên ứng dụng; `browser` = thêm bộ header kiểu trình duyệt, dùng khi nhà cung
+    #: cấp đứng sau Cloudflare chặn challenge. Có thể đặt bằng biến môi trường `LLM_HTTP_HEADERS`.
+    llm_http_headers: Literal["app", "browser"] = "app"
+
     # Primary LLM
     openai_api_key: str = ""
     openai_base_url: str | None = None
     model_name: str = "gpt-4o-mini"
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     llm_max_retries: int = Field(default=1, ge=0, le=10)
+
+    # Text-to-Speech (đọc câu trả lời Copilot) — giá trị khởi tạo từ ENV,
+    # thiết lập trong DB/UI sẽ đè lên khi có.
+    tts_provider: str = ""
+    tts_model: str = ""
+    tts_voice: str = ""
+    tts_speed: float = 1.0
+    tts_enabled: bool = True
+    tts_auto_speak: bool = False
+    tts_max_chars_per_turn: int = 600
+    #: Khoá của các nhà cung cấp TTS không dùng chung OPENAI_API_KEY.
+    google_application_credentials: str = ""
+    azure_speech_key: str = ""
+    azure_speech_region: str = "southeastasia"
+    viettel_tts_token: str = ""
+    vbee_token: str = ""
+    fpt_tts_api_key: str = ""
 
     # Fallback LLM 1
     fallback_openai_api_key: str | None = Field(
@@ -67,7 +97,7 @@ class Settings(BaseSettings):
     # Pricing Sidecar (Component C-06)
     pricing_sidecar_socket: str = "./data/pricing.sock"
     pricing_sidecar_host: str = "127.0.0.1"
-    pricing_sidecar_port: int = 8001
+    pricing_sidecar_port: int = 28001
     pricing_use_mock: bool = False
     pricing_fallback_to_direct: bool = True
 

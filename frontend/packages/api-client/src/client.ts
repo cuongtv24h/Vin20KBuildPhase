@@ -1,5 +1,12 @@
 import type {
+  CopilotFeedbackRecentParams,
+  CopilotFeedbackRecentResponse,
+  CopilotFeedbackRequest,
+  CopilotFeedbackResponse,
+  CopilotFeedbackSummary,
   AdminSetupStatus,
+  CopilotChatRequest,
+  CopilotChatResponse,
   AdminUser,
   ApproveRequest,
   AuthSession,
@@ -16,6 +23,7 @@ import type {
   HandoffRequest,
   InitAdminPayload,
   LeadCreatePayload,
+  LeadUpdatePayload,
   LeadDossier,
   LoginRequest,
   MessageSendResult,
@@ -27,19 +35,33 @@ import type {
   Quote,
   QuoteAccepted,
   QuoteAudit,
+  QuoteCreateOutcome,
   QuoteCreatePayload,
   QuoteCreateRequest,
-  QuoteCreateResult,
   QuoteEvidence,
   QuoteListParams,
   QuotePdf,
   ReauthGrant,
+  CopilotAppendTurnRequest,
+  CopilotConversationDetail,
+  CopilotConversationListResponse,
+  LlmProvider,
+  LlmProviderListResponse,
+  LlmProviderPayload,
+  LlmProviderTestResult,
+  LlmUsageRecordsResponse,
+  LlmUsageSummary,
   ReauthRequest,
   RulesTestReport,
   SendMessageCommand,
+  TtsFeedbackPayload,
+  TtsFeedbackResponse,
+  TtsSettingsPayload,
+  TtsSettingsResponse,
   UnitSnapshot,
   UpdateUserPayload,
 } from './contracts'
+import { streamCopilotChat } from './copilotStream'
 import { buildPath, ENDPOINTS, type EndpointName } from './endpoints'
 import { http, type HttpRequest } from './http'
 import { normalizeQuote } from './normalizeQuote'
@@ -105,8 +127,12 @@ export const api = {
       const res = await call<Record<string, unknown>>('quoteDetail', { quote_id: quoteId }, { query: { version } })
       return normalizeQuote(res)
     },
-    /** POST /api/v1/quotes thật — đồng bộ, trả về hồ sơ đầy đủ ngay (không phải 202 + SSE). */
-    create: (body: QuoteCreatePayload, o: CommandOptions = {}) => call<QuoteCreateResult>('quoteCreate', {}, { json: body, ...o }),
+    /**
+     * POST /api/v1/quotes. Body nhận cả `QuoteCreatePayload` (backend thật, đồng bộ)
+     * lẫn `TransactionContext` (TD-4.1/mock: 202 + SSE) — xem `QuoteCreateOutcome`.
+     */
+    create: (body: QuoteCreatePayload | QuoteCreateRequest, o: CommandOptions = {}) =>
+      call<QuoteCreateOutcome>('quoteCreate', {}, { json: body, ...o }),
     newVersion: (quoteId: string, body: QuoteCreateRequest, o: VersionedCommandOptions) =>
       call<QuoteAccepted>('quoteNewVersion', { quote_id: quoteId }, { json: body, idempotencyKey: o.idempotencyKey, ifMatchVersion: o.expectedVersion }),
     submit: (quoteId: string, o: VersionedCommandOptions) =>
@@ -137,7 +163,11 @@ export const api = {
       if (res && Array.isArray(res.items)) return res.items as LeadDossier[]
       return []
     },
+    get: (dossierId: string) => call<LeadDossier>('leadGet', { dossier_id: dossierId }),
     create: (body: LeadCreatePayload, o: CommandOptions = {}) => call<LeadDossier>('leadCreate', {}, { json: body, ...o }),
+    update: (dossierId: string, body: LeadUpdatePayload, o: CommandOptions = {}) =>
+      call<LeadDossier>('leadUpdate', { dossier_id: dossierId }, { json: body, ...o }),
+    delete: (dossierId: string, o: CommandOptions = {}) => call<{ deleted: boolean }>('leadDelete', { dossier_id: dossierId }, o),
     convertToQuote: (dossierId: string, body: QuoteCreateRequest, o: CommandOptions = {}) =>
       call<QuoteAccepted>('leadConvert', { dossier_id: dossierId }, { json: body, ...o }),
   },
@@ -173,6 +203,74 @@ export const api = {
   },
 
   evaluation: {
-    runBenchmark: (o: CommandOptions = {}) => call<BenchmarkRun>('benchmarkRun', {}, o),
+    /** `body` tuỳ chọn: gắn lần chạy với văn bản chính sách đang chuẩn bị ban hành (bằng chứng release gate). */
+    runBenchmark: (body: { policy_id?: string; policy_version?: string } = {}, o: CommandOptions = {}) =>
+      call<BenchmarkRun>('benchmarkRun', {}, { json: body, ...o }),
+  },
+
+  copilot: {
+    /** Chat gom (không stream) — dùng khi môi trường chặn SSE. */
+    chat: (body: CopilotChatRequest, signal?: AbortSignal) =>
+      call<CopilotChatResponse>('copilotChat', {}, { json: body, signal }),
+    /**
+     * Chat stream tiến trình ReAct. Trả về hàm huỷ.
+     * Caller tự quản lý state qua handlers.onEvent.
+     */
+    stream: (body: CopilotChatRequest, handlers: Parameters<typeof streamCopilotChat>[1], signal?: AbortSignal) =>
+      streamCopilotChat(body, handlers, signal),
+    /** Gửi đánh giá của Sale về một lượt trả lời (P2 — học từ phản hồi). */
+    feedback: (body: CopilotFeedbackRequest, o: CommandOptions = {}) =>
+      call<CopilotFeedbackResponse>('copilotFeedback', {}, { json: body, ...o }),
+    /** Thống kê phản hồi tích luỹ (dashboard chất lượng). */
+    feedbackSummary: (signal?: AbortSignal) => call<CopilotFeedbackSummary>('copilotFeedbackSummary', {}, { signal }),
+    /**
+     * Danh sách phản hồi chi tiết cho trang quản trị chất lượng (ADMIN/POLICY_ADMIN).
+     * Nội dung đã được server che PII trước khi trả về.
+     */
+    feedbackRecent: (params: CopilotFeedbackRecentParams = {}, signal?: AbortSignal) =>
+      call<CopilotFeedbackRecentResponse>('copilotFeedbackRecent', {}, { query: { ...params }, signal }),
+
+    // ─── Lịch sử hội thoại (giữ qua các trang, tra cứu lại được) ─────────────
+    conversations: (signal?: AbortSignal) =>
+      call<CopilotConversationListResponse>('copilotConversations', {}, { signal }),
+    conversationCreate: (body: { title?: string } = {}, o: CommandOptions = {}) =>
+      call<CopilotConversationDetail>('copilotConversationCreate', {}, { json: body, ...o }),
+    conversation: (conversationId: string, signal?: AbortSignal) =>
+      call<CopilotConversationDetail>('copilotConversationDetail', { conversation_id: conversationId }, { signal }),
+    /** Ghi một lượt hỏi–đáp; bỏ trống `conversation_id` để tạo cuộc mới. */
+    appendTurn: (body: CopilotAppendTurnRequest, o: CommandOptions = {}) =>
+      call<CopilotConversationDetail>('copilotConversationTurn', {}, { json: body, ...o }),
+    conversationRename: (conversationId: string, title: string, o: CommandOptions = {}) =>
+      call<CopilotConversationDetail>('copilotConversationRename', { conversation_id: conversationId }, { json: { title }, ...o }),
+    conversationDelete: (conversationId: string, o: CommandOptions = {}) =>
+      call<{ ok: boolean; conversation_id: string }>('copilotConversationDelete', { conversation_id: conversationId }, o),
+  },
+
+  llmAdmin: {
+    /** Danh sách nhà cung cấp Admin khai báo (DB trước, ENV sau). */
+    providers: (signal?: AbortSignal) => call<LlmProviderListResponse>('llmProviders', {}, { signal }),
+    createProvider: (body: LlmProviderPayload, o: CommandOptions = {}) =>
+      call<LlmProvider>('llmProviderCreate', {}, { json: body, ...o }),
+    updateProvider: (providerId: string, body: LlmProviderPayload, o: CommandOptions = {}) =>
+      call<LlmProvider>('llmProviderUpdate', { provider_id: providerId }, { json: body, ...o }),
+    deleteProvider: (providerId: string, o: CommandOptions = {}) =>
+      call<{ ok: boolean; provider_id: string }>('llmProviderDelete', { provider_id: providerId }, o),
+    testProvider: (providerId: string, o: CommandOptions = {}) =>
+      call<LlmProviderTestResult>('llmProviderTest', { provider_id: providerId }, { json: {}, ...o }),
+    /** Tab "Chi phí & hiệu năng": token, chi phí theo đơn giá, p50/p95, tỉ lệ lỗi. */
+    usageSummary: (days = 14, signal?: AbortSignal) =>
+      call<LlmUsageSummary>('llmUsageSummary', {}, { query: { days }, signal }),
+    usageRecords: (limit = 50, signal?: AbortSignal) =>
+      call<LlmUsageRecordsResponse>('llmUsageRecords', {}, { query: { limit }, signal }),
+  },
+
+  /** Đọc câu trả lời Copilot (TTS): thiết lập giọng đọc + phản hồi chất lượng giọng. */
+  tts: {
+    settings: (signal?: AbortSignal) => call<TtsSettingsResponse>('ttsSettings', {}, { signal }),
+    updateSettings: (body: TtsSettingsPayload, o: CommandOptions = {}) =>
+      call<TtsSettingsResponse>('ttsSettingsUpdate', {}, { json: body, ...o }),
+    /** Ai cũng gửi được (kèm danh tính trong token) — dữ liệu để chọn giọng theo thực tế. */
+    feedback: (body: TtsFeedbackPayload, o: CommandOptions = {}) =>
+      call<TtsFeedbackResponse>('ttsFeedback', {}, { json: body, ...o }),
   },
 }

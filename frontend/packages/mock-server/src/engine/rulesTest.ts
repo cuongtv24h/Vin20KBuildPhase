@@ -1,5 +1,5 @@
 import type { ConflictFinding, PolicyDocument, RulesTestCheck, RulesTestReport } from '@pricepolicy/api-client/contracts'
-import { runBenchmark } from './benchmark'
+import { BENCHMARK_CASES, runBenchmark } from './benchmark'
 import { MAX_STACKED_DISCOUNT_RATE } from './sanity'
 
 const fmt = (d: string) => d.split('-').reverse().join('/')
@@ -31,7 +31,7 @@ export function scanPolicyConflicts(policy: PolicyDocument): ConflictFinding[] {
 }
 
 /** Pre-publish gate F9: chỉ ban hành khi không có FAIL (WARN cho phép, hiển thị để Admin cân nhắc). */
-export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], now: string): RulesTestReport {
+export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], now: string, runId = 'inline'): RulesTestReport {
   const checks: RulesTestCheck[] = []
   const add = (code: string, label: string, ok: boolean | 'warn', detail: string) =>
     checks.push({ code, label, status: ok === 'warn' ? 'WARN' : ok ? 'PASS' : 'FAIL', detail })
@@ -60,8 +60,22 @@ export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], n
   const ambiguous = policy.rules.filter((r) => r.is_ambiguous)
   add('AMBIGUOUS_CLAUSES', 'Điều khoản mơ hồ', ambiguous.length ? 'warn' : true, ambiguous.length ? ambiguous.map((r) => r.source.section).join(', ') : 'Không có')
 
-  const regression = runBenchmark('inline', now, now)
+  const regression = runBenchmark(runId, now, now, { policy_id: policy.policy_id, policy_version: policy.policy_version })
   add('FORMULA_REGRESSION', 'Kiểm thử hồi quy công thức', regression.passed === regression.total, `${regression.passed}/${regression.total} ca khớp tuyệt đối`)
+  // Bộ vàng đang phủ những tỷ lệ nào? Văn bản mới có tỷ lệ nào ngoài bộ đó → cảnh báo cụ thể,
+  // để Admin biết chính xác phải soạn thêm ca vàng nào thay vì chỉ biết "DRIFT".
+  const coveredRates = BENCHMARK_CASES.flatMap((c) => c.discount_rates)
+  const policyRates = policy.rules.filter((r) => r.kind === 'PERCENT_DISCOUNT' && r.discount_rate).map((r) => r.discount_rate as number)
+  const uncoveredRates = [...new Set(policyRates.filter((r) => !coveredRates.some((c) => Math.abs(c - r) < 1e-9)))]
+  const uncoveredText = uncoveredRates.length ? ` · tỷ lệ chưa có ca vàng: ${uncoveredRates.map((r) => `${(r * 100).toFixed(1)}%`).join(', ')}` : ''
+  add(
+    'GOLDEN_ALIGNMENT',
+    'Đối chiếu bản golden đang khoá',
+    regression.policy_alignment === 'MATCH' ? true : 'warn',
+    regression.policy_alignment === 'MATCH'
+      ? `${policy.policy_version} khớp ${regression.golden_policy_ref}`
+      : `${policy.policy_version} chưa có bộ ca vàng riêng — đang đối chiếu với ${regression.golden_policy_ref}${uncoveredText}`,
+  )
 
   return {
     policy_id: policy.policy_id,
@@ -70,5 +84,7 @@ export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], n
     conflict_findings: scanPolicyConflicts(policy),
     regression: { passed: regression.passed, total: regression.total },
     can_publish: policy.status === 'DRAFT' && checks.every((c) => c.status !== 'FAIL'),
+    benchmark_run_id: regression.run_id,
+    policy_alignment: regression.policy_alignment ?? 'PINNED',
   }
 }

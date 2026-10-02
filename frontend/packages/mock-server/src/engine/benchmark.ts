@@ -10,7 +10,7 @@ interface BenchmarkCase {
 }
 
 /**
- * Formula Regression Benchmark Suite — 15 test cases cố định (input/expected-output
+ * Formula Regression Benchmark Suite — 17 test cases cố định (input/expected-output
  * khoá cứng trong code, không tự sinh ngẫu nhiên — theo đúng yêu cầu OP-02/MVP-05).
  *
  * TC-01 tái sử dụng nguyên số liệu minh hoạ tại PRD §7/§8 (căn ZEN-A-1205, chiết khấu
@@ -245,8 +245,22 @@ export const BENCHMARK_CASES: BenchmarkCase[] = [
 
 const FIELDS: (keyof BenchmarkAmounts)[] = ['discount_vnd', 'net_price_before_tax_vnd', 'vat_vnd', 'kpbt_vnd', 'total_contract_price_vnd']
 
-/** Chạy 15 golden case — so khớp tuyệt đối từng trường (Δ = 0 VNĐ). */
-export function runBenchmark(runId: string, startedAt: string, finishedAt: string): BenchmarkRun {
+/** Văn bản mà bộ 17 ca vàng đang khoá theo (FCS v2.6). */
+export const GOLDEN_POLICY_REF = 'POL-2026-VLF-GEN v2.6'
+
+/**
+ * Chạy 17 golden case — so khớp tuyệt đối từng trường (Δ = 0 VNĐ).
+ *
+ * `policy` (tuỳ chọn): văn bản đang chuẩn bị ban hành. Khi truyền vào, kết quả ghi rõ
+ * văn bản đó có khớp bộ ca vàng đang khoá hay không (`policy_alignment`) — đúng hành vi
+ * của API thật, để màn hình Kiểm thử công thức và cổng trước ban hành nói cùng một sự thật.
+ */
+export function runBenchmark(
+  runId: string,
+  startedAt: string,
+  finishedAt: string,
+  policy?: { policy_id: string; policy_version: string },
+): BenchmarkRun {
   const cases: BenchmarkCaseResult[] = BENCHMARK_CASES.map((c) => {
     const { total_discount_rate: _rate, ...actual } = calculateAmounts(c.listed_price_before_tax_vnd, c.discount_rates)
     const delta = FIELDS.reduce((sum, f) => sum + Math.abs(actual[f] - c.expected[f]), 0)
@@ -259,8 +273,23 @@ export function runBenchmark(runId: string, startedAt: string, finishedAt: strin
       actual,
       delta_vnd: delta,
       passed: delta === 0,
+      status: (delta === 0 ? 'PASSED' : 'FAILED') as BenchmarkCaseResult['status'],
     }
   })
   const passed = cases.filter((c) => c.passed).length
-  return { run_id: runId, started_at: startedAt, finished_at: finishedAt, total: cases.length, passed, exact_match_rate: passed / cases.length, cases }
+  const policyId = policy?.policy_id ?? 'POL-2026-VLF-GEN'
+  const policyVersion = policy?.policy_version ?? 'v2.6'
+  return {
+    run_id: runId,
+    started_at: startedAt,
+    finished_at: finishedAt,
+    total: cases.length,
+    passed,
+    exact_match_rate: passed / cases.length,
+    cases,
+    policy_id: policyId,
+    policy_version: policyVersion,
+    golden_policy_ref: GOLDEN_POLICY_REF,
+    policy_alignment: `${policyId} ${policyVersion}` === GOLDEN_POLICY_REF ? 'MATCH' : 'DRIFT',
+  }
 }

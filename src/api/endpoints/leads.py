@@ -40,6 +40,25 @@ class LeadDossierCreateRequest(BaseModel):
     lead_temperature: LeadTemperature = LeadTemperature.WARM
 
 
+class LeadDossierUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    customer_name: str | None = None
+    customer_phone: str | None = None
+    customer_segment: str | None = None
+    project_id: str | None = None
+    preferred_unit_code: str | None = None
+    bedrooms: int | None = None
+    own_funds_vnd: int | None = None
+    monthly_capacity_vnd: int | None = None
+    total_contract_price_vnd: int | None = None
+    objective: str | None = None
+    needs_summary: str | None = None
+    lead_temperature: str | None = None
+    status: str | None = None
+    assigned_sales_id: str | None = None
+
+
 class AssignSalesRequest(BaseModel):
     sales_id: str
 
@@ -191,6 +210,74 @@ async def convert_dossier_to_quote(dossier_id: str, payload: dict[str, Any] | No
                 "status": "APPROVED_FOR_QUOTE",
                 "message": f"Hồ sơ {dossier_id} đã được chuyển đổi thành báo giá {quote_id}",
             }
+    except Exception as exc:
+        _raise_http(exc)
+
+
+@router.get("/{dossier_id}", response_model=dict[str, Any])
+async def get_dossier(dossier_id: str) -> dict[str, Any]:
+    """GET /api/v1/leads/{dossier_id} — Chi tiết hồ sơ khách hàng."""
+    try:
+        async for db in get_db_session():
+            service = PreSalesDossierService()
+            dossier = await service.get_dossier(db, dossier_id=dossier_id)
+            return _dossier_to_response(dossier)
+    except Exception as exc:
+        _raise_http(exc)
+
+
+@router.put("/{dossier_id}", response_model=dict[str, Any])
+@router.patch("/{dossier_id}", response_model=dict[str, Any])
+async def update_dossier(dossier_id: str, payload: LeadDossierUpdateRequest) -> dict[str, Any]:
+    """PUT/PATCH /api/v1/leads/{dossier_id} — Cập nhật hồ sơ khách hàng bởi Sale."""
+    try:
+        async for db in get_db_session():
+            service = PreSalesDossierService()
+            constraints_dict: dict[str, Any] = {}
+            if payload.customer_segment is not None:
+                constraints_dict["customer_segment"] = payload.customer_segment
+            if payload.project_id is not None:
+                constraints_dict["project_id"] = payload.project_id
+            if payload.preferred_unit_code is not None:
+                constraints_dict["preferred_unit_code"] = payload.preferred_unit_code
+            if payload.bedrooms is not None:
+                constraints_dict["bedrooms"] = payload.bedrooms
+            if payload.own_funds_vnd is not None:
+                constraints_dict["own_funds_vnd"] = payload.own_funds_vnd
+            if payload.monthly_capacity_vnd is not None:
+                constraints_dict["monthly_capacity_vnd"] = payload.monthly_capacity_vnd
+            if payload.total_contract_price_vnd is not None:
+                constraints_dict["total_contract_price_vnd"] = payload.total_contract_price_vnd
+            if payload.objective is not None:
+                constraints_dict["objective"] = payload.objective
+            if payload.needs_summary is not None:
+                constraints_dict["needs_summary"] = payload.needs_summary
+
+            dossier = await service.update_dossier(
+                db,
+                dossier_id=dossier_id,
+                customer_name=payload.customer_name,
+                customer_phone=payload.customer_phone,
+                lead_temperature=payload.lead_temperature,
+                status=payload.status,
+                assigned_sales_id=payload.assigned_sales_id,
+                constraints=constraints_dict if constraints_dict else None,
+            )
+            await db.commit()
+            return _dossier_to_response(dossier)
+    except Exception as exc:
+        _raise_http(exc)
+
+
+@router.delete("/{dossier_id}")
+async def delete_dossier(dossier_id: str) -> dict[str, Any]:
+    """DELETE /api/v1/leads/{dossier_id} — Xóa hồ sơ khách hàng."""
+    try:
+        async for db in get_db_session():
+            service = PreSalesDossierService()
+            await service.delete_dossier(db, dossier_id=dossier_id)
+            await db.commit()
+            return {"deleted": True, "dossier_id": dossier_id}
     except Exception as exc:
         _raise_http(exc)
 

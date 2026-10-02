@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Inbox, LogOut, Menu, ScrollText, ShieldCheck, X } from 'lucide-react'
+import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Gauge, Inbox, LogOut, Menu, MessageSquare, ScrollText, ShieldCheck, Sparkles, Users, X } from 'lucide-react'
 import { useState, type ComponentType } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '@pricepolicy/api-client/client'
 import type { UserRole } from '@pricepolicy/api-client/contracts'
 import { useLeads, useQuotes } from '@pricepolicy/api-client/hooks'
@@ -24,15 +24,20 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
     { to: '/admin_cp', label: 'Quản trị Users', icon: ShieldCheck },
     { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
     { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
+    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge },
   ],
   SALE: [
-    { to: '/sale/leads', label: 'Hồ sơ khách', icon: Inbox, badgeKey: 'openLeads' },
+    { to: '/sale/workspace', label: 'Trợ lý Copilot', icon: Sparkles },
+    { to: '/sale/leads', label: 'Khách hàng', icon: Users, badgeKey: 'openLeads' },
     { to: '/sale/quotes', label: 'Báo giá', icon: FileStack },
+    { to: '/sale/messages', label: 'Tin nhắn', icon: MessageSquare },
+    { to: '/sale/policies', label: 'Chính sách', icon: ScrollText },
   ],
   MANAGER: [{ to: '/manager/approvals', label: 'Phê duyệt báo giá', icon: ClipboardCheck, badgeKey: 'managerQueue' }],
   POLICY_ADMIN: [
     { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
     { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
+    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge },
   ],
 }
 
@@ -165,7 +170,13 @@ export function StaffLayout() {
           <span className="font-display font-semibold">PricePolicy</span>
           <span className="text-xs text-muted-foreground">{session?.user.full_name}</span>
         </header>
-        <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <main
+          className={cn(
+            location.pathname.startsWith('/sale/workspace')
+              ? 'flex flex-1 flex-col h-screen overflow-hidden p-0'
+              : 'mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8'
+          )}
+        >
           <Outlet />
         </main>
       </div>

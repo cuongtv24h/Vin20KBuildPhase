@@ -16,6 +16,11 @@ export const queryKeys = {
   pdf: (quoteId: string) => ['quotes', 'pdf', quoteId] as const,
   leads: ['leads'] as const,
   preSales: (sessionId: string) => ['pre-sales', sessionId] as const,
+  copilotConversations: ['copilot', 'conversations'] as const,
+  copilotConversation: (conversationId: string) => ['copilot', 'conversation', conversationId] as const,
+  llmProviders: ['admin', 'llm', 'providers'] as const,
+  llmUsage: ['admin', 'llm', 'usage'] as const,
+  ttsSettings: ['settings', 'tts'] as const,
 }
 
 /**

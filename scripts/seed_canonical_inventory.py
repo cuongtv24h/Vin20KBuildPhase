@@ -23,14 +23,13 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from dotenv import load_dotenv
-
-load_dotenv(ROOT_DIR / ".env")
-
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import text
 
 from src.db.models import PolicyEdgeModel, ProjectModel, UnitModel
+
+load_dotenv(ROOT_DIR / ".env")
 
 
 async def seed_inventory():
@@ -48,7 +47,6 @@ async def seed_inventory():
     print(f"Loading data from: {canonical_dir}")
     projects_data = json.loads(projects_file.read_text(encoding="utf-8"))
     units_data = json.loads(units_file.read_text(encoding="utf-8"))
-    exclusions_data = json.loads(exclusions_file.read_text(encoding="utf-8"))
 
     async with engine.begin() as conn:
         # 1. Seed Projects
@@ -96,7 +94,7 @@ async def seed_inventory():
         print(f"  ✓ Successfully seeded {len(units_data)} units!")
 
         # 3. Seed Policy Edges
-        print(f"--- Seeding policy edges from mutual_exclusions.json ---")
+        print(f"--- Seeding policy edges from {exclusions_file.name} ---")
         # Define edge mappings connecting representative atoms in DB
         edges_to_seed = [
             # CONF-01: Early Pay vs Bank Loan (Forward)

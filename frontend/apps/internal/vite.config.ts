@@ -7,7 +7,21 @@ import { defineConfig } from 'vite'
 // API_INTEGRATION.md). Không dùng proxy: hai app là hai origin thật, dev phải khớp topology thật.
 export default defineConfig({
   plugins: [react()],
+  envDir: path.resolve(import.meta.dirname, '../../../'),
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
+  server: {
+    port: 5174,
+    // Dev trong sandbox/preview trỏ tới host ngoài localhost → phải bind 0.0.0.0 và cho phép host lạ.
+    // Chỉ áp dụng cho máy chủ dev, không ảnh hưởng bản build.
+    host: true,
+    allowedHosts: true,
+    proxy: {
+      '/api/v1': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),

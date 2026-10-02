@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { api } from '@pricepolicy/api-client/client'
-import type { AgentStep, Quote, QuoteCreateRequest, QuoteStreamEvent } from '@pricepolicy/api-client/contracts'
+import type { AgentStep, CopilotStreamEvent, Quote, QuoteCreateRequest, QuoteStreamEvent } from '@pricepolicy/api-client/contracts'
 import { ENDPOINTS } from '@pricepolicy/api-client/endpoints'
 import { ApiError } from '@pricepolicy/api-client/errors'
 import { setAuthTokenProvider } from '@pricepolicy/api-client/http'
@@ -86,7 +86,11 @@ function awaitPlan(streamUrl: string) {
 async function analyze(body: QuoteCreateRequest) {
   const accepted = await api.quotes.create(body)
   expect(accepted.status).toBe('ANALYZING')
-  const stream = await awaitAnalysis(accepted.stream_url)
+  // Mock-server theo TD-4.1: 202 + stream_url bắt buộc. Backend thật trả 201 đồng bộ (không có
+  // stream_url) — bộ test này chạy trên mock nên thiếu stream_url là lỗi hợp đồng, phải fail rõ.
+  const streamUrl = accepted.stream_url
+  if (!streamUrl) throw new Error('Mock-server phải trả stream_url cho POST /quotes (TD-4.1)')
+  const stream = await awaitAnalysis(streamUrl)
   const quote = await api.quotes.get(accepted.quote_id)
   return { accepted, stream, quote }
 }
@@ -273,7 +277,9 @@ describe('Giao thức', () => {
     setFlags({ drop_sse_once: true })
     await loginAs(SALE)
     const accepted = await api.quotes.create(context())
-    const stream = await awaitAnalysis(accepted.stream_url)
+    const streamUrl = accepted.stream_url
+    if (!streamUrl) throw new Error('Mock-server phải trả stream_url cho POST /quotes (TD-4.1)')
+    const stream = await awaitAnalysis(streamUrl)
     expect(stream.steps).toEqual(['POLICY_LOOKUP', 'VECTOR_RETRIEVAL', 'DETERMINISTIC_CALCULATION'])
     expect(new Set(stream.ids).size).toBe(stream.ids.length)
     expect(stream.states).toContain('reconnecting')
@@ -284,7 +290,9 @@ describe('Giao thức', () => {
     await loginAs(SALE)
     const accepted = await api.quotes.create(context())
     let resynced = 0
-    const stream = await awaitAnalysis(accepted.stream_url, { onResync: () => void resynced++ })
+    const streamUrl = accepted.stream_url
+    if (!streamUrl) throw new Error('Mock-server phải trả stream_url cho POST /quotes (TD-4.1)')
+    const stream = await awaitAnalysis(streamUrl, { onResync: () => void resynced++ })
     expect(resynced).toBe(1)
     expect(stream.status).toBe('DRAFT')
   })
@@ -369,6 +377,96 @@ describe('Composer F8', () => {
   })
 })
 
+describe('Sales Copilot (ReAct)', () => {
+  it('Hỏi chính sách → trả lời có citation, mode react; stream phát đủ thought → action → observation → final', async () => {
+    await loginAs(SALE)
+
+    const chat = await api.copilot.chat({ message: 'Chính sách chiết khấu thanh toán sớm là gì?', transaction_date: TX_DATE })
+    expect(chat.mode).toBe('react')
+    expect(chat.citations.length).toBeGreaterThan(0)
+    expect(chat.reply).toContain('8')
+
+    const events: CopilotStreamEvent[] = []
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Copilot stream timeout')), 5_000)
+      const stop = api.copilot.stream(
+        { message: 'Tính phương án cho căn ZEN-A-1205', transaction_date: TX_DATE, current_unit: 'ZEN-A-1205' },
+        {
+          onEvent: (event) => {
+            events.push(event)
+            if (event.type === 'final') {
+              clearTimeout(timer)
+              stop()
+              resolve()
+            }
+          },
+          onError: reject,
+        },
+      )
+    })
+    const types = events.map((e) => e.type)
+    expect(types[0]).toBe('thought')
+    expect(types).toContain('action')
+    expect(types).toContain('observation')
+    expect(types.at(-1)).toBe('final')
+    const final = events.at(-1)
+    expect(final?.type === 'final' && final.reply).toBeTruthy()
+  })
+
+  it('Phản hồi của Sale được ghi nhận và tổng hợp (P2 — học từ phản hồi)', async () => {
+    await loginAs(SALE)
+
+    const res = await api.copilot.feedback({
+      message: 'Chiết khấu thanh toán sớm là bao nhiêu?',
+      reply: '8.0% [CSBH-ZEN-2026-V3.1]',
+      rating: -1,
+      comment: 'thiếu điều kiện áp dụng',
+      tags: ['thieu_dieu_kien'],
+      mode: 'react',
+    })
+    expect(res.ok).toBe(true)
+
+    const summary = await api.copilot.feedbackSummary()
+    expect(summary.total).toBeGreaterThanOrEqual(1)
+    expect(summary.down).toBeGreaterThanOrEqual(1)
+    expect(summary.top_negative_tags.some(([tag]) => tag === 'thieu_dieu_kien')).toBe(true)
+
+    await expectApiError(api.copilot.feedback({ message: '', rating: 1 }), 422, 'HTTP_ERROR')
+  })
+
+  it('Trang quản trị chất lượng: chỉ ADMIN/POLICY_ADMIN xem được chi tiết, PII bị che', async () => {
+    // Sale thường → 403 (RBAC đọc từ khai báo `auth` trong ENDPOINTS)
+    await loginAs(SALE)
+    await expectApiError(api.copilot.feedbackRecent({ limit: 5 }), 403, 'FORBIDDEN')
+
+    // Ghi một phản hồi có SĐT khách bằng chính Sale
+    await api.copilot.feedback({
+      message: 'Tạo khách Nguyễn Văn A 0912345678',
+      reply: 'Đã bóc tách hồ sơ',
+      rating: -1,
+      comment: 'thiếu căn cứ',
+      tags: ['thieu_can_cu'],
+      mode: 'react',
+      tools_used: ['tra_cuu_ho_so_khach_hang'],
+    })
+
+    await loginAs(ADMIN)
+    const recent = await api.copilot.feedbackRecent({ limit: 10 })
+    expect(recent.total).toBeGreaterThanOrEqual(1)
+    const entry = recent.items[0]
+    expect(entry.rating).toBe(-1)
+    expect(entry.message).not.toContain('0912345678')
+    expect(entry.message).toContain('091***78')
+
+    const onlyDown = await api.copilot.feedbackRecent({ limit: 10, rating: -1 })
+    expect(onlyDown.items.every((i) => i.rating === -1)).toBe(true)
+
+    const summary = await api.copilot.feedbackSummary()
+    expect(summary.by_mode?.some((m) => m.mode === 'react')).toBe(true)
+    expect(summary.top_failing_tools?.some(([tool]) => tool === 'tra_cuu_ho_so_khach_hang')).toBe(true)
+  })
+})
+
 describe('Policy Admin', () => {
   it('Tải văn bản → trích rule (VALIDATION_REQUIRED) → kiểm tra trước ban hành → ban hành', async () => {
     await loginAs(ADMIN)
@@ -380,7 +478,8 @@ describe('Policy Admin', () => {
     expect(draft.status).toBe('DRAFT')
     expect(draft.rules.every((r) => r.validation_status === 'VALIDATION_REQUIRED')).toBe(true)
     const report = await api.policies.testRules(draft.policy_id)
-    expect(report.regression).toEqual({ passed: 15, total: 15 })
+    // Bộ hồi quy công thức hiện có 17 ca khoá cứng (BENCH-01/02 + TC-01..TC-15), vượt mốc tối thiểu 15 của OP-02.
+    expect(report.regression).toEqual({ passed: 17, total: 17 })
     expect(report.conflict_findings.some((f) => f.tier === 1)).toBe(true)
     expect(report.can_publish).toBe(true)
     const published = await api.policies.publish(draft.policy_id)
@@ -388,9 +487,40 @@ describe('Policy Admin', () => {
     expect(published.rules.every((r) => r.validation_status === 'APPROVED_FOR_USE')).toBe(true)
   })
 
-  it('Formula Benchmark 1-click: 15/15 khớp tuyệt đối', async () => {
+  it('Formula Benchmark 1-click: 17/17 khớp tuyệt đối', async () => {
     await loginAs(ADMIN)
     const run = await api.evaluation.runBenchmark()
-    expect(run).toMatchObject({ total: 15, passed: 15, exact_match_rate: 1 })
+    expect(run).toMatchObject({ total: 17, passed: 17, exact_match_rate: 1 })
+    // Lần chạy phải ghi rõ đang đối chiếu văn bản nào — bằng chứng cho cổng trước ban hành.
+    expect(run.policy_id).toBe('POL-2026-VLF-GEN')
+    expect(run.golden_policy_ref).toBe('POL-2026-VLF-GEN v2.6')
+    expect(run.policy_alignment).toBe('MATCH')
+    expect(run.cases.every((c) => c.status === 'PASSED')).toBe(true)
+    // Văn bản mới: bộ vàng vẫn 17/17 nhưng phải nói thẳng là chưa phủ văn bản này (DRIFT).
+    const onNewPolicy = await api.evaluation.runBenchmark({ policy_id: 'CSBH-ZEN-2027-V4.0', policy_version: 'v4.0' })
+    expect(onNewPolicy.passed).toBe(17)
+    expect(onNewPolicy.policy_alignment).toBe('DRIFT')
+  })
+
+  it('Cổng trước ban hành gắn bằng chứng kiểm thử và cảnh báo lệch bộ ca vàng', async () => {
+    await loginAs(ADMIN)
+    const draft = await api.policies.extractRules(
+      { project_id: 'THE_ZEN_PARK', title: 'CSBH The Zen Park — Đợt 6', policy_version: 'v6.0', effective_from: '2027-06-01', effective_to: '2027-08-31' },
+      new File(['%PDF-1.4 test'], 'CSBH_Zen_Dot6.pdf', { type: 'application/pdf' }),
+    )
+    const gate = await api.policies.testRules(draft.policy_id)
+    expect(gate.regression).toEqual({ passed: 17, total: 17 })
+    expect(gate.benchmark_run_id).toBeTruthy()
+    // Văn bản mới chưa có bộ ca vàng riêng → cảnh báo DRIFT kèm tỷ lệ chưa được phủ (9.0%),
+    // để admin biết chính xác phải soạn thêm ca vàng nào.
+    expect(gate.policy_alignment).toBe('DRIFT')
+    const alignment = gate.checks.find((c) => c.code === 'GOLDEN_ALIGNMENT')
+    expect(alignment?.status).toBe('WARN')
+    expect(alignment?.detail).toContain('9.0%')
+    expect(gate.can_publish).toBe(true)
+
+    await api.policies.publish(draft.policy_id)
+    const afterPublish = await api.policies.testRules(draft.policy_id)
+    expect(afterPublish.can_publish).toBe(false)
   })
 })

@@ -98,6 +98,61 @@ export function LoginPage() {
             </Button>
           </form>
 
+          {/* Quick Demo Accounts */}
+          <div className="pt-2">
+            <p className="text-xs text-muted-foreground text-center mb-2 font-medium">Tài khoản demo đăng nhập nhanh:</p>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-start text-xs h-8 text-left"
+                onClick={() => {
+                  setAccount('sale')
+                  setPassword('sale')
+                }}
+              >
+                💼 Sale (sale)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-start text-xs h-8 text-left"
+                onClick={() => {
+                  setAccount('manager')
+                  setPassword('manager')
+                }}
+              >
+                👔 Quản lý (manager)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-start text-xs h-8 text-left"
+                onClick={() => {
+                  setAccount('admin')
+                  setPassword('admin')
+                }}
+              >
+                🛡️ Admin (admin)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="justify-start text-xs h-8 text-left"
+                onClick={() => {
+                  setAccount('policy')
+                  setPassword('policy')
+                }}
+              >
+                📜 Chính sách (policy)
+              </Button>
+            </div>
+          </div>
+
           <a href="http://localhost:5173" className="block text-center text-sm text-muted-foreground hover:text-foreground">
             ← Đến Cổng thông tin khách hàng (Dự án & Căn hộ)
           </a>

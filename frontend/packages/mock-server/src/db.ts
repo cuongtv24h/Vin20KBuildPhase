@@ -99,9 +99,17 @@ export function commit() {
   // no-op: state đã là nguồn sự thật duy nhất trong bộ nhớ tiến trình.
 }
 
+/** State phụ của handler (ví dụ lịch sử hội thoại) — được dọn cùng lúc với DB. */
+const resetListeners: Array<() => void> = []
+
+export function onReset(listener: () => void) {
+  resetListeners.push(listener)
+}
+
 export async function resetDb(): Promise<void> {
   state = null
   loading = null
+  for (const listener of resetListeners) listener()
   await getDb()
 }
 

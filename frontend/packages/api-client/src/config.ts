@@ -13,11 +13,39 @@
  */
 const env = import.meta.env ?? {}
 
-export type ApiMode = 'mock' | 'real'
+export type ApiMode = 'real'
 
-export const API_MODE: ApiMode = env.NEXT_PUBLIC_API_MODE === 'real' ? 'real' : 'mock'
+/** Chế độ kết nối: Luôn luôn kết nối Backend & CSDL PostgreSQL thật (không mock). */
+export const API_MODE: ApiMode = 'real'
 
-export const API_BASE_URL = (env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8787/api/v1').replace(/\/$/, '')
+function resolveApiBaseUrl(): string {
+  const explicit = env.NEXT_PUBLIC_API_BASE_URL || env.NEXT_PUBLIC_API_URL
+
+  // 1. Chạy trên môi trường Local / Dev (Vite port 5173, 5174 hoặc localhost / 127.0.0.1)
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    const port = window.location.port
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || port === '5173' || port === '5174'
+    if (isLocal) {
+      // Nếu có URL tuyệt đối được cấu hình (VD: http://192.168.1.10:8000), dùng URL đó
+      if (explicit && explicit.startsWith('http')) {
+        const trimmed = explicit.replace(/\/$/, '')
+        return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`
+      }
+      // Ngược lại (dù env root để /api/v1 hay trống), trên local luôn gọi thẳng port 8000 của FastAPI
+      return `http://${host || 'localhost'}:8000/api/v1`
+    }
+  }
+
+  // 2. Chạy trên VPS Production (domain demoday.work.gd) -> ưu tiên explicit hoặc /api/v1 (Nginx proxy)
+  if (explicit) {
+    const trimmed = explicit.replace(/\/$/, '')
+    return trimmed.endsWith('/api/v1') ? trimmed : `${trimmed}/api/v1`
+  }
+  return '/api/v1'
+}
+
+export const API_BASE_URL = resolveApiBaseUrl()
 
 /** TD-4.1 §3.1 — Timeout-path deadline 10s: UI dừng an toàn, không treo spinner. */
 export const REQUEST_TIMEOUT_MS = 10_000
@@ -30,4 +58,4 @@ export const SSE_BACKOFF_MS = [500, 1_000, 2_000, 4_000, 8_000]
 /** Debounce kiểm tra tuân thủ khi Sale gõ — Implement plan D1-5 / D3-3. */
 export const COMPLIANCE_DEBOUNCE_MS = 500
 
-export const IS_DEV_TOOLS_ENABLED = API_MODE === 'mock' && env.DEV
+export const IS_DEV_TOOLS_ENABLED = false

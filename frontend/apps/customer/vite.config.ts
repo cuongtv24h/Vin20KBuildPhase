@@ -7,7 +7,17 @@ import { defineConfig } from 'vite'
 // app (Khách hàng, Nội bộ) là hai origin thật, dev phải khớp topology thật để CORS được kiểm chứng.
 export default defineConfig({
   plugins: [react()],
+  envDir: path.resolve(import.meta.dirname, '../../../'),
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
+  server: {
+    port: 5173,
+    proxy: {
+      '/api/v1': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, './src'),

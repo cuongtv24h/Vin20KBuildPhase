@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Inbox,
   FileStack,
@@ -11,39 +11,58 @@ import {
   UserCheck,
   Plus,
   FileText,
-  BookOpen,
   Send,
-  Phone,
   FilePlus2,
   RotateCcw,
   CheckCircle2,
   AlertTriangle,
-  XCircle,
+  ThumbsDown,
+  ThumbsUp,
   Copy,
   Clock,
-  ExternalLink,
-  ChevronRight,
   ShieldCheck,
-  Timer,
-  Layers,
   Sparkles,
+  Layers,
   RefreshCw,
-  LogOut,
   X,
   Search,
+  ChevronRight,
+  History,
+  Volume2,
+  Square,
+  Mic,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Trash2,
 } from 'lucide-react'
 
 // Hooks & Store
+import { useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '@/auth/sessionStore'
-import { useLeads, useCreateLead, useQuotes, usePolicies, useProjectOverviews } from '@pricepolicy/api-client/hooks'
+import { api } from '@pricepolicy/api-client/client'
+import {
+  useLeads,
+  useCreateLead,
+  useQuotes,
+  usePolicies,
+  useProjectOverviews,
+  useCopilotTurn,
+  useCopilotConversations,
+  useCopilotConversation,
+  useAppendCopilotTurnSync,
+  useDeleteCopilotConversation,
+  useTtsSettings,
+  useUpdateTtsSettings,
+  useTtsVoiceFeedback,
+} from '@pricepolicy/api-client/hooks'
+import { turnToAppendPayload } from '@pricepolicy/api-client/copilotHistory'
 import type {
   LeadDossier,
   LeadCreatePayload,
-  Quote,
-  PolicyDocument,
-  CustomerSegment,
-  OptimizationObjective,
-  LeadTemperature,
+  CopilotCitation,
+  CopilotConversationMessage,
+  CopilotFinalPayload,
+  CopilotReasoningStep,
 } from '@pricepolicy/api-client/contracts'
 
 // Design System Components from @pricepolicy/ui
@@ -60,12 +79,17 @@ import {
   TemperatureBadge,
   QuoteStatusBadge,
   PolicyStatusBadge,
-  ComplianceBadge,
 } from '@pricepolicy/ui/components/common/StatusBadge'
 import { MoneyText } from '@pricepolicy/ui/components/common/MoneyText'
-import { EmptyState, LoadingState } from '@pricepolicy/ui/components/common/PageStates'
-import { formatDateTime, formatRelative, formatVnd } from '@pricepolicy/ui/lib/format'
-import { DOSSIER_STATUS_LABEL, OBJECTIVE_LABEL, ROLE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
+import { EmptyState, ErrorState, LoadingState, QueryState } from '@pricepolicy/ui/components/common/PageStates'
+import { FormattedAiMessage } from '@pricepolicy/ui/components/common/FormattedAiMessage'
+import { CitationChips, ReasoningTrace } from '@pricepolicy/ui/components/common/ReasoningTrace'
+import { SlashCommandPalette } from '@pricepolicy/ui/components/common/SlashCommandPalette'
+import { filterCommands, type SlashCommand } from '@pricepolicy/ui/lib/slashCommands'
+import { CopilotContextChips } from '@pricepolicy/ui/components/common/CopilotContextChips'
+import { formatVnd } from '@pricepolicy/ui/lib/format'
+import { speakText, stopSpeaking, isSpeechSupported, listLocalVoices } from '@pricepolicy/ui/lib/speech'
+import { OBJECTIVE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
 import { cn } from '@pricepolicy/ui/lib/utils'
 
 // --- EVIDENCE KNOWLEDGE BASE ---
@@ -74,6 +98,10 @@ interface LegalEvidence {
   p: string
   e: string
   h: string
+  /** Điều/khoản đầy đủ (nếu có) — hiển thị riêng để Sale đối chiếu nhanh. */
+  clause?: string
+  /** Hash tài liệu đầy đủ — dùng cho nút sao chép đối soát. */
+  hash?: string
 }
 
 const EVIDENCE_DB: Record<number, LegalEvidence> = {
@@ -115,6 +143,51 @@ interface ComplianceCheckState {
   statusText: string
   checks: [string, string][]
   suggest?: string
+}
+
+/** Tier backend (`TIER_4_BLACK`) hoặc mock (`BLACK`) → nhãn UI. */
+function normalizeTier(raw: string | undefined | null): ComplianceCheckState['tier'] {
+  const value = String(raw || '').toUpperCase()
+  if (value.includes('BLACK')) return 'BLACK'
+  if (value.includes('RED')) return 'RED'
+  if (value.includes('YELLOW') || value.includes('AMBER')) return 'AMBER'
+  if (value.includes('GREEN')) return 'GREEN'
+  return 'AMBER'
+}
+
+const TIER_STATUS_TEXT: Record<ComplianceCheckState['tier'], string> = {
+  GREEN: 'XANH — Phát ngôn đạt chuẩn (POL-08)',
+  AMBER: 'VÀNG — Cần bổ sung khuyến cáo bắt buộc',
+  RED: 'ĐỎ — Thiếu chứng cứ / Vượt khung chính sách',
+  BLACK: 'ĐEN — Cấm phát ngôn (POL-08 Điều 1)',
+}
+
+/**
+ * Chuyển kết quả `/compliance/check-message` (thật hoặc mock) thành state UI.
+ * Tầng này cố tình chịu được cả hai shape đang tồn tại: backend trả `compliance_tier` +
+ * `claims[{claim_text, tier, reason}]`, mock trả `overall_status` + `claims[{claim_type,...}]`.
+ */
+function mapComplianceResponse(res: any): ComplianceCheckState {
+  const tier = normalizeTier(res?.compliance_tier ?? res?.tier ?? res?.overall_status)
+  const claims: any[] = Array.isArray(res?.claims) ? res.claims : []
+  const checks: [string, string][] = claims.length
+    ? claims.map((c) => [
+        c?.status && /BLOCK|NEEDS_APPROVAL|PROHIBITED|UNSUPPORTED/i.test(String(c.status)) ? 'bad' : 'ok',
+        [c?.claim_text || c?.claim_type || 'Nội dung kiểm tra', c?.reason || c?.rule_id].filter(Boolean).join(' — '),
+      ])
+    : [['ok', 'Không phát hiện phát ngôn rủi ro trong bản nháp']]
+
+  return {
+    tier,
+    statusText: TIER_STATUS_TEXT[tier],
+    checks,
+    suggest:
+      res?.required_action && res.required_action !== 'NONE'
+        ? `Hành động cần làm: ${res.required_action}`
+        : tier === 'BLACK' || tier === 'RED'
+        ? 'Sửa lại câu chữ trước khi gửi: bỏ cam kết vượt thẩm quyền và bổ sung mỏ neo chứng cứ [n].'
+        : undefined,
+  }
 }
 
 function runLocalComplianceCheck(text: string): ComplianceCheckState {
@@ -200,7 +273,7 @@ function runLocalComplianceCheck(text: string): ComplianceCheckState {
 type StreamItemType =
   | 'agent'
   | 'user'
-  | 'briefing'
+  | 'welcome'
   | 'confirm'
   | 'stepper'
   | 'receipt'
@@ -208,6 +281,56 @@ type StreamItemType =
   | 'fallback'
   | 'customer_card'
   | 'customer_search'
+  | 'smart_customer_create'
+  | 'smart_quote_create'
+  | 'smart_scenario_compare'
+  | 'smart_units_browse'
+  | 'smart_compose_message'
+  | 'reasoning'
+
+/** ID cuộc hội thoại Copilot đang mở — giữ qua các lần đổi trang trong cùng phiên trình duyệt. */
+const ACTIVE_CONVERSATION_STORAGE_KEY = 'copilot.activeConversationId'
+
+const storedConversationId = () => {
+  try {
+    return window.localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+const rememberConversationId = (conversationId: string | null) => {
+  try {
+    if (conversationId) window.localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, conversationId)
+    else window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY)
+  } catch {
+    /* chế độ riêng tư: bỏ qua */
+  }
+}
+
+/** Giờ:phút của một mốc ISO — lịch sử lưu ISO, khung chat hiển thị HH:MM. */
+const clockOf = (iso?: string | null) => {
+  if (!iso) return new Date().toTimeString().slice(0, 5)
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? new Date().toTimeString().slice(0, 5) : d.toTimeString().slice(0, 5)
+}
+
+/**
+ * Dựng lại khung chat từ hội thoại đã lưu. Chỉ tái hiện phần "văn bản" (câu hỏi + câu trả lời kèm
+ * trích dẫn) — các thẻ tương tác một lần (confirm/stepper/receipt) không lưu vào lịch sử nên không
+ * dựng lại, tránh nút bấm trỏ tới trạng thái đã chết sau khi tải lại trang.
+ */
+const chatItemsFromConversation = (items: CopilotConversationMessage[]): StreamItem[] =>
+  items.map((m, idx) => ({
+    id: `hist-${idx}-${m.at ?? ''}`,
+    type: m.role === 'user' ? 'user' : 'agent',
+    text: m.content,
+    time: clockOf(m.at),
+    data:
+      m.role === 'assistant'
+        ? { citations: m.citations ?? [], grounded: (m.citations ?? []).length > 0, mode: 'react' }
+        : undefined,
+  }))
 
 interface StreamItem {
   id: string
@@ -215,16 +338,461 @@ interface StreamItem {
   text?: string
   time: string
   data?: any
+  action_type?: string
+  action_data?: any
+  suggested_actions?: string[]
+}
+
+// --- SMART INTERACTIVE CARDS ---
+
+function SmartCustomerCard({
+  initialData,
+  onSave,
+  onCancel,
+}: {
+  initialData?: any
+  onSave: (payload: LeadCreatePayload) => void
+  onCancel?: () => void
+}) {
+  const [name, setName] = useState(initialData?.customer_name || initialData?.clientName || '')
+  const [phone, setPhone] = useState(initialData?.customer_phone || initialData?.phone || '')
+  const [unit, setUnit] = useState(initialData?.preferred_unit_code || initialData?.unitCode || '')
+  const [funds, setFunds] = useState<number>(initialData?.own_funds_vnd || initialData?.funds || 1500000000)
+  const [notes, setNotes] = useState(initialData?.needs_summary || '')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    setIsSubmitting(true)
+    try {
+      await onSave({
+        customer_name: name.trim(),
+        customer_phone: phone.trim() || '0900000000',
+        customer_segment: 'NEW_CUSTOMER',
+        temperature: 'HOT',
+        project_id: 'P-001',
+        preferred_unit_code: unit.trim() || null,
+        own_funds_vnd: Number(funds) || 1500000000,
+        monthly_capacity_vnd: 25000000,
+        objective: 'MIN_INITIAL_OUTFLOW',
+        needs_summary: notes.trim() || (unit.trim() ? `Khởi tạo nhanh qua Smart Card Copilot. Quan tâm căn ${unit.trim()}.` : 'Khởi tạo nhanh qua Smart Card Copilot.'),
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-[95%] border-emerald-500/40 bg-emerald-500/[0.02] shadow-sm">
+      <CardHeader className="bg-emerald-500/10 px-4 py-2.5 border-b border-emerald-500/20">
+        <CardTitle className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <UserPlus className="h-4 w-4 text-emerald-600" />
+            Khởi tạo hồ sơ khách hàng mới (CRM)
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3.5 space-y-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <Label className="text-[11px] text-muted-foreground font-medium">Họ và tên khách hàng *</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nguyễn Văn An"
+              className="h-8 text-xs mt-1"
+              required
+            />
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground font-medium">Số điện thoại *</Label>
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="0912345678"
+              className="h-8 text-xs mt-1"
+            />
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground font-medium">Căn hộ quan tâm</Label>
+            <Input
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              placeholder="R-02.02 (không bắt buộc)"
+              className="h-8 text-xs mt-1"
+            />
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
+              <Label className="text-[11px] text-muted-foreground font-medium">Vốn tự có sẵn sàng</Label>
+              <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                {new Intl.NumberFormat('vi-VN').format(funds || 0)} VNĐ
+              </span>
+            </div>
+            <div className="relative mt-1">
+              <Input
+                type="text"
+                value={funds ? new Intl.NumberFormat('vi-VN').format(funds) : ''}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/\D/g, '')
+                  setFunds(raw ? parseInt(raw, 10) : 0)
+                }}
+                placeholder="5.000.000.000"
+                className="h-8 text-xs font-semibold pr-12 text-foreground"
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-muted-foreground pointer-events-none">
+                VNĐ
+              </span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <Label className="text-[11px] text-muted-foreground font-medium">Ghi chú nhu cầu / Khẩu vị đầu tư</Label>
+          <Input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Quan tâm tiến độ thanh toán, dự kiến vay ngân hàng..."
+            className="h-8 text-xs mt-1"
+          />
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/50">
+          {onCancel && (
+            <Button variant="ghost" size="sm" onClick={onCancel} className="h-7 text-xs">
+              Bỏ qua
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={!name.trim() || isSubmitting}
+            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            {isSubmitting ? 'Đang lưu vào CRM...' : 'Lưu khách hàng vào CRM'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SmartQuoteCard({
+  initialData,
+  onGenerateQuote,
+}: {
+  initialData?: any
+  onGenerateQuote: (unitCode: string, scenario: string) => void
+}) {
+  const [unitCode, setUnitCode] = useState(initialData?.unit_code || '')
+  const [scenario, setScenario] = useState(initialData?.scenario || 'PA-SOM')
+
+  const unitPrices: Record<string, { price: number; type: string; area: number }> = {
+    'R-02.02': { price: 4655200000, type: '2BR', area: 72.5 },
+    'R-03.05': { price: 5280000000, type: '2BR+', area: 84.2 },
+    'R-05.01': { price: 6450000000, type: '3BR', area: 104.8 },
+    'R-01.08': { price: 2890000000, type: '1BR', area: 49.6 },
+  }
+
+  const selectedUnit = unitCode ? unitPrices[unitCode] || null : null
+  const discountAmount = selectedUnit && scenario === 'PA-SOM' ? Math.round(selectedUnit.price * 0.08) : 0
+  const finalEstimate = selectedUnit ? selectedUnit.price - discountAmount : 0
+
+  return (
+    <Card className="w-full max-w-[95%] border-primary/40 bg-primary/[0.02] shadow-sm">
+      <CardHeader className="bg-primary/10 px-4 py-2.5 border-b border-primary/20">
+        <CardTitle className="text-xs font-semibold text-primary flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" />
+            Lập báo giá & Phương án tài chính nhanh
+          </span>
+          <Badge variant="outline" className="text-[10px] border-primary/30 text-primary bg-primary/10">
+            FCS v2.6 Math Engine
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3.5 space-y-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <Label className="text-[11px] text-muted-foreground font-medium">Chọn căn hộ</Label>
+            <select
+              value={unitCode}
+              onChange={(e) => setUnitCode(e.target.value)}
+              className="h-8 w-full mt-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground outline-none"
+            >
+              <option value="">— Chọn căn hộ —</option>
+              <option value="R-02.02">R-02.02 (2BR · 72.5m² · 4,65 tỷ)</option>
+              <option value="R-03.05">R-03.05 (2BR+ · 84.2m² · 5,28 tỷ)</option>
+              <option value="R-05.01">R-05.01 (3BR · 104.8m² · 6,45 tỷ)</option>
+              <option value="R-01.08">R-01.08 (1BR · 49.6m² · 2,89 tỷ)</option>
+            </select>
+          </div>
+          <div>
+            <Label className="text-[11px] text-muted-foreground font-medium">Phương án thanh toán</Label>
+            <select
+              value={scenario}
+              onChange={(e) => setScenario(e.target.value)}
+              className="h-8 w-full mt-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground outline-none"
+            >
+              <option value="PA-SOM">PA 2: Thanh toán sớm 95% (Chiết khấu 8% [1])</option>
+              <option value="PA-VAY">PA 3: Hỗ trợ vay 70% (HTLS 0% 24 tháng [4])</option>
+              <option value="PA-CHUAN">PA 1: Thanh toán chuẩn 9 đợt (Theo tiến độ)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Calculation summary */}
+        {selectedUnit ? (
+          <div className="rounded-lg border border-border/80 bg-muted/30 p-2.5 space-y-1.5 text-[11px]">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Giá niêm yết (gồm VAT):</span>
+              <span className="font-semibold text-foreground">{formatVnd(selectedUnit.price)}</span>
+            </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-emerald-600 font-medium">
+                <span>Chiết khấu thanh toán sớm 8%:</span>
+                <span>- {formatVnd(discountAmount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-border/60 pt-1.5 text-xs font-bold">
+              <span className="text-foreground">Tổng thanh toán dự kiến:</span>
+              <span className="text-primary">{formatVnd(finalEstimate)}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+            Chọn căn hộ ở trên để xem tạm tính giá theo phương án thanh toán.
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/50">
+          <Button
+            size="sm"
+            disabled={!unitCode}
+            onClick={() => onGenerateQuote(unitCode, scenario)}
+            className="h-7 text-xs bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
+          >
+            <FilePlus2 className="h-3.5 w-3.5" />
+            Tạo báo giá chi tiết qua Engine
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SmartScenarioCompareCard({
+  unitCode,
+  onSelectScenario,
+}: {
+  unitCode?: string
+  onSelectScenario: (sc: string) => void
+}) {
+  return (
+    <Card className="w-full max-w-[98%] border-purple-500/40 bg-purple-500/[0.02] shadow-sm">
+      <CardHeader className="bg-purple-500/10 px-4 py-2.5 border-b border-purple-500/20">
+        <CardTitle className="text-xs font-semibold text-purple-900 dark:text-purple-300 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-purple-600" />
+            {unitCode ? `So sánh 3 phương án thanh toán — Căn ${unitCode}` : 'So sánh 3 phương án thanh toán'}
+          </span>
+          <Badge variant="outline" className="text-[10px] border-purple-500/30 text-purple-700 dark:text-purple-400 bg-purple-500/10">
+            Đối soát Δ = 0 ₫
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+          {/* Cột 1: PA Chuẩn */}
+          <div className="rounded-lg border border-border bg-card p-2.5 flex flex-col justify-between space-y-2">
+            <div>
+              <div className="font-semibold text-foreground text-xs pb-1 border-b border-border/50 flex items-center justify-between">
+                <span>PA 1: Tiến độ chuẩn</span>
+                <Badge variant="secondary" className="text-[9px]">9 đợt</Badge>
+              </div>
+              <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                <li>• Đợt 1: <b>30%</b> (~1,39 tỷ)</li>
+                <li>• Đợt 2-8: <b>5-10%</b> / 2 tháng</li>
+                <li>• Nhận nhà: <b>25%</b> + 2% KPBT</li>
+                <li>• Chiết khấu: <b>0%</b></li>
+                <li>• Ưu điểm: Nhẹ vốn theo kỳ</li>
+              </ul>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onSelectScenario('PA-CHUAN')}
+              className="w-full h-6 text-[11px] mt-2"
+            >
+              Chọn PA Chuẩn
+            </Button>
+          </div>
+
+          {/* Cột 2: PA Sớm 95% */}
+          <div className="rounded-lg border-2 border-emerald-500/50 bg-emerald-500/[0.04] p-2.5 flex flex-col justify-between space-y-2 relative">
+            <span className="absolute -top-2 right-2 rounded-full bg-emerald-600 px-1.5 py-0.2 text-[9px] font-bold text-white uppercase">
+              Tối ưu giá
+            </span>
+            <div>
+              <div className="font-semibold text-emerald-800 dark:text-emerald-300 text-xs pb-1 border-b border-emerald-500/20 flex items-center justify-between">
+                <span>PA 2: Đóng sớm 95%</span>
+                <Badge variant="outline" className="text-[9px] border-emerald-500/30 text-emerald-700 bg-emerald-500/10">-8.0% [1]</Badge>
+              </div>
+              <ul className="mt-2 space-y-1 text-[11px] text-foreground">
+                <li>• Thanh toán: <b>95% trong 30 ngày</b></li>
+                <li>• Chiết khấu: <b className="text-emerald-600">8.0% trước VAT</b></li>
+                <li>• Tiết kiệm: <b className="text-emerald-600">~372 triệu ₫</b></li>
+                <li>• Giá sau CK: <b>~4,28 tỷ ₫</b></li>
+                <li>• Ưu điểm: Giá mua thấp nhất</li>
+              </ul>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => onSelectScenario('PA-SOM')}
+              className="w-full h-6 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white mt-2"
+            >
+              Chọn PA Sớm 8%
+            </Button>
+          </div>
+
+          {/* Cột 3: PA Vay 70% */}
+          <div className="rounded-lg border-2 border-primary/50 bg-primary/[0.04] p-2.5 flex flex-col justify-between space-y-2 relative">
+            <span className="absolute -top-2 right-2 rounded-full bg-primary px-1.5 py-0.2 text-[9px] font-bold text-primary-foreground uppercase">
+              Ít vốn nhất
+            </span>
+            <div>
+              <div className="font-semibold text-primary text-xs pb-1 border-b border-primary/20 flex items-center justify-between">
+                <span>PA 3: Vay ngân hàng 70%</span>
+                <Badge variant="outline" className="text-[9px] border-primary/30 text-primary bg-primary/10">0% lãi [4]</Badge>
+              </div>
+              <ul className="mt-2 space-y-1 text-[11px] text-foreground">
+                <li>• Vốn tự có: <b className="text-primary">Chỉ 30% (~1,39 tỷ)</b></li>
+                <li>• Ngân hàng giải ngân: <b>70% (~3,25 tỷ)</b></li>
+                <li>• Hỗ trợ lãi suất: <b className="text-primary">0% trong 24 tháng</b></li>
+                <li>• Ân hạn gốc: <b>24 tháng</b></li>
+                <li>• Khuyến cáo: Sau 24th theo biểu phí [4]</li>
+              </ul>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => onSelectScenario('PA-VAY')}
+              className="w-full h-6 text-[11px] bg-primary hover:bg-primary/90 text-primary-foreground mt-2"
+            >
+              Chọn PA Vay 0%
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SmartUnitsCard({
+  onSelectUnit,
+}: {
+  onSelectUnit: (unitCode: string) => void
+}) {
+  const units = [
+    { code: 'R-02.02', type: '2BR - 2WC', area: 72.5, dir: 'Đông Nam', price: '4.655.200.000 ₫', status: 'CÒN TRỐNG', badgeColor: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
+    { code: 'R-03.05', type: '2BR+1 - 2WC', area: 84.2, dir: 'Nam (view sông)', price: '5.280.000.000 ₫', status: 'CÒN TRỐNG', badgeColor: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
+    { code: 'R-05.01', type: '3BR - 2WC', area: 104.8, dir: 'Đông Bắc (góc)', price: '6.450.000.000 ₫', status: 'GIỮ CHỖ 24H', badgeColor: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+    { code: 'R-01.08', type: '1BR+1 - 1WC', area: 49.6, dir: 'Tây Nam', price: '2.890.000.000 ₫', status: 'CÒN TRỐNG', badgeColor: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
+  ]
+
+  return (
+    <Card className="w-full max-w-[98%] border-sky-500/40 bg-sky-500/[0.02] shadow-sm">
+      <CardHeader className="bg-sky-500/10 px-4 py-2.5 border-b border-sky-500/20">
+        <CardTitle className="text-xs font-semibold text-sky-900 dark:text-sky-300 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Home className="h-4 w-4 text-sky-600" />
+            Rổ hàng căn hộ nổi bật — VLand Future Riverside
+          </span>
+          <Badge variant="outline" className="text-[10px] border-sky-500/30 text-sky-700 dark:text-sky-400 bg-sky-500/10">
+            Live Inventory
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3 space-y-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {units.map((u) => (
+            <div
+              key={u.code}
+              className="flex items-center justify-between rounded-lg border border-border bg-card p-2.5 hover:border-primary/50 transition-colors"
+            >
+              <div className="space-y-0.5 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-foreground text-xs">{u.code}</span>
+                  <Badge variant="outline" className={cn('text-[9px]', u.badgeColor)}>{u.status}</Badge>
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {u.type} · {u.area} m² · Hướng {u.dir}
+                </div>
+                <div className="font-semibold text-primary text-xs">{u.price}</div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px] shrink-0 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground ml-2"
+                onClick={() => onSelectUnit(u.code)}
+              >
+                Báo giá căn này
+              </Button>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SmartComposeMessageCard({
+  draftText,
+  onCopy,
+}: {
+  draftText: string
+  onCopy: () => void
+}) {
+  return (
+    <Card className="w-full max-w-[95%] border-amber-500/40 bg-amber-500/[0.02] shadow-sm">
+      <CardHeader className="bg-amber-500/10 px-4 py-2.5 border-b border-amber-500/20">
+        <CardTitle className="text-xs font-semibold text-amber-900 dark:text-amber-300 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-amber-600" />
+            Bản thảo tin nhắn gửi khách — Chuẩn tuân thủ F8
+          </span>
+          <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
+            🟢 XANH: Hợp chuẩn phát ngôn
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-3.5 space-y-2.5 text-xs">
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-[12px] leading-relaxed text-foreground whitespace-pre-line font-sans">
+          {draftText}
+        </div>
+        <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px] text-muted-foreground">
+          <span>Đã kiểm tra chứng cứ: [1] POL-EARLY, [4] POL-HLSN</span>
+          <Button
+            size="sm"
+            onClick={onCopy}
+            className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Sao chép tin nhắn Zalo / SMS
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 export function SalesWorkspacePage() {
   const session = useSessionStore((s) => s.session)
-  const clearSession = useSessionStore((s) => s.clearSession)
   const navigate = useNavigate()
 
   // Real backend queries
   const leadsQuery = useLeads()
   const createLeadMutation = useCreateLead()
+  const queryClient = useQueryClient()
   const quotesQuery = useQuotes({}, { live: true })
   const policiesQuery = usePolicies()
   const projectsQuery = useProjectOverviews()
@@ -242,30 +810,58 @@ export function SalesWorkspacePage() {
     customer_segment: 'NEW_CUSTOMER',
     temperature: 'HOT',
     project_id: 'P-001',
-    preferred_unit_code: 'R-02.02',
+    preferred_unit_code: '',
     own_funds_vnd: 1500000000,
     monthly_capacity_vnd: 25000000,
     objective: 'MIN_INITIAL_OUTFLOW',
     needs_summary: '',
   })
 
-  // Active Rail Navigation & Artifact Panel Tabs
-  const [activeRail, setActiveRail] = useState<'home' | 'khach' | 'baogia' | 'tinnhan' | 'chinhsach'>('home')
+  // Artifact Panel Tabs & Views
   const [activeTab, setActiveTab] = useState<'hoso' | 'baogia' | 'tinnhan' | 'chinhsach'>('hoso')
   const [panelView, setPanelView] = useState<'leads' | 'dossier' | 'pipeline' | 'quote_comparison' | 'messages' | 'policies'>('leads')
 
-  // Selected entities
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null)
+  // Selected entities & Context Chip
+  const [searchParams] = useSearchParams()
+  const initialParamLeadId = searchParams.get('id') || searchParams.get('lead')
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(initialParamLeadId)
+  const [contextLeadId, setContextLeadId] = useState<string>(initialParamLeadId || 'auto')
+
+  useEffect(() => {
+    if (initialParamLeadId) {
+      setSelectedLeadId(initialParamLeadId)
+      setContextLeadId(initialParamLeadId)
+    }
+  }, [initialParamLeadId])
+
+  // Không gán mặc định khách hàng đầu tiên — Copilot tự bắt ngữ cảnh từ hội thoại hoặc URL
   const selectedLead = useMemo(() => {
-    if (!selectedLeadId) return leads[0] ?? null
-    return leads.find((l) => l.dossier_id === selectedLeadId) ?? leads[0] ?? null
+    if (!selectedLeadId) return null
+    return leads.find((l) => l.dossier_id === selectedLeadId) ?? null
   }, [leads, selectedLeadId])
 
-  // Context Chip
-  const [contextLeadId, setContextLeadId] = useState<string>('auto')
+  // Ngữ cảnh Copilot: chip cho Sale kiểm tra/sửa trước khi gửi (D2)
+  const [copilotUnit, setCopilotUnit] = useState<string | null>(null)
+  const [copilotTxDate, setCopilotTxDate] = useState<string | null>('2026-09-26')
+  // Lệnh gạch chéo dùng gần đây (D1) — lưu cục bộ, không gửi lên server
+  const [recentCommands, setRecentCommands] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('copilot.recentSlash')
+      return raw ? (JSON.parse(raw) as string[]) : []
+    } catch {
+      return []
+    }
+  })
+  // Câu bị lỗi để Sale bấm "Thử lại" (C4) — chạy lại đúng câu + đúng ngữ cảnh cũ
+  const [failedTurn, setFailedTurn] = useState<{ text: string; context: Record<string, string | null> } | null>(null)
 
-  // Mobile Bottom-Sheet State
+  // Artifact panel: mặc định thu gọn, chỉ mở khi có ngữ cảnh (KPI/hành động từ Copilot)
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false)
+
+  useEffect(() => {
+    const preferred = selectedLead?.constraints?.preferred_unit_code ?? null
+    setCopilotUnit(preferred)
+  }, [selectedLead?.dossier_id, selectedLead?.constraints?.preferred_unit_code])
 
   // Chat Stream State
   const [messages, setMessages] = useState<StreamItem[]>([])
@@ -277,18 +873,209 @@ export function SalesWorkspacePage() {
   const [undoSeconds, setUndoSeconds] = useState(8)
   const [undoActive, setUndoActive] = useState(false)
   const [undoQuoteCode, setUndoQuoteCode] = useState('Q-00092 V1')
+  const [undoQuoteVersion, setUndoQuoteVersion] = useState(1)
 
   // Evidence Modal State
   const [evidenceId, setEvidenceId] = useState<number | null>(null)
+  /** Căn cứ động do Copilot trả về (citation) — mở cùng modal với EVIDENCE_DB tĩnh. */
+  const [evidenceDetail, setEvidenceDetail] = useState<LegalEvidence | null>(null)
+
+  // Copilot ReAct stream: lịch sử rút gọn gửi kèm để LLM giữ mạch hội thoại
+  const copilotHistory = useMemo(
+    () =>
+      messages
+        .filter((m) => (m.type === 'user' || m.type === 'agent') && (m.text || '').trim())
+        .slice(-6)
+        .map((m) => ({ role: m.type === 'user' ? ('user' as const) : ('assistant' as const), content: m.text || '' })),
+    [messages],
+  )
+  const copilot = useCopilotTurn(copilotHistory)
+  const reasoningMsgIdRef = useRef<string | null>(null)
+  const appliedFinalRef = useRef<CopilotFinalPayload | null>(null)
+
+  // ── Lịch sử hội thoại Copilot (lỗi P1 "đổi trang là mất hội thoại") ──────────
+  // Nguồn sự thật là server: mở lại trang thì nạp lại đúng cuộc đang dở thay vì bắt đầu trắng.
+  const [conversationId, setConversationId] = useState<string | null>(() => storedConversationId())
+  // Mặc định ẨN khung lịch sử cho gọn màn hình chat; Sale bấm nút "Lịch sử" mới mở.
+  const [historyOpen, setHistoryOpen] = useState(false)
+  /** Chỉ nạp lại khung chat khi đổi cuộc — không đè lên lượt đang gõ. */
+  const loadedConversationRef = useRef<string | null | undefined>(undefined)
+  const conversations = useCopilotConversations()
+  const conversation = useCopilotConversation(conversationId)
+  const appendTurn = useAppendCopilotTurnSync()
+  const deleteConversation = useDeleteCopilotConversation()
+  const pendingQuestionsRef = useRef<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!conversationId) {
+      // Cuộc mới: chỉ dọn khung chat một lần cho mỗi lần "làm mới".
+      if (loadedConversationRef.current !== null) {
+        loadedConversationRef.current = null
+        setMessages([])
+        copilot.reset()
+      }
+      return
+    }
+    const detail = conversation.data
+    if (!detail || detail.conversation_id !== conversationId) return
+    if (loadedConversationRef.current === conversationId) return
+    loadedConversationRef.current = conversationId
+    setMessages(chatItemsFromConversation(detail.messages ?? []))
+    copilot.reset()
+    scrollChatToEnd()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ nạp khi đổi cuộc/ có dữ liệu mới lần đầu
+  }, [conversationId, conversation.data])
+
+  /**
+   * Không mở được cuộc cũ: 404 (đã bị xoá / của nhân viên khác) thì quên id đang nhớ để lần sau
+   * vào trang không lặp lại lỗi cũ; lỗi mạng thì chỉ báo nhẹ, giữ nguyên id để thử lại.
+   */
+  useEffect(() => {
+    if (!conversationId || !conversation.error) return
+    const status = (conversation.error as { status?: number }).status
+    if (status === 404) {
+      rememberConversationId(null)
+      setConversationId(null)
+      loadedConversationRef.current = null
+      showToast('Cuộc hội thoại cũ không còn — đã mở cuộc trò chuyện mới.')
+    } else {
+      showToast('Không tải được hội thoại cũ — anh mở lại trang giúp em.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy khi lỗi đổi
+  }, [conversationId, conversation.error])
+
+  /** Đổi cuộc: lưu lựa chọn rồi để effect trên nạp nội dung từ server. */
+  const openConversation = (nextId: string | null) => {
+    rememberConversationId(nextId)
+    setConversationId(nextId)
+    setFailedTurn(null)
+    if (nextId) setHistoryOpen(true)
+  }
+
+  // ── Đọc câu trả lời thành tiếng (TTS) ────────────────────────────────────────
+  // Giọng đọc lấy từ server (/settings/tts) để mọi máy trong công ty đọc cùng một giọng khi
+  // Admin cấu hình nhà cung cấp; chưa cấu hình thì đọc bằng giọng trình duyệt (0 đồng).
+  const ttsSettings = useTtsSettings()
+  const updateTtsSettings = useUpdateTtsSettings()
+  const sendVoiceFeedback = useTtsVoiceFeedback()
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false)
+  const [localVoices, setLocalVoices] = useState<Array<{ code: string; label: string }>>([])
+  const tts = ttsSettings.data
+  const ttsEffective = tts?.effective
+  const ttsProvider = tts?.catalog.find((c) => c.provider === ttsEffective?.provider)
+  /** Nhà cung cấp trả phí nhưng chưa nối endpoint tổng hợp audio → vẫn đọc bằng giọng máy. */
+  const usesBrowserVoice = !ttsProvider || ttsProvider.mode === 'browser'
+
+  useEffect(() => {
+    if (!isSpeechSupported()) return
+    let alive = true
+    void listLocalVoices().then((voices) => {
+      if (alive) setLocalVoices(voices)
+    })
+    return () => {
+      alive = false
+      stopSpeaking()
+    }
+  }, [])
+
+  /** Đọc một câu trả lời; bấm lần hai (hoặc câu khác) thì dừng/đổi câu. */
+  const handleSpeak = (id: string, text: string) => {
+    if (speakingId === id) {
+      stopSpeaking()
+      setSpeakingId(null)
+      return
+    }
+    if (!ttsEffective?.enabled) {
+      showToast('Tính năng đọc thành tiếng đang tắt — bật trong “Giọng đọc”.')
+      return
+    }
+    const result = speakText(text, {
+      voice: ttsEffective.voice,
+      speed: ttsEffective.speed,
+      maxChars: ttsEffective.max_chars_per_turn,
+      onEnd: () => setSpeakingId((cur) => (cur === id ? null : cur)),
+      onError: (reason) => {
+        setSpeakingId(null)
+        showToast(reason)
+      },
+    })
+    if (result.ok) {
+      setSpeakingId(id)
+      if (result.reason) showToast(result.reason)
+      if (usesBrowserVoice && ttsProvider && ttsProvider.mode === 'api') {
+        showToast(`Chưa nối endpoint tổng hợp audio của ${ttsProvider.label} — đang đọc bằng giọng máy.`)
+      }
+    } else {
+      setSpeakingId(null)
+    }
+  }
+
+  /** Tự đọc mỗi câu trả lời mới khi Sale bật chế độ rảnh tay. */
+  useEffect(() => {
+    if (!ttsEffective?.auto_speak || !ttsEffective.enabled) return
+    const last = [...messages].reverse().find((m) => m.type === 'agent' && (m.text || '').trim())
+    if (!last || last.id === speakingId) return
+    const result = speakText(last.text || '', {
+      voice: ttsEffective.voice,
+      speed: ttsEffective.speed,
+      maxChars: ttsEffective.max_chars_per_turn,
+      onEnd: () => setSpeakingId((cur) => (cur === last.id ? null : cur)),
+      onError: () => setSpeakingId(null),
+    })
+    if (result.ok) setSpeakingId(last.id)
+    // Cố ý chỉ phụ thuộc vào câu trả lời cuối + thiết lập: không đọc lại khi gõ phím.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, ttsEffective?.auto_speak, ttsEffective?.enabled, ttsEffective?.voice, ttsEffective?.speed])
+
+  /** Lưu lựa chọn giọng đọc (mặc định hệ thống cần ADMIN/MANAGER — server chặn). */
+  const saveTts = async (payload: Record<string, unknown>, scope: 'user' | 'default' = 'user') => {
+    try {
+      await updateTtsSettings.mutateAsync({ scope, ...payload })
+      showToast(scope === 'default' ? 'Đã lưu giọng đọc dùng chung' : 'Đã lưu giọng đọc của anh/chị')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Không lưu được thiết lập giọng đọc')
+    }
+  }
+
+  /** Phản hồi giọng vừa đọc — dữ liệu để chọn giọng theo thực tế thay vì cảm tính. */
+  const rateVoice = async (rating: 1 | -1) => {
+    if (!ttsEffective) return
+    try {
+      await sendVoiceFeedback.mutateAsync({
+        rating,
+        provider: ttsEffective.provider,
+        voice: ttsEffective.voice,
+        conversation_id: conversationId,
+        reason: rating === -1 ? 'Sale chê giọng đọc trong workspace' : undefined,
+      })
+      showToast(rating === 1 ? 'Cảm ơn anh/chị đã xác nhận giọng đọc' : 'Đã ghi nhận — Admin sẽ xem lại giọng đọc')
+    } catch {
+      showToast('Không gửi được phản hồi giọng đọc')
+    }
+  }
+
+  const handleDeleteConversation = async (id: string) => {
+    try {
+      await deleteConversation.mutateAsync(id)
+    } catch {
+      showToast('Không xoá được cuộc hội thoại — anh thử lại giúp em')
+      return
+    }
+    if (id === conversationId) openConversation(null)
+  }
+
 
   // Copilot Composer State
   const [draftContent, setDraftContent] = useState(
     'Dạ em chào anh An, em gửi anh phương án báo giá chuẩn căn R-02.02 ạ [2]. Khách hàng chọn thanh toán sớm 95% nhận chiết khấu 8% [1]. Anh quét mã QR trên báo giá để đối soát pháp lý nhé!'
   )
-  const [draftAnchors, setDraftAnchors] = useState<number[]>([2, 1])
+  const [draftAnchors] = useState<number[]>([2, 1])
   const [complianceResult, setComplianceResult] = useState<ComplianceCheckState>(runLocalComplianceCheck(draftContent))
   const [isCheckingCompliance, setIsCheckingCompliance] = useState(false)
   const complianceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const complianceAbortRef = useRef<AbortController | null>(null)
+  const [complianceOffline, setComplianceOffline] = useState(false)
 
   // Copilot Action Modals
   const [copyAuditModalOpen, setCopyAuditModalOpen] = useState(false)
@@ -309,6 +1096,12 @@ export function SalesWorkspacePage() {
     }, 3200)
   }
 
+  // Đặt câu hỏi mẫu vào chat input và focus (dùng chung cho các nút "Hỏi agent")
+  const askAgent = (question: string) => {
+    setInputVal(question)
+    inputTextAreaRef.current?.focus()
+  }
+
   const scrollChatToEnd = () => {
     setTimeout(() => {
       chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -326,14 +1119,37 @@ export function SalesWorkspacePage() {
     return () => clearTimeout(timer)
   }, [undoActive, undoSeconds])
 
-  // Copilot Live-Check Debounce (500ms)
+  /**
+   * Live-check F8 thật: gọi `POST /compliance/check-message` (debounce 500 ms như UI hứa).
+   * - Huỷ request đang bay khi Sale gõ tiếp (AbortController) để kết quả cũ không ghi đè kết quả mới.
+   * - API lỗi → rơi về kiểm tra cục bộ và nói rõ là đang ở chế độ dự phòng, không im lặng.
+   */
   const handleDraftTextChange = (text: string) => {
     setDraftContent(text)
     setIsCheckingCompliance(true)
     if (complianceDebounceRef.current) clearTimeout(complianceDebounceRef.current)
     complianceDebounceRef.current = setTimeout(() => {
-      setComplianceResult(runLocalComplianceCheck(text))
-      setIsCheckingCompliance(false)
+      complianceAbortRef.current?.abort()
+      const controller = new AbortController()
+      complianceAbortRef.current = controller
+      void api.compliance
+        .check(
+          { message_text: text, mode: 'ON_DRAFT' },
+          controller.signal,
+        )
+        .then((res) => {
+          setComplianceResult(mapComplianceResponse(res))
+          setComplianceOffline(false)
+        })
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          setComplianceResult(runLocalComplianceCheck(text))
+          setComplianceOffline(true)
+          void err
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsCheckingCompliance(false)
+        })
     }, 500)
   }
 
@@ -343,19 +1159,219 @@ export function SalesWorkspacePage() {
     setMessages([
       {
         id: 'msg-greeting',
-        type: 'agent',
-        text: `Chào **${session?.user.full_name || 'Hải Nguyễn'}**! Trợ lý PricePolicy sẵn sàng đồng hành cùng anh ca làm việc hôm nay.`,
+        type: 'welcome',
         time,
-      },
-      {
-        id: 'msg-briefing',
-        type: 'briefing',
-        time,
-        data: {},
       },
     ])
     scrollChatToEnd()
   }, [])
+
+  // ===== COPILOT REACT STREAM → CHAT STREAM =====
+  // Đồng bộ tiến trình suy luận thật (thought/action/observation) vào bong bóng "reasoning",
+  // rồi khi có `final` mới chèn câu trả lời + Smart Card + citation. Không còn stepper giả.
+  const citationToEvidence = (citation: CopilotCitation): LegalEvidence => ({
+    q: citation.quote || 'Chưa có trích dẫn nguyên văn cho căn cứ này.',
+    p: `${citation.policy_id}${citation.section ? ` — ${citation.section}` : ''}${
+      citation.policy_title ? ` (${citation.policy_title})` : ''
+    }`,
+    e:
+      citation.effective_from || citation.effective_to
+        ? `${citation.effective_from ?? '?'} → ${citation.effective_to ?? '?'}`
+        : citation.source || 'Nguồn hệ thống',
+    h: citation.document_hash ? `${citation.document_hash.slice(0, 12)}…` : citation.clause_id || citation.source || '—',
+    clause: citation.clause_id || undefined,
+    hash: citation.document_hash || undefined,
+  })
+
+  useEffect(() => {
+    if (copilot.error && copilot.lastMessage) {
+      setFailedTurn({ text: copilot.lastMessage, context: (copilot.lastContext ?? {}) as Record<string, string | null> })
+    }
+  }, [copilot.error, copilot.lastMessage, copilot.lastContext])
+
+  useEffect(() => {
+    const msgId = reasoningMsgIdRef.current
+    if (!msgId) return
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId
+          ? {
+              ...m,
+              data: {
+                ...m.data,
+                steps: copilot.steps,
+                streaming: copilot.streaming,
+                degraded: copilot.degraded,
+                error: copilot.error,
+              },
+            }
+          : m,
+      ),
+    )
+  }, [copilot.steps, copilot.streaming, copilot.degraded, copilot.error])
+
+  useEffect(() => {
+    const final = copilot.final
+    const msgId = reasoningMsgIdRef.current
+    if (!final || !msgId || appliedFinalRef.current === final) return
+    appliedFinalRef.current = final
+
+    const time = new Date().toTimeString().slice(0, 5)
+    setMessages((prev) => {
+      const list = prev.map((m) =>
+        m.id === msgId ? { ...m, data: { ...m.data, streaming: false, steps: copilot.steps } } : m,
+      )
+      list.push({
+        id: `agent-${Date.now()}`,
+        type: 'agent',
+        time,
+        text: final.reply,
+        suggested_actions: final.suggested_actions,
+        data: {
+          citations: final.citations ?? [],
+          grounded: final.grounded,
+          mode: final.mode,
+          critique: final.critique ?? null,
+        },
+      })
+      if (final.action_type) {
+        list.push({
+          id: `card-${Date.now()}`,
+          type: final.action_type as StreamItemType,
+          time,
+          data: final.action_data || {},
+        })
+      }
+      return list
+    })
+    if (!final.grounded && final.mode !== 'react') {
+      showToast('Câu trả lời chưa đối chiếu được dữ liệu — anh kiểm tra lại giúp em')
+      // VẪN lưu vào lịch sử. Trước đây chỗ này `return` sớm với lý do "mở lại sẽ không còn cảnh báo",
+      // nhưng hậu quả nặng hơn nhiều: khi backend chạy chế độ dự phòng (offline_react — không có khoá
+      // LLM), KHÔNG lượt nào được lưu → khung lịch sử luôn rỗng và đổi trang là mất cả hội thoại.
+      // Cảnh báo vẫn còn vì câu trả lời lưu kèm citations rỗng (UI hiển thị là chưa đối chiếu).
+    }
+    scrollChatToEnd()
+
+    // Ghi lượt hỏi–đáp vào lịch sử server (không chặn UI). Câu hỏi gốc lấy từ hàng đợi theo id
+    // lượt reasoning, nên câu trả lời luôn khớp đúng câu đã hỏi kể cả khi Sale bấm nhanh.
+    const question = pendingQuestionsRef.current[msgId] ?? [...messages].reverse().find((m) => m.type === 'user')?.text
+    delete pendingQuestionsRef.current[msgId]
+    if (question) {
+      // `turnToAppendPayload` là hàm thuần đã có test (packages/api-client/src/copilotHistory.ts):
+      // lưu MỌI lượt, kể cả câu trả lời chế độ dự phòng — nếu không, lịch sử rỗng và đổi trang là mất hội thoại.
+      appendTurn(
+        turnToAppendPayload({ conversationId, question, final }),
+      ).then((detail) => {
+        if (!detail) return
+        // Lượt đầu tiên của cuộc mới: server đặt tên cuộc → ghi nhớ id để lần sau ghi tiếp.
+        if (!conversationId && detail.conversation_id) {
+          rememberConversationId(detail.conversation_id)
+          setConversationId(detail.conversation_id)
+          loadedConversationRef.current = detail.conversation_id
+        }
+      })
+    }
+  }, [copilot.final, copilot.steps])
+
+  // Câu hỏi của lượt đang chạy — effect chốt lượt ở trên đọc lại theo id lượt reasoning.
+  const recordPendingQuestion = (reasoningId: string, question: string) => {
+    pendingQuestionsRef.current[reasoningId] = question
+  }
+
+  /**
+   * Nudge THẬT: khi danh sách báo giá (polling/SSE) cho thấy có hồ sơ cần Sale xử lý
+   * (bị yêu cầu sửa / bị từ chối), chèn nhắc việc kèm lý do thật của quản lý.
+   * Trước đây chỗ này là `setTimeout` bịa "Mr. Hùng đang xem Q-00092".
+   */
+  const nudgedQuotesRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const needsAction = quotes.find((q) => q.status === 'NEEDS_REVISION' || q.status === 'REJECTED')
+    if (!needsAction) return
+    const key = `${needsAction.quote_id}#${needsAction.quote_version}#${needsAction.status}`
+    if (nudgedQuotesRef.current.has(key)) return
+    nudgedQuotesRef.current.add(key)
+    const reason = needsAction.approval?.reason
+    const decidedBy = needsAction.approval?.decided_by?.full_name
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `nudge-${key}`,
+        type: 'nudge',
+        time: new Date().toTimeString().slice(0, 5),
+        data: {
+          title: `Báo giá ${needsAction.quote_id} V${needsAction.quote_version} ${needsAction.status === 'REJECTED' ? 'bị từ chối' : 'cần chỉnh sửa'}`,
+          sub:
+            (decidedBy ? `${decidedBy}: ` : '') +
+            (reason || 'Mở tab Báo giá để xem chi tiết và xử lý.'),
+        },
+      },
+    ])
+    scrollChatToEnd()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes])
+
+  /**
+   * Nudge chủ động theo SLA hồ sơ (P2): còn ≤ 10 phút tới hạn phản hồi thì nhắc trong khung chat.
+   * Chạy lại mỗi phút; mỗi hồ sơ chỉ nhắc một lần cho mỗi mốc hạn (kể cả khi Sale đổi mốc SLA).
+   */
+  const slaNudgedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const check = () => {
+      const now = Date.now()
+      const urgent = leads.find((l) => {
+        if (!l.sla_due_at) return false
+        const remaining = new Date(l.sla_due_at).getTime() - now
+        if (remaining <= 0 || remaining > 10 * 60_000) return false
+        return !slaNudgedRef.current.has(`${l.dossier_id}#${l.sla_due_at}`)
+      })
+      if (!urgent) return
+      slaNudgedRef.current.add(`${urgent.dossier_id}#${urgent.sla_due_at}`)
+      const minutes = Math.max(1, Math.round((new Date(urgent.sla_due_at).getTime() - now) / 60_000))
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `sla-nudge-${urgent.dossier_id}-${urgent.sla_due_at}`,
+          type: 'nudge',
+          time: new Date().toTimeString().slice(0, 5),
+          data: {
+            title: `SLA còn ${minutes} phút — hồ sơ ${urgent.customer.full_name}`,
+            sub: `${urgent.dossier_id} cần phản hồi trước ${new Date(urgent.sla_due_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}. Anh/chị mở hồ sơ để xử lý ngay.`,
+          },
+        },
+      ])
+    }
+    check()
+    const timer = setInterval(check, 60_000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads])
+
+  /**
+   * Gửi phản hồi (thumbs) về một lượt trả lời → backend log lại và dùng làm "điều cần tránh"
+   * cho các lượt sau (P2 — học từ phản hồi). Ghi nhận lạc hậu không được chặn UI.
+   */
+  const handleCopilotFeedback = async (message: StreamItem, rating: 1 | -1) => {
+    // Câu hỏi gần nhất trước lượt trả lời này (để đối chiếu khi đọc log phản hồi).
+    const index = messages.findIndex((mm) => mm.id === message.id)
+    const previous = index > 0 ? messages.slice(0, index).reverse().find((mm) => mm.type === 'user') : undefined
+    setMessages((prev) => prev.map((mm) => (mm.id === message.id ? { ...mm, data: { ...mm.data, feedbackGiven: rating } } : mm)))
+    try {
+      await api.copilot.feedback({
+        message: previous?.text || '(không rõ câu hỏi)',
+        reply: message.text || '',
+        rating,
+        mode: (message.data?.mode as string) || null,
+        tags: rating === -1 ? ['sale_danh_gia_chua_dat'] : [],
+        tools_used: [],
+        turn_id: message.id,
+      })
+      showToast(rating === 1 ? 'Cảm ơn anh/chị đã đánh giá hữu ích' : 'Đã ghi nhận — em sẽ tránh cách trả lời này')
+    } catch {
+      setMessages((prev) => prev.map((mm) => (mm.id === message.id ? { ...mm, data: { ...mm.data, feedbackGiven: undefined } } : mm)))
+      showToast('Chưa gửi được đánh giá — anh/chị thử lại sau nhé')
+    }
+  }
 
   // Action: Create customer lead and inject into Copilot context
   const executeCustomerCreation = async (payload: LeadCreatePayload) => {
@@ -391,7 +1407,7 @@ export function SalesWorkspacePage() {
   // Action: Launch Quote Creation Flow
   const startQuoteCreationFlow = (targetLeadName?: string) => {
     const time = new Date().toTimeString().slice(0, 5)
-    const clientName = targetLeadName || selectedLead?.customer.full_name || 'Nguyễn Minh An'
+    const clientName = targetLeadName || selectedLead?.customer.full_name || 'khách hàng'
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, type: 'user', text: `tạo báo giá cho ${clientName}`, time },
@@ -401,7 +1417,7 @@ export function SalesWorkspacePage() {
         time,
         data: {
           clientName,
-          unitCode: selectedLead?.constraints?.preferred_unit_code || 'R-02.02 · 2BR · 4,6 tỷ',
+          unitCode: selectedLead?.constraints?.preferred_unit_code || 'Chưa chọn căn — chọn trên card báo giá',
           date: '10/03/2026 (hôm nay)',
           goal: 'Ít vốn ban đầu nhất (suy đoán từ nguyện vọng dossier)',
         },
@@ -410,10 +1426,35 @@ export function SalesWorkspacePage() {
     scrollChatToEnd()
   }
 
-  // Confirm quote creation
-  const handleConfirmQuoteAction = () => {
+  /**
+   * Xác nhận lập báo giá — gọi API THẬT thay vì animation giả.
+   *
+   * Trước đây hàm này vẽ 4 bước bằng `setInterval` rồi in ra kết quả bịa ("Đề xuất PA-VAY…").
+   * Nay: tra giá niêm yết thật của căn → gọi `POST /quotes` → cập nhật tiến trình theo đúng
+   * vòng đời thật (gửi yêu cầu → engine trả kết quả). Không suy diễn thêm số liệu nào.
+   */
+  const handleConfirmQuoteAction = async () => {
     const time = new Date().toTimeString().slice(0, 5)
     const stepMsgId = `step-${Date.now()}`
+    const unitCode = copilotUnit || selectedLead?.constraints?.preferred_unit_code || null
+    const projectId = selectedLead?.constraints?.project_id ?? null
+
+    if (!unitCode || !projectId) {
+      // Không đủ dữ kiện thì nói thẳng — không dựng tiến trình cho có.
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `need-unit-${Date.now()}`,
+          type: 'agent',
+          time,
+          text: 'Anh/chị chọn giúp em **mã căn** và **dự án** trước khi lập báo giá nhé — em không tự suy diễn giá khi thiếu dữ liệu.',
+        },
+      ])
+      showToast('Thiếu mã căn/dự án để lập báo giá')
+      scrollChatToEnd()
+      return
+    }
+
     setMessages((prev) => [
       ...prev,
       {
@@ -421,39 +1462,66 @@ export function SalesWorkspacePage() {
         type: 'stepper',
         time,
         data: {
-          steps: ['Hiểu yêu cầu dossier', 'Tra cứu chính sách 10/03', 'Deterministic Math Engine FCS v2.6', 'Xếp hạng & đối soát chứng cứ'],
+          steps: ['Đọc ràng buộc hồ sơ khách', `Tra giá niêm yết căn ${unitCode}`, 'Gọi engine định giá (tất định)', 'Nhận kết quả & mở bảng phương án'],
           current: 0,
+          failed: false,
         },
       },
     ])
     scrollChatToEnd()
+    const advance = (current: number, failed = false) =>
+      setMessages((prev) => prev.map((m) => (m.id === stepMsgId ? { ...m, data: { ...m.data, current, failed } } : m)))
 
-    let idx = 0
-    const interval = setInterval(() => {
-      idx++
-      setMessages((prev) =>
-        prev.map((m) => (m.id === stepMsgId ? { ...m, data: { ...m.data, current: idx } } : m))
-      )
-      if (idx >= 4) {
-        clearInterval(interval)
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `done-${Date.now()}`,
-              type: 'agent',
-              time: new Date().toTimeString().slice(0, 5),
-              text: '✓ Đã lập bảng so sánh 3 phương án tại **Panel bên phải** (P-04). Đề xuất **PA-VAY** tối ưu dòng tiền ban đầu. Lưu ý: POL-EARLY hết hạn ngày 30/06/2026.',
-            },
-          ])
-          setActiveTab('baogia')
-          setPanelView('quote_comparison')
-          setIsMobilePanelOpen(true)
-          showToast('→ Bảng so sánh phương án đã mở tại tab Báo giá')
-          scrollChatToEnd()
-        }, 300)
-      }
-    }, 450)
+    try {
+      advance(1)
+      const units = await api.catalog.units({ project_id: projectId })
+      const unit = units.find((u) => u.unit_code === unitCode)
+      if (!unit) throw new Error(`Không tìm thấy căn ${unitCode} trong giỏ hàng dự án`)
+
+      advance(2)
+      const created = await api.quotes.create({
+        project_id: projectId,
+        unit_code: unit.unit_code,
+        listed_price_before_tax_vnd: unit.listed_price_before_tax_vnd,
+        own_funds_vnd: selectedLead?.constraints?.own_funds_vnd ?? undefined,
+        monthly_capacity_vnd: selectedLead?.constraints?.monthly_capacity_vnd ?? undefined,
+        objective: 'MIN_INITIAL_CASH',
+      })
+
+      advance(3)
+      const quoteCode =
+        'quote_version' in created ? `${created.quote_id} V${created.quote_version}` : String((created as { quote_id: string }).quote_id)
+      const status = 'status' in created ? String(created.status) : 'CREATED'
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `done-${Date.now()}`,
+          type: 'agent',
+          time: new Date().toTimeString().slice(0, 5),
+          text: `✓ Hệ thống đã nhận yêu cầu lập báo giá **${quoteCode}** cho căn **${unit.unit_code}** — trạng thái hiện tại: **${status}**. Anh/chị xem chi tiết ở tab Báo giá.`,
+        },
+      ])
+      setActiveTab('baogia')
+      setPanelView('quote_comparison')
+      setIsMobilePanelOpen(true)
+      showToast('→ Đã gửi yêu cầu lập báo giá tới hệ thống')
+      void queryClient.invalidateQueries({ queryKey: ['quotes'] })
+      scrollChatToEnd()
+    } catch (err) {
+      advance(4, true)
+      const message = err instanceof Error ? err.message : 'Không gọi được API lập báo giá'
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `quote-error-${Date.now()}`,
+          type: 'agent',
+          time: new Date().toTimeString().slice(0, 5),
+          text: `⚠️ Chưa lập được báo giá: ${message}. Anh/chị kiểm tra lại kết nối rồi thử lại giúp em.`,
+        },
+      ])
+      showToast('Lập báo giá thất bại — xem chi tiết trong khung chat')
+      scrollChatToEnd()
+    }
   }
 
   // Action: Launch Submit Review Flow
@@ -476,55 +1544,103 @@ export function SalesWorkspacePage() {
     scrollChatToEnd()
   }
 
-  // Confirm submission -> Receipt with 8s Undo
-  const handleConfirmSubmitAction = () => {
+  /**
+   * Trình duyệt báo giá — gọi API THẬT (`POST /quotes/{id}/submit`).
+   *
+   * Trước đây hàm này chỉ chèn thẻ "đã trình Q-00092 cho Mr. Hùng" rồi hẹn giờ bịa một nudge SSE.
+   * Nay: lấy đúng báo giá thật của hồ sơ đang chọn, gọi submit, và chỉ hiện receipt khi server
+   * xác nhận. Không có báo giá nào đủ điều kiện → nói thẳng, không diễn.
+   */
+  const handleConfirmSubmitAction = async () => {
     const time = new Date().toTimeString().slice(0, 5)
-    setUndoSeconds(8)
-    setUndoActive(true)
-    setUndoQuoteCode('Q-00092 V1')
+    const targetQuote =
+      quotes.find((q) => q.source_dossier_id && q.source_dossier_id === selectedLead?.dossier_id && q.status === 'READY_FOR_REVIEW') ??
+      quotes.find((q) => q.status === 'READY_FOR_REVIEW') ??
+      quotes.find((q) => q.status === 'DRAFT')
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `rcp-${Date.now()}`,
-        type: 'receipt',
-        time,
-        data: { id: 'Q-00092 V1', approver: 'Mr. Hùng' },
-      },
-    ])
-    scrollChatToEnd()
-
-    // Realtime SSE Manager Viewing notice simulation
-    setTimeout(() => {
+    if (!targetQuote) {
       setMessages((prev) => [
         ...prev,
         {
-          id: `sse-nudge-${Date.now()}`,
-          type: 'nudge',
-          time: new Date().toTimeString().slice(0, 5),
+          id: `no-quote-${Date.now()}`,
+          type: 'agent',
+          time,
+          text: 'Chưa có báo giá nào ở trạng thái sẵn sàng trình duyệt. Anh/chị lập báo giá trước rồi em gửi trình duyệt ngay.',
+        },
+      ])
+      showToast('Chưa có báo giá đủ điều kiện trình duyệt')
+      scrollChatToEnd()
+      return
+    }
+
+    try {
+      const submitted = await api.quotes.submit(targetQuote.quote_id, {
+        idempotencyKey: crypto.randomUUID(),
+        expectedVersion: targetQuote.quote_version,
+      })
+      setUndoSeconds(8)
+      setUndoActive(true)
+      setUndoQuoteCode(`${submitted.quote_id} V${submitted.quote_version}`)
+      setUndoQuoteVersion(submitted.quote_version)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `rcp-${Date.now()}`,
+          type: 'receipt',
+          time,
           data: {
-            title: 'Mr. Hùng đang xem Q-00092',
-            sub: '14:06 — sự kiện thời gian thực từ SSE timeline',
+            id: `${submitted.quote_id} V${submitted.quote_version}`,
+            approver: submitted.approval?.decided_by?.full_name || 'Quản lý phụ trách',
           },
         },
       ])
-      scrollChatToEnd()
-    }, 6000)
+      void queryClient.invalidateQueries({ queryKey: ['quotes'] })
+      showToast(`Đã trình duyệt ${submitted.quote_id} V${submitted.quote_version}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không gửi được yêu cầu trình duyệt'
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `submit-error-${Date.now()}`,
+          type: 'agent',
+          time,
+          text: `⚠️ Trình duyệt thất bại: ${message}. Anh/chị thử lại giúp em.`,
+        },
+      ])
+      showToast('Trình duyệt thất bại — xem chi tiết trong khung chat')
+    }
+    scrollChatToEnd()
   }
 
-  // Handle 8s Undo
-  const handleUndoSubmission = () => {
-    setUndoActive(false)
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `undone-${Date.now()}`,
-        type: 'agent',
-        time: new Date().toTimeString().slice(0, 5),
-        text: '↩ Đã hoàn tác trình duyệt Q-00092 — hồ sơ đã trở về trạng thái Nháp an toàn.',
-      },
-    ])
-    showToast('Đã hoàn tác thành công — hồ sơ chưa phát tán ra ngoài')
+  /**
+   * Trong 8 giây đầu sau khi trình, Sale được gửi YÊU CẦU SỬA (endpoint thật
+   * `POST /quotes/{id}/revision`). Đây thay cho nút "Hoàn tác" trước đây vốn chỉ đổi state
+   * phía UI trong khi hồ sơ đã nằm ở server — một lời hứa sai.
+   */
+  const handleRequestRevision = async () => {
+    const quoteId = undoQuoteCode.split(' ')[0]
+    try {
+      await api.quotes.requestRevision(
+        quoteId,
+        { reason: 'Sale xin điều chỉnh ngay sau khi trình duyệt' },
+        { idempotencyKey: crypto.randomUUID(), expectedVersion: undoQuoteVersion },
+      )
+      setUndoActive(false)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `revision-${Date.now()}`,
+          type: 'agent',
+          time: new Date().toTimeString().slice(0, 5),
+          text: `↩ Đã gửi **yêu cầu sửa** cho ${undoQuoteCode} tới quản lý — hồ sơ sẽ trở lại trạng thái cần chỉnh sửa.`,
+        },
+      ])
+      void queryClient.invalidateQueries({ queryKey: ['quotes'] })
+      showToast('Đã gửi yêu cầu sửa cho quản lý')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không gửi được yêu cầu sửa'
+      showToast(`Yêu cầu sửa thất bại: ${message}`)
+    }
     scrollChatToEnd()
   }
 
@@ -548,293 +1664,217 @@ export function SalesWorkspacePage() {
     scrollChatToEnd()
   }
 
+  // Process natural commands from Sale
+  // ===== NGỮ CẢNH THÔNG MINH =====
+  // Tự phát hiện khách hàng được nhắc tới trong tin nhắn (tên/SĐT/mã căn/mã hồ sơ).
+  // Ưu tiên: lệnh chỉ định rõ > tên/SĐT nhắc trong câu > giữ ngữ cảnh hiện tại > không ngữ cảnh.
+  const resolveSmartContext = (text: string): LeadDossier | null => {
+    const t = text.toLowerCase()
+    // Lệnh chuyển ngữ cảnh tường minh: /khach <từ khóa> hoặc "chuyển ngữ cảnh <từ khóa>"
+    const explicit = t.match(/(?:^|\s)(?:\/khach\s+|chuyển (?:ngữ cảnh|sang))(.+?)\s*(?:$|[,.;])/)
+    if (explicit && explicit[1]) {
+      const kw = explicit[1].trim()
+      const hit = leads.find((l) =>
+        l.customer?.full_name?.toLowerCase().includes(kw) ||
+        l.customer?.phone?.includes(kw) ||
+        l.dossier_id?.toLowerCase().includes(kw)
+      )
+      if (hit) return hit
+    }
+    // Tự phát hiện: SĐT hoặc mã hồ sơ (P-xxx / LEAD-xxx) xuất hiện trong câu
+    const phoneMatch = text.match(/0\d{9,10}/)
+    if (phoneMatch) {
+      const byPhone = leads.find((l) => l.customer?.phone === phoneMatch[0])
+      if (byPhone) return byPhone
+    }
+    const dossierMatch = text.toUpperCase().match(/\b(?:P-\d{3,}|LEAD-\d{3,}|DOS-\d{3,})\b/)
+    if (dossierMatch) {
+      const byId = leads.find((l) => l.dossier_id?.toUpperCase() === dossierMatch[0])
+      if (byId) return byId
+    }
+    // Tự phát hiện: tên khách (>=2 ký tự) hoặc mã căn xuất hiện trong câu
+    const unitMatch = text.toUpperCase().match(/\b([A-Z]+-\d+\.\d+)\b/)
+    const byUnit = unitMatch ? leads.find((l) => (l.constraints?.preferred_unit_code || '').toUpperCase() === unitMatch[1]) : null
+    if (byUnit) return byUnit
+    const nameHits = leads.filter((l) => {
+      const n = l.customer?.full_name?.toLowerCase() || ''
+      return n.length >= 2 && t.includes(n)
+    })
+    // Chỉ auto-chuyển khi khớp duy nhất, tránh chuyển oan khi tên trùng nhau
+    if (nameHits.length === 1) return nameHits[0]
+    return null
+  }
+
+  // Trả về id khách đang được nhắc tới trong tin nhắn (để đổi chip ngữ cảnh), null nếu không phát hiện
+  const detectContextLeadId = (text: string): string | null => {
+    const hit = resolveSmartContext(text)
+    return hit ? hit.dossier_id : null
+  }
+  const processNaturalCommand = (text: string, time: string, overrideLead?: LeadDossier | null) => {
+
+    // Ngữ cảnh hiệu lực cho lệnh này: override (từ smart-context) > ngữ cảnh hiện tại
+    const ctxLead = overrideLead !== undefined ? overrideLead : selectedLead
+    // 1. Phím tắt tra cứu nhanh danh sách hồ sơ khách hàng đã lưu
+    if (/^tìm khách|^tra cứu khách/i.test(text)) {
+      const queryTerm = text.replace(/^(tìm khách hàng|tìm khách|tra cứu khách)\s*/i, '').trim().toLowerCase()
+      const matched = queryTerm
+        ? leads.filter(
+            (l) =>
+              l.customer?.full_name?.toLowerCase().includes(queryTerm) ||
+              l.customer?.phone?.includes(queryTerm) ||
+              l.dossier_id?.toLowerCase().includes(queryTerm) ||
+              (l.constraints?.preferred_unit_code && l.constraints.preferred_unit_code.toLowerCase().includes(queryTerm))
+          )
+        : leads.slice(0, 5)
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `search-cust-${Date.now()}`,
+          type: 'customer_search',
+          time,
+          data: {
+            queryTerm: queryTerm || 'Tất cả khách hàng',
+            results: matched,
+          },
+        },
+      ])
+      scrollChatToEnd()
+      return
+    }
+
+    // 2. Mọi câu lệnh còn lại đi vào ReAct Copilot (tool thật + stream tiến trình).
+    //    Không còn câu trả lời hardcode theo kịch bản demo.
+    const reasoningId = `reasoning-${Date.now()}`
+    reasoningMsgIdRef.current = reasoningId
+    appliedFinalRef.current = null
+    recordPendingQuestion(reasoningId, text)
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: reasoningId,
+        type: 'reasoning',
+        time,
+        data: { steps: [] as CopilotReasoningStep[], streaming: true },
+      },
+    ])
+    scrollChatToEnd()
+    const context = {
+      currentUnit: copilotUnit ?? ctxLead?.constraints?.preferred_unit_code ?? null,
+      leadDossierId: ctxLead?.dossier_id ?? null,
+      transactionDate: copilotTxDate,
+      projectId: ctxLead?.constraints?.project_id ?? null,
+    }
+    setFailedTurn(null)
+    copilot.send(text, context)
+  }
+
+  /** Thử lại đúng câu vừa lỗi với đúng ngữ cảnh cũ (C4). */
+  const handleRetryFailedTurn = () => {
+    if (!failedTurn) return
+    setFailedTurn(null)
+    copilot.send(failedTurn.text, failedTurn.context)
+  }
+
+
+  // Trigger Smart Action from Quick Chips
+  const triggerSmartAction = (promptText: string) => {
+    const time = new Date().toTimeString().slice(0, 5)
+    setMessages((prev) => [...prev, { id: `u-${Date.now()}`, type: 'user', text: promptText, time }])
+    scrollChatToEnd()
+    processNaturalCommand(promptText, time, resolveSmartContext(promptText) ?? selectedLead)
+  }
+
   // Chat Send Handler
   const handleSendChatMessage = () => {
     const text = inputVal.trim()
     if (!text) return
     setInputVal('')
-    setSlashOpen(false)
+
+    // Ngữ cảnh thông minh: tự nhận diện khách được nhắc tới trong tin nhắn
+    // (tên / SĐT / mã căn / mã hồ sơ). Nếu không nhắc ai -> giữ nguyên ngữ cảnh hiện tại.
+    const mentionedId = detectContextLeadId(text)
+    if (mentionedId && mentionedId !== contextLeadId) {
+      setContextLeadId(mentionedId)
+      setSelectedLeadId(mentionedId)
+    }
 
     const time = new Date().toTimeString().slice(0, 5)
     setMessages((prev) => [...prev, { id: `u-${Date.now()}`, type: 'user', text, time }])
     scrollChatToEnd()
 
     setTimeout(() => {
-      // Mini Q&A logic
-      if (/an.*sao rồi|hồ sơ an|sla/i.test(text)) {
-        setActiveTab('hoso')
-        setPanelView('dossier')
-        setIsMobilePanelOpen(true)
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `qa-${Date.now()}`,
-            type: 'agent',
-            time,
-            text: 'Đây là hồ sơ của **Nguyễn Minh An** tại panel. Khách còn 1 băn khoăn: *"chuyển nhượng sớm được không?"* — nên giải thích trước khi tư vấn tiến độ.',
-          },
-        ])
-        scrollChatToEnd()
-        return
-      }
-
-      if (/p09|chính sách mới|bãi bỏ/i.test(text)) {
-        setActiveTab('chinhsach')
-        setPanelView('policies')
-        setIsMobilePanelOpen(true)
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `qa-${Date.now()}`,
-            type: 'agent',
-            time,
-            text: 'Chính sách **P09** bãi bỏ ưu đãi cộng dồn trả nhanh + HTLS. Mọi tính toán mới sẽ áp dụng công thức mới (bất biến, version cũ chuyển SUPERSEDED).',
-          },
-        ])
-        scrollChatToEnd()
-        return
-      }
-
-      if (/chuyển nhượng/i.test(text)) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `qa-${Date.now()}`,
-            type: 'agent',
-            time,
-            text: 'Theo **POL-10 Phụ lục pháp lý**: Được phép chuyển nhượng sau khi thanh toán tối thiểu 30% giá trị hợp đồng, phí chuyển nhượng 1%. [mỏ neo: chunk #19].',
-          },
-        ])
-        scrollChatToEnd()
-        return
-      }
-
-      // Customer creation command/NLP
-      if (/^\/tao-khach|\/taokhach|\/newcustomer/i.test(text)) {
-        const queryText = text.replace(/^\/(tao-khach|taokhach|newcustomer)\s*/i, '').trim()
-        if (queryText) {
-          const parts = queryText.split(/[,;\n]+/).map((s) => s.trim())
-          const name = parts[0] || 'Khách hàng mới'
-          const phoneMatch = queryText.match(/0\d{9,10}/)
-          const phone = phoneMatch ? phoneMatch[0] : (parts[1] && /^\d+$/.test(parts[1]) ? parts[1] : '0912345678')
-          const unitMatch = queryText.match(/(?:căn|mã|unit)?\s*([A-Za-z0-9]+-[A-Za-z0-9\.]+)/i)
-          const unit = unitMatch ? unitMatch[1] : ''
-          const fundsMatch = queryText.match(/(\d+(?:[\.,]\d+)?)\s*(tỷ|ty|triệu|tr)/i)
-          let fundsVnd = 1500000000
-          if (fundsMatch) {
-            const num = parseFloat(fundsMatch[1].replace(',', '.'))
-            fundsVnd = fundsMatch[2].toLowerCase().startsWith('t') && !fundsMatch[2].toLowerCase().startsWith('tr')
-              ? Math.round(num * 1_000_000_000)
-              : Math.round(num * 1_000_000)
-          }
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `conf-cust-${Date.now()}`,
-              type: 'confirm',
-              time,
-              data: {
-                isCustomerCreate: true,
-                clientName: name,
-                phone,
-                unitCode: unit || 'Chưa định danh',
-                funds: fundsVnd,
-                rawPayload: {
-                  customer_name: name,
-                  customer_phone: phone,
-                  preferred_unit_code: unit || undefined,
-                  own_funds_vnd: fundsVnd,
-                  temperature: 'HOT' as LeadTemperature,
-                  customer_segment: 'NEW_CUSTOMER' as CustomerSegment,
-                  objective: 'MIN_INITIAL_OUTFLOW' as OptimizationObjective,
-                  needs_summary: `Khách hàng ${name} khởi tạo qua lệnh Copilot. Căn quan tâm: ${unit || 'Chưa định danh'}.`,
-                },
-              },
-            },
-          ])
-          scrollChatToEnd()
-          return
-        } else {
-          setCreateCustomerOpen(true)
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `ag-cust-open-${Date.now()}`,
-              type: 'agent',
-              time,
-              text: 'Em đã mở cửa sổ **Khởi tạo Khách hàng mới**. Anh có thể nhập form hoặc gõ nhanh: `/tao-khach [Họ tên], [SĐT], [Mã căn], [Vốn tự có]` để em tự động bóc tách.',
-            },
-          ])
-          scrollChatToEnd()
-          return
-        }
-      }
-
-      if (/^tạo khách|thêm khách|khách hàng mới/i.test(text)) {
-        const rest = text.replace(/^(tạo khách hàng|tạo khách|thêm khách|khách hàng mới)\s*/i, '').trim()
-        if (rest) {
-          const phoneMatch = rest.match(/0\d{9,10}/)
-          const name = phoneMatch ? rest.substring(0, phoneMatch.index).replace(/[,;]/g, '').trim() : rest.split(/[,;\n]/)[0].trim()
-          const phone = phoneMatch ? phoneMatch[0] : '0912345678'
-          const unitMatch = rest.match(/(?:căn|mã|unit)?\s*([A-Za-z0-9]+-[A-Za-z0-9\.]+)/i)
-          const unit = unitMatch ? unitMatch[1] : ''
-          const fundsMatch = rest.match(/(\d+(?:[\.,]\d+)?)\s*(tỷ|ty|triệu|tr)/i)
-          let fundsVnd = 1500000000
-          if (fundsMatch) {
-            const num = parseFloat(fundsMatch[1].replace(',', '.'))
-            fundsVnd = fundsMatch[2].toLowerCase().startsWith('t') && !fundsMatch[2].toLowerCase().startsWith('tr')
-              ? Math.round(num * 1_000_000_000)
-              : Math.round(num * 1_000_000)
-          }
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `conf-cust-${Date.now()}`,
-              type: 'confirm',
-              time,
-              data: {
-                isCustomerCreate: true,
-                clientName: name || 'Khách hàng mới',
-                phone,
-                unitCode: unit || 'Chưa định danh',
-                funds: fundsVnd,
-                rawPayload: {
-                  customer_name: name || 'Khách hàng mới',
-                  customer_phone: phone,
-                  preferred_unit_code: unit || undefined,
-                  own_funds_vnd: fundsVnd,
-                  temperature: 'HOT' as LeadTemperature,
-                  customer_segment: 'NEW_CUSTOMER' as CustomerSegment,
-                  objective: 'MIN_INITIAL_OUTFLOW' as OptimizationObjective,
-                  needs_summary: `Khách hàng ${name} khởi tạo qua hội thoại tự nhiên với Copilot.`,
-                },
-              },
-            },
-          ])
-          scrollChatToEnd()
-          return
-        } else {
-          setCreateCustomerOpen(true)
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `ag-cust-open-${Date.now()}`,
-              type: 'agent',
-              time,
-              text: 'Em đã mở bảng **Khởi tạo Khách hàng mới**. Anh điền thông tin để em lưu vào CRM và nạp vào hồ sơ nhé.',
-            },
-          ])
-          scrollChatToEnd()
-          return
-        }
-      }
-
-      // Customer search command
-      if (/^\/tim-khach|\/timkhach|tìm khách|tra cứu khách/i.test(text)) {
-        const queryTerm = text.replace(/^(\/tim-khach|\/timkhach|tìm khách|tra cứu khách)\s*/i, '').trim().toLowerCase()
-        const matched = queryTerm
-          ? leads.filter(
-              (l) =>
-                l.customer?.full_name?.toLowerCase().includes(queryTerm) ||
-                l.customer?.phone?.includes(queryTerm) ||
-                l.dossier_id?.toLowerCase().includes(queryTerm) ||
-                (l.constraints?.preferred_unit_code && l.constraints.preferred_unit_code.toLowerCase().includes(queryTerm))
-            )
-          : leads.slice(0, 5)
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `search-cust-${Date.now()}`,
-            type: 'customer_search',
-            time,
-            data: {
-              queryTerm: queryTerm || 'Tất cả khách hàng',
-              results: matched,
-            },
-          },
-        ])
-        scrollChatToEnd()
-        return
-      }
-
-      if (/tạo báo giá|lập báo giá/i.test(text)) {
-        startQuoteCreationFlow()
-        return
-      }
-
-      if (/trình duyệt|submit/i.test(text)) {
-        startSubmitReviewFlow()
-        return
-      }
-
-      if (/soạn tin|tin nhắn/i.test(text)) {
-        startCopilotDrafting()
-        return
-      }
-
-      // Fallback
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `fb-${Date.now()}`,
-          type: 'fallback',
-          time,
-          text: 'Em chưa chắc chắn hiểu yêu cầu. Anh có thể chọn nhanh thao tác nghiệp vụ:',
-        },
-      ])
-      scrollChatToEnd()
-    }, 300)
+      processNaturalCommand(text, time, resolveSmartContext(text) ?? selectedLead)
+    }, 150)
   }
 
-  // Slash commands list
-  const SLASH_COMMANDS = [
-    { cmd: '/tao-khach', label: 'Khởi tạo hồ sơ khách hàng mới', icon: UserPlus },
-    { cmd: '/tim-khach', label: 'Tìm kiếm khách hàng theo tên / SĐT / căn', icon: Search },
-    { cmd: '/khach-hang', label: 'Xem danh sách hồ sơ khách', icon: Users },
-    { cmd: '/baogia', label: 'Mở pipeline báo giá', icon: FileStack },
-    { cmd: '/soan-tin', label: 'Soạn tin nhắn Copilot (F8)', icon: MessageSquare },
-    { cmd: '/chinh-sach', label: 'Tra cứu chính sách bán hàng', icon: ScrollText },
-    { cmd: '/tinh-lai', label: 'Lập báo giá mới theo chính sách', icon: RotateCcw },
-  ]
-
-  const filteredCommands = SLASH_COMMANDS.filter((c) =>
-    c.cmd.toLowerCase().includes(inputVal.toLowerCase())
+  // Danh mục lệnh gạch chéo (D1) — có từ khoá không dấu để gõ "bao gia" vẫn khớp "/baogia"
+  const SLASH_COMMANDS: SlashCommand[] = useMemo(
+    () => [
+      { cmd: '/tao-khach', label: 'Khởi tạo hồ sơ khách hàng mới', icon: UserPlus, keywords: ['tao khach', 'khach moi', 'lead'] },
+      { cmd: '/tim-khach', label: 'Tìm khách hàng theo tên / SĐT / mã hồ sơ', icon: Search, keywords: ['tim khach', 'tra cuu khach'] },
+      { cmd: '/khach-hang', label: 'Xem danh sách hồ sơ khách', icon: Users, keywords: ['danh sach khach'] },
+      { cmd: '/baogia', label: 'Mở pipeline báo giá', icon: FileStack, keywords: ['bao gia', 'pipeline'] },
+      { cmd: '/soan-tin', label: 'Soạn tin nhắn Copilot (tự kiểm F8)', icon: MessageSquare, keywords: ['soan tin', 'zalo', 'tin nhan'] },
+      { cmd: '/chinh-sach', label: 'Tra cứu chính sách đang hiệu lực', icon: ScrollText, keywords: ['chinh sach', 'chiet khau'] },
+      { cmd: '/tinh-lai', label: 'Lập báo giá mới theo chính sách', icon: RotateCcw, keywords: ['tinh lai', 'lap bao gia'] },
+      { cmd: '/gio-hang', label: 'Hỏi Copilot giỏ hàng còn căn nào', icon: Home, keywords: ['gio hang', 'ro hang', 'con can'] },
+    ],
+    [],
   )
+
+  const filteredCommands = useMemo(() => filterCommands(SLASH_COMMANDS, inputVal), [SLASH_COMMANDS, inputVal])
+
+  // Đổi từ khoá thì đưa con trỏ về dòng đầu, tránh chọn nhầm lệnh ngoài danh sách mới
+  useEffect(() => {
+    setSlashIndex(0)
+  }, [inputVal])
+
+  const rememberCommand = (cmd: string) => {
+    setRecentCommands((prev) => {
+      const next = [cmd, ...prev.filter((c) => c !== cmd)].slice(0, 4)
+      try {
+        window.localStorage.setItem('copilot.recentSlash', JSON.stringify(next))
+      } catch {
+        /* chế độ riêng tư: bỏ qua, không chặn thao tác */
+      }
+      return next
+    })
+  }
 
   const handleExecuteSlash = (cmd: string) => {
     setSlashOpen(false)
     setInputVal('')
+    rememberCommand(cmd)
     if (cmd === '/tao-khach') {
       setCreateCustomerOpen(true)
     } else if (cmd === '/tim-khach') {
       setInputVal('/tim-khach ')
       inputTextAreaRef.current?.focus()
     } else if (cmd === '/khach-hang') {
-      setActiveRail('khach')
       setActiveTab('hoso')
       setPanelView('leads')
       setIsMobilePanelOpen(true)
     } else if (cmd === '/baogia') {
-      setActiveRail('baogia')
       setActiveTab('baogia')
       setPanelView('pipeline')
       setIsMobilePanelOpen(true)
     } else if (cmd === '/soan-tin') {
       startCopilotDrafting()
     } else if (cmd === '/chinh-sach') {
-      setActiveRail('chinhsach')
       setActiveTab('chinhsach')
       setPanelView('policies')
       setIsMobilePanelOpen(true)
     } else if (cmd === '/tinh-lai') {
       startQuoteCreationFlow()
+    } else if (cmd === '/gio-hang') {
+      setInputVal('Giỏ hàng còn căn nào?')
+      inputTextAreaRef.current?.focus()
     }
   }
 
   // Real data grouping for Kanban
+
   const kanbanGroups = useMemo(() => {
     return {
       draft: quotes.filter((q) => ['DRAFT', 'NEEDS_INPUT', 'CALCULATION_FAILED'].includes(q.status)),
@@ -845,266 +1885,141 @@ export function SalesWorkspacePage() {
     }
   }, [quotes])
 
+  // Khách cần chăm sóc sớm — xếp theo SLA thật: đã quá hạn trước, rồi đến sắp đến hạn
+  const urgentLeads = useMemo(() => {
+    return [...leads]
+      .filter((l) => l.sla_due_at)
+      .sort((a, b) => new Date(a.sla_due_at).getTime() - new Date(b.sla_due_at).getTime())
+      .slice(0, 2)
+  }, [leads])
+
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground antialiased font-sans">
-      {/* ================= 1. ENTERPRISE HEADER ================= */}
-      <header className="z-40 flex h-14 shrink-0 items-center justify-between border-b border-border bg-primary px-4 text-primary-foreground shadow-xs">
-        <div className="flex items-center gap-3">
-          <Link to="/sale" className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-foreground/15 shadow-inner">
-              <ShieldCheck className="h-5 w-5 text-primary-foreground" />
-            </span>
-            <div className="leading-tight">
-              <span className="block font-display text-sm font-semibold tracking-wide">
-                PricePolicy Workspace
-              </span>
-              <span className="block text-[10.5px] text-primary-foreground/70">
-                Sales Copilot · VLand Future Riverside
-              </span>
-            </div>
-          </Link>
-
-          {/* Quick metric stats from real queries */}
-          <div className="ml-6 hidden items-center gap-2 border-l border-primary-foreground/15 pl-6 lg:flex">
-            <Badge variant="outline" className="border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground">
-              {leads.length} Khách đang theo
-            </Badge>
-            <Badge variant="outline" className="border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground">
-              {kanbanGroups.review.length} Báo giá chờ duyệt
-            </Badge>
-            <Badge variant="outline" className="border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground">
-              {policies.length} Chính sách hiệu lực
-            </Badge>
+    <div className="flex h-full w-full flex-1 flex-col overflow-hidden bg-background text-foreground antialiased font-sans">
+      {/* ================= 1. WORKSPACE HEADER ================= */}
+      <header className="z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4 text-foreground shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <div>
+            <span className="font-display text-xs font-bold tracking-wide">Trợ lý Copilot AI</span>
+            <span className="ml-2 text-[11px] text-muted-foreground hidden sm:inline">VLand Future Riverside</span>
           </div>
-
+          {/* Nút Lịch sử nằm bên trái, cạnh tiêu đề: khung lịch sử mặc định ẩn, bấm đây mới mở. */}
           <Button
             size="sm"
-            onClick={() => setCreateCustomerOpen(true)}
-            className="ml-3 hidden sm:inline-flex h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs shadow-xs"
+            variant={historyOpen ? 'secondary' : 'outline'}
+            onClick={() => setHistoryOpen((v) => !v)}
+            title={historyOpen ? 'Ẩn lịch sử hội thoại' : 'Hiện lịch sử hội thoại'}
+            aria-expanded={historyOpen}
+            className="h-7 gap-1.5 text-xs"
           >
-            <UserPlus className="h-3.5 w-3.5" /> Tạo khách mới
+            {historyOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
+            <History className="h-3.5 w-3.5" />
+            Lịch sử
+            {conversations.data && conversations.data.total > 0 && (
+              <Badge variant="secondary" className="ml-0.5 h-4 px-1.5 text-[10px]">
+                {conversations.data.total}
+              </Badge>
+            )}
           </Button>
         </div>
 
-        {/* User profile & actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <Button
-            asChild
-            variant="ghost"
             size="sm"
-            className="hidden text-xs text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground sm:inline-flex"
+            variant={ttsEffective?.auto_speak ? 'default' : 'outline'}
+            onClick={() => setVoicePickerOpen(true)}
+            title="Chọn giọng đọc câu trả lời"
+            className="h-7 gap-1.5 text-xs"
           >
-            <Link to="/sale/leads">
-              <Layers className="mr-1.5 h-3.5 w-3.5" /> Chế độ bảng biểu
-            </Link>
+            <Volume2 className="h-3.5 w-3.5" />
+            {ttsEffective?.auto_speak ? 'Tự đọc' : 'Giọng đọc'}
           </Button>
-
+          <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
+            🟢 Online · FCS v2.6
+          </Badge>
           <Button
-            asChild
-            variant="ghost"
             size="sm"
-            className="text-xs text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground"
+            variant="outline"
+            onClick={() => navigate('/sale/leads')}
+            className="h-7 text-xs gap-1 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground"
           >
-            <a href="/sales_copilot.html" target="_blank" rel="noreferrer">
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Copilot standalone
-            </a>
+            <Users className="h-3 w-3" />
+            Mở CRM Khách hàng
           </Button>
-
-          <div className="hidden text-right leading-tight sm:block">
-            <span className="block text-xs font-semibold">{session?.user.full_name || 'Hải Nguyễn'}</span>
-            <span className="block text-[10px] text-primary-foreground/70">
-              {ROLE_LABEL[session?.user.role || 'SALE']} · {session?.user.email}
-            </span>
-          </div>
-
-          <div className="grid h-8 w-8 place-items-center rounded-full bg-gold font-display text-xs font-bold text-gold-foreground shadow-xs">
-            {session?.user.full_name ? session.user.full_name.slice(0, 2).toUpperCase() : 'HN'}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              clearSession()
-              navigate('/login')
-            }}
-            className="rounded-md p-1.5 text-primary-foreground/70 hover:bg-primary-foreground/10 hover:text-primary-foreground"
-            title="Đăng xuất"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
         </div>
       </header>
 
-      {/* ================= 2. 3-REGION WORKSPACE ================= */}
+      {/* ================= 2. WORKSPACE CONVERSATION & PANEL ================= */}
       <div className="flex min-h-0 flex-1">
-        {/* ----- REGION A: RAIL (64px) ----- */}
-        <nav className="flex w-16 shrink-0 flex-col items-center gap-1.5 border-r border-border bg-card py-3 shadow-xs select-none">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('home')
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `home-${Date.now()}`,
-                  type: 'agent',
-                  time: new Date().toTimeString().slice(0, 5),
-                  text: `Hôm nay anh đang quản lý **${leads.length} hồ sơ khách**, **${kanbanGroups.review.length} báo giá chờ phê duyệt**. Bấm vào bất kỳ mục nào trên panel để tra cứu chi tiết nhé.`,
-                },
-              ])
-              scrollChatToEnd()
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'home'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Tổng quan Workspace"
+        {/* ----- LỊCH SỬ HỘI THOẠI (thanh bên) ----- */}
+        {historyOpen && (
+          <aside
+            aria-label="Lịch sử hội thoại Copilot"
+            className="flex w-56 shrink-0 flex-col border-r border-border bg-muted/20"
           >
-            <Home className="h-5 w-5" />
-            <span className="mt-0.5">Tổng quan</span>
-          </button>
+            <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hội thoại đã lưu</span>
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={() => openConversation(null)}>
+                <Plus className="mr-1 h-3 w-3" /> Mới
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+              {conversations.isLoading && <p className="px-1 py-2 text-[11px] text-muted-foreground">Đang tải lịch sử…</p>}
+              {conversations.isError && (
+                <p className="px-1 py-2 text-[11px] text-destructive">Không tải được lịch sử. Anh thử lại sau giúp em.</p>
+              )}
+              {conversations.data && conversations.data.items.length === 0 && (
+                <p className="px-1 py-2 text-[11px] text-muted-foreground">
+                  Chưa có hội thoại nào. Hội thoại sẽ được lưu tự động và xem lại được sau khi đổi trang.
+                </p>
+              )}
+              {conversations.data?.items.map((c) => (
+                <div
+                  key={c.conversation_id}
+                  className={cn(
+                    'group cursor-pointer rounded-lg border px-2 py-1.5 transition-colors',
+                    c.conversation_id === conversationId
+                      ? 'border-primary/40 bg-primary/10'
+                      : 'border-transparent hover:border-border hover:bg-muted/50',
+                  )}
+                  onClick={() => openConversation(c.conversation_id)}
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <span className="line-clamp-2 text-[11px] font-medium text-foreground">{c.title}</span>
+                    <button
+                      type="button"
+                      aria-label={`Xoá hội thoại ${c.title}`}
+                      className="hidden shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive group-hover:block"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleDeleteConversation(c.conversation_id)
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Clock className="h-2.5 w-2.5" />
+                    {clockOf(c.updated_at)}
+                    <span>· {c.message_count} lượt</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('khach')
-              setActiveTab('hoso')
-              setPanelView('leads')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'khach'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Hồ sơ khách hàng"
-          >
-            <Users className="h-5 w-5" />
-            <span className="mt-0.5">Khách</span>
-            {leads.length > 0 && (
-              <span className="absolute top-1 right-1 grid h-4 min-w-[16px] place-items-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
-                {leads.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCreateCustomerOpen(true)}
-            className="group relative flex h-10 w-12 flex-col items-center justify-center rounded-xl text-[9px] font-medium text-emerald-600 hover:bg-emerald-500/10 transition-all"
-            title="Khởi tạo khách hàng mới"
-          >
-            <UserPlus className="h-4 w-4" />
-            <span className="mt-0.5">+ Khách</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('baogia')
-              setActiveTab('baogia')
-              setPanelView('pipeline')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'baogia'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Quản lý báo giá"
-          >
-            <FileStack className="h-5 w-5" />
-            <span className="mt-0.5">Báo giá</span>
-            {kanbanGroups.draft.length + kanbanGroups.review.length > 0 && (
-              <span className="absolute top-1 right-1 grid h-4 min-w-[16px] place-items-center rounded-full bg-muted-foreground/30 px-1 text-[9px] font-bold text-foreground">
-                {kanbanGroups.draft.length + kanbanGroups.review.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('tinnhan')
-              setActiveTab('tinnhan')
-              setPanelView('messages')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'tinnhan'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Soạn tin & Tuân thủ F8"
-          >
-            <MessageSquare className="h-5 w-5" />
-            <span className="mt-0.5">Tin nhắn</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRail('chinhsach')
-              setActiveTab('chinhsach')
-              setPanelView('policies')
-              setIsMobilePanelOpen(true)
-            }}
-            className={cn(
-              'group relative flex h-12 w-12 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-all',
-              activeRail === 'chinhsach'
-                ? 'bg-primary text-primary-foreground shadow-xs'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            )}
-            title="Chính sách bán hàng (chỉ đọc)"
-          >
-            <ScrollText className="h-5 w-5" />
-            <span className="mt-0.5">Chính sách</span>
-          </button>
-
-          <div className="flex-1" />
-
-          <button
-            type="button"
-            onClick={() => navigate('/sale/leads')}
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Xem dạng bảng"
-          >
-            <Layers className="h-4 w-4" />
-          </button>
-        </nav>
-
-        {/* ----- REGION B: AGENT CONVERSATION (MAIN) ----- */}
+        {/* ----- AGENT CONVERSATION (MAIN) ----- */}
         <section className="flex min-w-0 flex-1 flex-col bg-background">
-          {/* Conversation Subheader */}
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4 py-2">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div>
-                <span className="font-semibold text-xs text-foreground">Trợ lý Phân tích Bán hàng</span>
-                <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Sẵn sàng tư vấn
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-muted-foreground hidden sm:inline">Phạm vi dữ liệu:</span>
-              <Badge variant="outline" className="font-mono text-[10.5px]">
-                FCS v2.6 · C-09 Engine
-              </Badge>
-            </div>
-          </div>
-
           {/* Chat Stream Messages */}
-          <div className="flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth">
+          <div
+            role="log"
+            aria-live="polite"
+            aria-label="Hội thoại với trợ lý Copilot"
+            className="flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth"
+          >
             {messages.map((m) => {
               if (m.type === 'user') {
                 return (
@@ -1119,138 +2034,204 @@ export function SalesWorkspacePage() {
 
               if (m.type === 'agent') {
                 return (
-                  <div key={m.id} className="flex flex-col items-start gap-1">
-                    <div className="max-w-[88%] rounded-2xl rounded-bl-xs border border-border bg-card px-4 py-3 text-xs leading-relaxed text-foreground shadow-xs">
-                      <div
-                        dangerouslySetInnerHTML={{
-                          __html: (m.text || '')
-                            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-                            .replace(/\*(.*?)\*/g, '<i>$1</i>'),
-                        }}
-                      />
+                  <div key={m.id} className="flex flex-col items-start gap-1.5 w-full">
+                    <div className="max-w-[92%] rounded-2xl rounded-bl-xs border border-border/80 bg-card/95 px-4 py-3 text-xs text-foreground shadow-sm">
+                      <FormattedAiMessage content={m.text || ''} onCommandClick={(cmd) => triggerSmartAction(cmd)} />
+                      {Array.isArray(m.data?.citations) && m.data.citations.length > 0 && (
+                        <CitationChips
+                          citations={m.data.citations as CopilotCitation[]}
+                          onOpen={(citation) => setEvidenceDetail(citationToEvidence(citation))}
+                        />
+                      )}
+                      <div className="mt-1.5 flex items-center gap-2 border-t border-border/60 pt-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={cn(
+                            'h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground',
+                            speakingId === m.id && 'text-primary',
+                          )}
+                          title={speakingId === m.id ? 'Dừng đọc' : 'Đọc câu trả lời thành tiếng'}
+                          onClick={() => handleSpeak(m.id, m.text || '')}
+                        >
+                          {speakingId === m.id ? (
+                            <>
+                              <Square className="h-3 w-3" /> Dừng đọc
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="h-3 w-3" /> Đọc
+                            </>
+                          )}
+                        </Button>
+                        <span className="text-[10px] text-muted-foreground">
+                          {ttsEffective?.auto_speak ? 'Đang tự đọc câu trả lời mới' : 'Enter để gửi · Ctrl+Enter để xuống dòng'}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-[10px] text-muted-foreground">Trợ lý AI · {m.time}</span>
+                    {/* Suggested actions pills */}
+                    {m.suggested_actions && m.suggested_actions.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1 pl-1">
+                        {m.suggested_actions.map((act, aIdx) => (
+                          <button
+                            key={aIdx}
+                            type="button"
+                            onClick={() => triggerSmartAction(act)}
+                            className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/15 transition-all shadow-2xs"
+                          >
+                            <span>✨</span>
+                            <span>{act}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {/* Critic vòng 2: cảnh báo khi phát ngôn cần chỉnh (P2) */}
+                    {m.data?.critique && m.data.critique.ok === false && (
+                      <div
+                        role="status"
+                        className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[11px] text-foreground"
+                      >
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
+                        <span>
+                          Kiểm duyệt nội bộ: {m.data.critique.hints?.[0] || 'câu trả lời cần chỉnh lại trước khi gửi khách'}
+                        </span>
+                      </div>
+                    )}
+                    <div className="ml-1 flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">Trợ lý AI · {m.time}</span>
+                      {m.type === 'agent' && !m.id.startsWith('agent-critic') && (
+                        <>
+                          <button
+                            type="button"
+                            title="Câu trả lời hữu ích"
+                            aria-label="Đánh giá hữu ích"
+                            disabled={Boolean(m.data?.feedbackGiven)}
+                            onClick={() => handleCopilotFeedback(m, 1)}
+                            className={cn(
+                              'rounded p-0.5 transition-colors hover:text-success',
+                              m.data?.feedbackGiven === 1 ? 'text-success' : 'text-muted-foreground',
+                            )}
+                          >
+                            <ThumbsUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Câu trả lời chưa đạt"
+                            aria-label="Đánh giá chưa đạt"
+                            disabled={Boolean(m.data?.feedbackGiven)}
+                            onClick={() => handleCopilotFeedback(m, -1)}
+                            className={cn(
+                              'rounded p-0.5 transition-colors hover:text-destructive',
+                              m.data?.feedbackGiven === -1 ? 'text-destructive' : 'text-muted-foreground',
+                            )}
+                          >
+                            <ThumbsDown className="h-3 w-3" />
+                          </button>
+                          {m.data?.feedbackGiven && (
+                            <span className="text-[10px] text-muted-foreground">đã ghi nhận cảm ơn anh/chị</span>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 )
               }
 
-              if (m.type === 'briefing') {
-                const urgentLeads = leads.slice(0, 2)
+              if (m.type === 'welcome') {
                 return (
-                  <Card key={m.id} className="w-full max-w-[92%] border-border shadow-xs overflow-hidden">
-                    <div className="flex items-center justify-between bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5" /> Tổng hợp ca làm việc
-                      </span>
-                      <span className="text-[10.5px] opacity-80">Cập nhật thời gian thực</span>
+                  <div key={m.id} className="mx-auto w-full max-w-lg space-y-5 py-6">
+                    {/* Heading */}
+                    <div className="text-center">
+                      <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-primary/10">
+                        <ShieldCheck className="h-6 w-6 text-primary" />
+                      </div>
+                      <h1 className="font-display text-base font-semibold text-foreground">
+                        Xin chào, {session?.user.full_name || 'Hải Nguyễn'} 👋
+                      </h1>
+                      <p className="mt-1 text-[11.5px] text-muted-foreground">
+                        Em đã tổng hợp việc cần ưu tiên hôm nay bên dưới — hoặc anh gõ yêu cầu bất kỳ.
+                                            </p>
                     </div>
 
-                    <CardContent className="divide-y divide-border p-0 text-xs">
-                      {/* Priority Leads */}
-                      <div className="p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-                            Hồ sơ cần liên hệ phản hồi
-                          </span>
-                          <span className="text-[11px] text-muted-foreground">{leads.length} hồ sơ</span>
-                        </div>
-                        {urgentLeads.length > 0 ? (
-                          <div className="space-y-2">
-                            {urgentLeads.map((l) => (
-                              <div key={l.dossier_id} className="flex items-center justify-between rounded-lg border border-border/70 bg-muted/30 p-2">
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-foreground">{l.customer.full_name}</span>
-                                    <TemperatureBadge temperature={l.temperature} />
-                                  </div>
-                                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                    <span>{l.customer.phone}</span>
-                                    <span>•</span>
-                                    <SlaCountdown dueAt={l.sla_due_at} />
-                                  </div>
-                                </div>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={() => {
-                                    setSelectedLeadId(l.dossier_id)
-                                    setActiveTab('hoso')
-                                    setPanelView('dossier')
-                                    setIsMobilePanelOpen(true)
-                                  }}
-                                >
-                                  Mở hồ sơ
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-muted-foreground">Không có hồ sơ nào quá hạn.</p>
-                        )}
-                      </div>
-
-                      {/* Approval Status */}
-                      <div className="p-3">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-                            Tiến độ phê duyệt báo giá
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 p-0 text-xs text-primary"
-                            onClick={() => {
-                              setActiveTab('baogia')
-                              setPanelView('pipeline')
-                              setIsMobilePanelOpen(true)
-                            }}
-                          >
-                            Xem pipeline →
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-center text-xs sm:grid-cols-4">
-                          <div className="rounded-lg bg-muted/40 p-2">
-                            <span className="block text-base font-bold text-foreground">{kanbanGroups.draft.length}</span>
-                            <span className="text-[10px] text-muted-foreground">Nháp</span>
-                          </div>
-                          <div className="rounded-lg bg-warning/10 p-2 text-warning">
-                            <span className="block text-base font-bold">{kanbanGroups.review.length}</span>
-                            <span className="text-[10px]">Chờ duyệt</span>
-                          </div>
-                          <div className="rounded-lg bg-success/10 p-2 text-success">
-                            <span className="block text-base font-bold">{kanbanGroups.approved.length}</span>
-                            <span className="text-[10px]">Đã duyệt</span>
-                          </div>
-                          <div className="rounded-lg bg-muted/40 p-2">
-                            <span className="block text-base font-bold text-foreground">{kanbanGroups.revision.length}</span>
-                            <span className="text-[10px] text-muted-foreground">Cần sửa</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Quick Prompt Bar inside Briefing */}
-                      <div className="flex flex-wrap items-center gap-2 bg-muted/20 p-2.5">
-                        <span className="text-[11px] text-muted-foreground">Thao tác nhanh:</span>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => startQuoteCreationFlow(urgentLeads[0]?.customer.full_name)}
+                    {/* Gợi ý theo luồng công việc thật (chỉ hiện khi có việc) */}
+                    <div className="space-y-2">
+                      {kanbanGroups.revision.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('baogia')
+                            setPanelView('pipeline')
+                            setIsMobilePanelOpen(true)
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-left transition-colors hover:bg-destructive/10"
                         >
-                          <FilePlus2 className="mr-1 h-3.5 w-3.5" /> Tạo báo giá
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={startCopilotDrafting}
+                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive">
+                            <AlertTriangle className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-semibold text-foreground">
+                              {kanbanGroups.revision.length} báo giá cần chỉnh sửa
+                            </span>
+                            <span className="block truncate text-[10.5px] text-muted-foreground">
+                              {kanbanGroups.revision.slice(0, 2).map((q) => q.quote_id).join(', ')} — quản lý đã phản hồi, cần cập nhật
+                            </span>
+                          </span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      )}
+
+                      {kanbanGroups.review.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('baogia')
+                            setPanelView('pipeline')
+                            setIsMobilePanelOpen(true)
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3 text-left transition-colors hover:bg-warning/10"
                         >
-                          <MessageSquare className="mr-1 h-3.5 w-3.5" /> Soạn tin Zalo
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-warning/10 text-warning">
+                            <Clock className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-semibold text-foreground">
+                              {kanbanGroups.review.length} báo giá đang chờ phê duyệt
+                            </span>
+                            <span className="block truncate text-[10.5px] text-muted-foreground">
+                              {kanbanGroups.review.slice(0, 2).map((q) => q.quote_id).join(', ')} — sẽ có thông báo khi có kết quả
+                            </span>
+                          </span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      )}
+
+                      {urgentLeads.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedLeadId(urgentLeads[0].dossier_id)
+                            setActiveTab('hoso')
+                            setPanelView('dossier')
+                            setIsMobilePanelOpen(true)
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-left transition-colors hover:bg-sky-500/10"
+                        >
+                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-600">
+                            <Users className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-xs font-semibold text-foreground">
+                              Khách cần chăm sóc: {urgentLeads.map((l) => l.customer.full_name).slice(0, 2).join(', ')}
+                            </span>
+                            <span className="flex items-center gap-1 truncate text-[10.5px] text-muted-foreground">
+                              <SlaCountdown dueAt={urgentLeads[0].sla_due_at} /> — mở hồ sơ để phản hồi ngay
+                            </span>
+                          </span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )
               }
 
@@ -1374,26 +2355,56 @@ export function SalesWorkspacePage() {
                 )
               }
 
+              if (m.type === 'reasoning') {
+                const steps = (m.data?.steps || []) as CopilotReasoningStep[]
+                return (
+                  <ReasoningTrace
+                    key={m.id}
+                    steps={steps}
+                    streaming={Boolean(m.data?.streaming)}
+                    degraded={Boolean(m.data?.degraded)}
+                    error={(m.data?.error as string | null) ?? null}
+                    onRetry={() => copilot.retry()}
+                    onOpenCitation={(citation) => setEvidenceDetail(citationToEvidence(citation))}
+                    compact
+                  />
+                )
+              }
+
               if (m.type === 'stepper') {
                 const current = m.data?.current || 0
+                const failed = Boolean(m.data?.failed)
                 return (
-                  <div key={m.id} className="flex flex-wrap gap-1.5 rounded-xl border border-border bg-card p-3 shadow-xs">
+                  <div
+                    key={m.id}
+                    role="status"
+                    aria-live="polite"
+                    className={cn(
+                      'flex flex-wrap gap-1.5 rounded-xl border bg-card p-3 shadow-xs',
+                      failed ? 'border-destructive/40' : 'border-border',
+                    )}
+                  >
                     {m.data?.steps.map((st: string, idx: number) => {
-                      const isDone = idx < current
-                      const isRun = idx === current
+                      const isFailed = failed && idx === current
+                      const isDone = idx < current && !isFailed
+                      const isRun = idx === current && !failed
                       return (
                         <span
                           key={st}
                           className={cn(
                             'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all',
-                            isDone
+                            isFailed
+                              ? 'bg-destructive/10 text-destructive border border-destructive/30 font-semibold'
+                              : isDone
                               ? 'bg-success/10 text-success border border-success/30 font-semibold'
                               : isRun
                               ? 'bg-primary/10 text-primary border border-primary/30 font-semibold animate-pulse'
-                              : 'bg-muted text-muted-foreground'
+                              : 'bg-muted text-muted-foreground',
                           )}
                         >
-                          {isDone ? (
+                          {isFailed ? (
+                            <AlertTriangle className="h-3 w-3" />
+                          ) : isDone ? (
                             <CheckCircle2 className="h-3 w-3" />
                           ) : isRun ? (
                             <RefreshCw className="h-3 w-3 animate-spin" />
@@ -1422,14 +2433,14 @@ export function SalesWorkspacePage() {
                           variant="outline"
                           size="sm"
                           disabled={!undoActive}
-                          onClick={handleUndoSubmission}
+                          onClick={handleRequestRevision}
                           className="h-7 text-xs border-border bg-card text-foreground hover:text-destructive"
                         >
                           <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                          {undoActive ? `Hoàn tác (${undoSeconds}s)` : 'Hết hạn hoàn tác'}
+                          {undoActive ? `Yêu cầu sửa (${undoSeconds}s)` : 'Đã khóa'}
                         </Button>
                         <span className="text-[11px] text-muted-foreground">
-                          {undoActive ? 'Cho phép thu hồi trong 8s' : 'Đã khóa gửi xét duyệt'}
+                          {undoActive ? 'Gửi yêu cầu sửa cho quản lý trong 8s' : 'Hồ sơ đang chờ quản lý xử lý'}
                         </span>
                       </div>
                     </CardContent>
@@ -1491,14 +2502,7 @@ export function SalesWorkspacePage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2.5 p-3.5 text-xs">
-                      <div
-                        className="text-foreground text-[11.5px] leading-relaxed"
-                        dangerouslySetInnerHTML={{
-                          __html: (m.data?.message || '')
-                            .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-                            .replace(/\*(.*?)\*/g, '<i>$1</i>'),
-                        }}
-                      />
+                      <FormattedAiMessage content={m.data?.message || ''} className="text-[11.5px]" />
                       <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2.5 text-[11px]">
                         <div>
                           <span className="text-muted-foreground">Mã hồ sơ:</span>
@@ -1621,6 +2625,71 @@ export function SalesWorkspacePage() {
                 )
               }
 
+              if (m.type === 'smart_customer_create') {
+                return (
+                  <div key={m.id} className="w-full">
+                    <SmartCustomerCard
+                      initialData={m.data}
+                      onSave={executeCustomerCreation}
+                    />
+                  </div>
+                )
+              }
+
+              if (m.type === 'smart_quote_create') {
+                return (
+                  <div key={m.id} className="w-full">
+                    <SmartQuoteCard
+                      initialData={m.data}
+                      onGenerateQuote={() => {
+                        startQuoteCreationFlow(selectedLead?.customer.full_name)
+                        handleConfirmQuoteAction()
+                      }}
+                    />
+                  </div>
+                )
+              }
+
+              if (m.type === 'smart_scenario_compare') {
+                return (
+                  <div key={m.id} className="w-full">
+                    <SmartScenarioCompareCard
+                      unitCode={m.data?.unit_code || undefined}
+                      onSelectScenario={() => {
+                        startQuoteCreationFlow(selectedLead?.customer.full_name)
+                        handleConfirmQuoteAction()
+                      }}
+                    />
+                  </div>
+                )
+              }
+
+              if (m.type === 'smart_units_browse') {
+                return (
+                  <div key={m.id} className="w-full">
+                    <SmartUnitsCard
+                      onSelectUnit={(uCode) => {
+                        triggerSmartAction(`Tạo báo giá căn ${uCode}`)
+                      }}
+                    />
+                  </div>
+                )
+              }
+
+              if (m.type === 'smart_compose_message') {
+                return (
+                  <div key={m.id} className="w-full">
+                    <SmartComposeMessageCard
+                      draftText={m.data?.draftText || draftContent}
+                      onCopy={() => {
+                        navigator.clipboard.writeText(m.data?.draftText || draftContent)
+                        showToast('✓ Đã sao chép tin nhắn F8 vào clipboard!')
+                      }}
+                    />
+                  </div>
+                )
+              }
+
               return null
             })}
             <div ref={chatBottomRef} />
@@ -1628,111 +2697,200 @@ export function SalesWorkspacePage() {
 
           {/* Bottom Chat Command Bar */}
           <div className="relative shrink-0 border-t border-border bg-card p-3 shadow-xs">
-            {/* Slash Command Popover */}
-            {slashOpen && filteredCommands.length > 0 && (
-              <div className="absolute bottom-full left-3 right-3 mb-2 max-h-48 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
-                <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground">
-                  LỆNH NHANH (BẤM HOẶC DÙNG PHÍM MŨI TÊN + ENTER)
-                </div>
-                {filteredCommands.map((c, idx) => {
-                  const Icon = c.icon
-                  return (
-                    <button
-                      key={c.cmd}
-                      type="button"
-                      onClick={() => handleExecuteSlash(c.cmd)}
-                      className={cn(
-                        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors',
-                        idx === slashIndex ? 'bg-accent text-accent-foreground font-semibold' : 'hover:bg-muted'
-                      )}
-                    >
-                      <Icon className="h-4 w-4 text-primary" />
-                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-primary">
-                        {c.cmd}
-                      </code>
-                      <span className="text-muted-foreground">{c.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Context Selector Chip (P-07) */}
+            {/* Smart Action Chips (Natural Sale Commands) */}
+            {/* Ngữ cảnh Copilot (P-07): chỉ gắn theo KHÁCH HÀNG — 1 khách có thể mua nhiều căn,
+                căn hộ sẽ được Copilot tự nhận diện từ nội dung câu lệnh */}
             <div className="mb-2 flex items-center gap-2 text-xs">
-              <span className="font-semibold text-muted-foreground">🎯 Ngữ cảnh:</span>
+              <span className="text-[11px] font-semibold text-muted-foreground">Khách hàng:</span>
               <select
                 value={contextLeadId}
                 onChange={(e) => {
                   setContextLeadId(e.target.value)
-                  if (e.target.value !== 'auto') {
-                    setSelectedLeadId(e.target.value)
-                  }
+                  setSelectedLeadId(e.target.value === 'auto' ? null : e.target.value)
                 }}
-                className="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium text-foreground outline-none focus:ring-1 focus:ring-ring"
+                title="Copilot tự nhận diện khách được nhắc tới trong hội thoại. Chọn thủ công khi muốn khóa ngữ cảnh."
+                className="max-w-[240px] rounded-md border border-input bg-background px-2 py-1 text-xs font-medium text-foreground outline-none focus:ring-1 focus:ring-ring"
               >
-                <option value="auto">
-                  {selectedLead ? `${selectedLead.customer.full_name} (${selectedLead.dossier_id})` : 'Tự động theo hồ sơ'}
-                </option>
+                <option value="auto">Tự động theo hội thoại</option>
+                <option value="none">— Không gắn ngữ cảnh —</option>
                 {leads.map((l) => (
                   <option key={l.dossier_id} value={l.dossier_id}>
-                    {l.customer.full_name} · {l.constraints?.preferred_unit_code || l.dossier_id}
+                    {l.customer.full_name}
                   </option>
                 ))}
               </select>
-              <span className="text-[11px] text-muted-foreground hidden md:inline">
-                (Mọi câu hỏi ngắn tự động tham chiếu theo khách hàng này)
-              </span>
             </div>
+            {/* Quick Smart Action Chips for Sale Agents */}
+            <div className="mb-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
+                onClick={() => triggerSmartAction('Tạo khách hàng mới')}
+              >
+                👤 Tạo khách hàng
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
+                onClick={() => triggerSmartAction('Tạo báo giá')}
+              >
+                📑 Tạo báo giá
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
+                onClick={() => triggerSmartAction('Tra cứu rổ hàng căn hộ')}
+              >
+                🏢 Tra cứu rổ hàng
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
+                onClick={() => triggerSmartAction('So sánh 3 phương án thanh toán')}
+              >
+                📊 So sánh 3 phương án
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
+                onClick={() => triggerSmartAction('Soạn tin nhắn tư vấn gửi khách')}
+              >
+                ✉️ Soạn tin tư vấn F8
+              </Button>
+            </div>
+            {/* Ngữ cảnh gửi kèm (D2) — Sale thấy đúng căn/hồ sơ/ngày trước khi hỏi */}
+            <CopilotContextChips
+              value={{
+                unitCode: copilotUnit,
+                dossierLabel: (contextLeadId !== 'auto' ? selectedLead?.customer.full_name : null) ?? null,
+                transactionDate: copilotTxDate,
+                projectLabel: selectedLead ? PROJECT_LABEL[selectedLead.constraints?.project_id ?? ''] ?? null : null,
+              }}
+              onClearUnit={() => setCopilotUnit(null)}
+              onClearDossier={() => {
+                setContextLeadId('none')
+                setSelectedLeadId(null)
+              }}
+              onTransactionDateChange={setCopilotTxDate}
+            />
+
+            {/* Banner lỗi + thử lại (C4) — mọi lỗi mạng đều có đường thoát */}
+            {(copilot.error || failedTurn) && (
+              <div
+                role="alert"
+                className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11.5px] text-foreground"
+              >
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                  {copilot.error ? `Trợ lý gián đoạn: ${copilot.error}` : 'Lượt trả lời trước bị gián đoạn.'}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-[11px]"
+                  onClick={handleRetryFailedTurn}
+                  disabled={!failedTurn || copilot.streaming}
+                >
+                  <RefreshCw className="mr-1 h-3 w-3" /> Thử lại
+                </Button>
+              </div>
+            )}
 
             {/* Input & Send Action */}
-            <div className="flex items-center gap-2">
+            <div className="relative flex items-center gap-2">
+              <SlashCommandPalette
+                open={slashOpen}
+                commands={SLASH_COMMANDS}
+                query={inputVal}
+                recent={recentCommands}
+                activeIndex={slashIndex}
+                onActiveIndexChange={setSlashIndex}
+                onSelect={(command) => handleExecuteSlash(command.cmd)}
+              />
               <textarea
                 ref={inputTextAreaRef}
                 value={inputVal}
                 onChange={(e) => {
-                  const v = e.target.value
-                  setInputVal(v)
-                  if (v.startsWith('/')) {
-                    setSlashOpen(true)
-                    setSlashIndex(0)
-                  } else {
-                    setSlashOpen(false)
-                  }
+                  const next = e.target.value
+                  setInputVal(next)
+                  setSlashOpen(next.startsWith('/'))
                 }}
                 onKeyDown={(e) => {
-                  if (slashOpen && filteredCommands.length > 0) {
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault()
-                      setSlashIndex((p) => Math.min(p + 1, filteredCommands.length - 1))
-                      return
-                    }
-                    if (e.key === 'ArrowUp') {
-                      e.preventDefault()
-                      setSlashIndex((p) => Math.max(p - 1, 0))
-                      return
-                    }
-                    if (e.key === 'Enter' || e.key === 'Tab') {
-                      e.preventDefault()
-                      handleExecuteSlash(filteredCommands[slashIndex].cmd)
-                      return
-                    }
-                    if (e.key === 'Escape') {
-                      setSlashOpen(false)
-                      return
-                    }
+                  // Enter = gửi nhanh. Ctrl/Cmd + Enter = xuống dòng (soạn câu nhiều dòng).
+                  // Ngoại lệ: khi menu lệnh gạch chéo đang mở, Enter để CHỌN lệnh — người dùng
+                  // đang chọn trong danh sách chứ chưa gửi.
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault()
+                    const el = e.currentTarget
+                    const start = el.selectionStart ?? inputVal.length
+                    const end = el.selectionEnd ?? start
+                    const next = `${inputVal.slice(0, start)}\n${inputVal.slice(end)}`
+                    setInputVal(next)
+                    requestAnimationFrame(() => {
+                      el.selectionStart = el.selectionEnd = start + 1
+                    })
+                    return
+                  }
+                  // Điều hướng menu gạch chéo bằng bàn phím (↑/↓/Enter/Esc).
+                  if (slashOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                    e.preventDefault()
+                    setSlashIndex((idx) =>
+                      e.key === 'ArrowDown'
+                        ? (idx + 1) % Math.max(filteredCommands.length, 1)
+                        : (idx - 1 + filteredCommands.length) % Math.max(filteredCommands.length, 1),
+                    )
+                    return
+                  }
+                  if (slashOpen && e.key === 'Enter' && !e.shiftKey && filteredCommands[slashIndex]) {
+                    e.preventDefault()
+                    handleExecuteSlash(filteredCommands[slashIndex].cmd)
+                    return
                   }
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
                     handleSendChatMessage()
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setSlashOpen(false)
                   }
                 }}
                 rows={1}
-                placeholder="Nhập câu hỏi hoặc gõ / để xem danh sách lệnh nhanh..."
+                aria-label="Nhập yêu cầu cho trợ lý Copilot"
+                placeholder="Ra lệnh cho Copilot… (Enter: gửi · Ctrl+Enter: xuống dòng)"
                 className="max-h-24 flex-1 resize-none rounded-xl border border-input bg-background px-3.5 py-2 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              <Button type="button" size="sm" onClick={handleSendChatMessage} className="h-9 px-3">
-                <Send className="h-4 w-4" />
-              </Button>
+              {copilot.streaming ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    copilot.cancel()
+                    showToast('Đã dừng yêu cầu cho trợ lý')
+                  }}
+                  className="h-9 px-3"
+                  title="Dừng suy luận"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSendChatMessage}
+                  className="h-9 px-3"
+                  aria-label="Gửi yêu cầu"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
         </section>
@@ -1740,8 +2898,8 @@ export function SalesWorkspacePage() {
         {/* ----- REGION C: ARTIFACT PANEL (380px) ----- */}
         <aside
           className={cn(
-            'fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-border bg-card transition-transform duration-300 md:static md:w-[400px] md:translate-x-0',
-            isMobilePanelOpen ? 'translate-x-0 shadow-2xl' : 'translate-x-full md:translate-x-0'
+            'fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-border bg-card transition-transform duration-300 md:static md:w-[400px]',
+            isMobilePanelOpen ? 'translate-x-0 shadow-2xl md:relative' : 'translate-x-full md:hidden'
           )}
         >
           {/* Panel Header & Tabs */}
@@ -1841,35 +2999,38 @@ export function SalesWorkspacePage() {
                       variant="ghost"
                       size="sm"
                       className="h-6 text-xs text-primary"
-                      onClick={() => {
-                        setInputVal('Khách hàng nào sắp quá hạn SLA phản hồi?')
-                        inputTextAreaRef.current?.focus()
-                      }}
+                      onClick={() => askAgent('Khách hàng nào sắp quá hạn SLA phản hồi?')}
                     >
                       💬 Hỏi agent
                     </Button>
                   </div>
                 </div>
 
-                {leadsQuery.isLoading ? (
-                  <LoadingState className="py-12" />
-                ) : leads.length === 0 ? (
-                  <EmptyState
-                    icon={Inbox}
-                    title="Chưa có hồ sơ khách hàng mới"
-                    action={
-                      <Button
-                        size="sm"
-                        onClick={() => setCreateCustomerOpen(true)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-                      >
-                        <UserPlus className="h-3.5 w-3.5" /> Tạo khách hàng mới
-                      </Button>
-                    }
-                  />
-                ) : (
+                <QueryState
+                  query={leadsQuery}
+                  isEmpty={(data) => data.length === 0}
+                  loadingLabel="Đang tải danh sách khách hàng…"
+                  className="py-12"
+                  empty={
+                    <EmptyState
+                      icon={Inbox}
+                      title="Chưa có hồ sơ khách hàng mới"
+                      description="Khi khách để lại thông tin ở kênh Pre-Sales, hồ sơ sẽ tự chảy về đây trong vòng 15 phút."
+                      action={
+                        <Button
+                          size="sm"
+                          onClick={() => setCreateCustomerOpen(true)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                        >
+                          <UserPlus className="h-3.5 w-3.5" /> Tạo khách hàng mới
+                        </Button>
+                      }
+                    />
+                  }
+                >
+                  {(data) => (
                   <div className="space-y-2">
-                    {leads.map((l) => (
+                    {data.map((l) => (
                       <Card
                         key={l.dossier_id}
                         className={cn(
@@ -1895,11 +3056,24 @@ export function SalesWorkspacePage() {
                       </Card>
                     ))}
                   </div>
-                )}
+                  )}
+                </QueryState>
               </div>
             )}
 
-            {/* TAB HỒ SƠ: DOSSIER DETAIL */}
+            {/* TAB HỒ SƠ: DOSSIER DETAIL — chưa chọn hồ sơ thì nói rõ, không để panel trống */}
+            {activeTab === 'hoso' && panelView === 'dossier' && !selectedLead && (
+              <EmptyState
+                icon={Users}
+                title="Chưa chọn hồ sơ khách hàng"
+                description="Chọn một hồ sơ ở danh sách bên cạnh để xem ràng buộc tài chính và tiến trình chăm sóc."
+                action={
+                  <Button size="sm" variant="outline" onClick={() => setPanelView('leads')}>
+                    Xem danh sách khách hàng
+                  </Button>
+                }
+              />
+            )}
             {activeTab === 'hoso' && panelView === 'dossier' && selectedLead && (
               <div className="space-y-3 text-xs">
                 <div className="flex items-center justify-between">
@@ -1970,15 +3144,26 @@ export function SalesWorkspacePage() {
                     variant="ghost"
                     size="sm"
                     className="h-6 text-xs text-primary"
-                    onClick={() => {
-                      setInputVal('Báo giá nào đang chờ phê duyệt lâu nhất?')
-                      inputTextAreaRef.current?.focus()
-                    }}
+                    onClick={() => askAgent('Báo giá nào đang chờ phê duyệt lâu nhất?')}
                   >
                     💬 Hỏi agent
                   </Button>
                 </div>
 
+                <QueryState
+                  query={quotesQuery}
+                  isEmpty={(data) => data.length === 0}
+                  loadingLabel="Đang tải pipeline báo giá…"
+                  className="py-12"
+                  empty={
+                    <EmptyState
+                      icon={FileText}
+                      title="Pipeline chưa có báo giá nào"
+                      description="Lập báo giá cho một hồ sơ khách hàng, hồ sơ sẽ xuất hiện ở đây theo từng trạng thái."
+                    />
+                  }
+                >
+                {() => (
                 <div className="space-y-2.5">
                   {/* Nháp */}
                   <div className="rounded-xl border border-border bg-muted/20 p-2.5">
@@ -2066,11 +3251,34 @@ export function SalesWorkspacePage() {
                     )}
                   </div>
                 </div>
+                )}
+                </QueryState>
               </div>
             )}
 
             {/* TAB BÁO GIÁ: 3-PLAN COMPARISON TABLE */}
-            {activeTab === 'baogia' && panelView === 'quote_comparison' && (
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && quotesQuery.isLoading && (
+              <LoadingState label="Đang tải bảng phương án…" className="py-12" />
+            )}
+
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && quotesQuery.error && quotes.length === 0 && (
+              <ErrorState error={quotesQuery.error} onRetry={() => void quotesQuery.refetch()} />
+            )}
+
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && !quotesQuery.isLoading && !(quotesQuery.error && quotes.length === 0) && quotes.length === 0 && (
+              <EmptyState
+                icon={FileText}
+                title="Chưa có bảng phương án để so sánh"
+                description="Bảng so sánh chỉ hiện khi đã có ít nhất một báo giá cho hồ sơ khách hàng."
+                action={
+                  <Button size="sm" onClick={() => setPanelView('pipeline')}>
+                    Về pipeline báo giá
+                  </Button>
+                }
+              />
+            )}
+
+            {activeTab === 'baogia' && panelView === 'quote_comparison' && quotes.length > 0 && (
               <div className="space-y-3 text-xs">
                 <div className="flex items-center justify-between">
                   <Button variant="ghost" size="sm" className="h-6 p-0 text-xs text-primary" onClick={() => setPanelView('pipeline')}>
@@ -2171,7 +3379,7 @@ export function SalesWorkspacePage() {
                     Trình soạn tin nhắn Copilot
                   </span>
                   <Badge variant="outline" className="text-[10.5px]">
-                    Live-check F8 (500ms)
+                    {isCheckingCompliance ? 'F8 đang kiểm…' : complianceOffline ? 'F8 · chế độ dự phòng' : 'Live-check F8 (500ms)'}
                   </Badge>
                 </div>
 
@@ -2205,6 +3413,13 @@ export function SalesWorkspacePage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {complianceOffline && (
+                  <div role="alert" className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[11px] text-foreground">
+                    <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
+                    Chưa gọi được máy chủ kiểm duyệt — đang dùng bộ luật dự phòng tại máy. Kết quả có thể thiếu.
+                  </div>
+                )}
 
                 {/* Compliance Result Card */}
                 <div
@@ -2278,22 +3493,28 @@ export function SalesWorkspacePage() {
                     variant="ghost"
                     size="sm"
                     className="h-6 text-xs text-primary"
-                    onClick={() => {
-                      setInputVal('Chính sách nào áp dụng chiết khấu thanh toán nhanh cao nhất?')
-                      inputTextAreaRef.current?.focus()
-                    }}
+                    onClick={() => askAgent('Chính sách nào áp dụng chiết khấu thanh toán nhanh cao nhất?')}
                   >
                     💬 Hỏi agent
                   </Button>
                 </div>
 
-                {policiesQuery.isLoading ? (
-                  <LoadingState className="py-12" />
-                ) : policies.length === 0 ? (
-                  <EmptyState icon={ScrollText} title="Chưa có dữ liệu chính sách bán hàng" />
-                ) : (
+                <QueryState
+                  query={policiesQuery}
+                  isEmpty={(data) => data.length === 0}
+                  loadingLabel="Đang tải chính sách bán hàng…"
+                  className="py-12"
+                  empty={
+                    <EmptyState
+                      icon={ScrollText}
+                      title="Chưa có dữ liệu chính sách bán hàng"
+                      description="Chạy `python scripts/seed_data.py` hoặc kiểm tra kết nối máy chủ để nạp danh mục chính sách."
+                    />
+                  }
+                >
+                  {(data) => (
                   <div className="space-y-2">
-                    {policies.map((p) => (
+                    {data.map((p) => (
                       <Card key={p.policy_id} className="border-border">
                         <CardContent className="p-3 space-y-1">
                           <div className="flex items-center justify-between">
@@ -2309,19 +3530,20 @@ export function SalesWorkspacePage() {
                       </Card>
                     ))}
                   </div>
-                )}
+                  )}
+                </QueryState>
               </div>
             )}
           </div>
         </aside>
       </div>
 
-      {/* ================= MOBILE BOTTOM-SHEET FAB ================= */}
+      {/* ================= PANEL TOGGLE FAB ================= */}
       <button
         type="button"
         onClick={() => setIsMobilePanelOpen((p) => !p)}
-        className="fixed bottom-4 right-4 z-50 grid h-12 w-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl md:hidden"
-        title="Mở bảng kết quả"
+        className="fixed bottom-20 right-4 z-50 grid h-12 w-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl"
+        title={isMobilePanelOpen ? 'Đóng bảng dữ liệu' : 'Mở bảng dữ liệu'}
       >
         <Layers className="h-5 w-5" />
       </button>
@@ -2357,6 +3579,79 @@ export function SalesWorkspacePage() {
             </div>
             <div className="border-t border-border p-3 text-right">
               <Button size="sm" variant="secondary" onClick={() => setEvidenceId(null)}>
+                Đóng
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: CĂN CỨ ĐỘNG TỪ COPILOT ================= */}
+      {evidenceDetail && (
+        <div
+          onClick={() => setEvidenceDetail(null)}
+          className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Căn cứ pháp lý từ Copilot"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-card text-xs shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3">
+              <span className="font-semibold text-foreground">🔗 Căn cứ pháp lý</span>
+              <button
+                type="button"
+                onClick={() => setEvidenceDetail(null)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Đóng"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 p-4">
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 leading-relaxed text-foreground">
+                “{evidenceDetail.q}”
+              </div>
+              <div className="divide-y divide-border text-[11.5px]">
+                <div className="flex justify-between gap-3 py-1.5">
+                  <span className="shrink-0 text-muted-foreground">Văn bản:</span>
+                  <span className="text-right font-semibold text-foreground">{evidenceDetail.p}</span>
+                </div>
+                <div className="flex justify-between gap-3 py-1.5">
+                  <span className="shrink-0 text-muted-foreground">Hiệu lực / nguồn:</span>
+                  <span className="text-right font-semibold text-foreground">{evidenceDetail.e}</span>
+                </div>
+                {evidenceDetail.clause && (
+                  <div className="flex justify-between gap-3 py-1.5">
+                    <span className="shrink-0 text-muted-foreground">Điều / khoản:</span>
+                    <span className="text-right font-semibold text-foreground">{evidenceDetail.clause}</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3 py-1.5">
+                  <span className="shrink-0 text-muted-foreground">Mã đối soát (hash):</span>
+                  <span className="text-right font-mono text-foreground">{evidenceDetail.h}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t border-border p-3">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const parts = [`Trích dẫn: ${evidenceDetail.q}`, `Văn bản: ${evidenceDetail.p}`, `Hiệu lực/nguồn: ${evidenceDetail.e}`]
+                  if (evidenceDetail.clause) parts.push(`Điều/khoản: ${evidenceDetail.clause}`)
+                  if (evidenceDetail.hash) parts.push(`Hash tài liệu: ${evidenceDetail.hash}`)
+                  void navigator.clipboard?.writeText(parts.join('\n')).then(
+                    () => showToast('Đã sao chép căn cứ kèm hash đối soát'),
+                    () => showToast('Trình duyệt chặn clipboard — anh/chị sao chép thủ công'),
+                  )
+                }}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" /> Sao chép căn cứ
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setEvidenceDetail(null)}>
                 Đóng
               </Button>
             </div>
@@ -2771,6 +4066,147 @@ export function SalesWorkspacePage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================= GIỌNG ĐỌC CÂU TRẢ LỜI (TTS) ================= */}
+      <Dialog open={voicePickerOpen} onOpenChange={setVoicePickerOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Volume2 className="h-5 w-5" /> Giọng đọc câu trả lời
+            </DialogTitle>
+            <DialogDescription>
+              Copilot đọc câu trả lời thành tiếng để anh/chị không phải rời mắt khỏi khách. Mặc định dùng
+              giọng có sẵn trên máy (0 đồng); khi Admin khai báo nhà cung cấp TTS, cả công ty đọc cùng một giọng.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm">
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+              <span>
+                <span className="block font-medium">Tự đọc mỗi câu trả lời mới</span>
+                <span className="block text-xs text-muted-foreground">
+                  Chế độ rảnh tay — tiện khi đang dẫn khách xem căn hộ.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={Boolean(ttsEffective?.auto_speak)}
+                onChange={(e) => void saveTts({ auto_speak: e.target.checked })}
+              />
+            </label>
+
+            <div className="space-y-1.5">
+              <Label>Nhà cung cấp giọng đọc</Label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={ttsEffective?.provider ?? 'browser'}
+                onChange={(e) => {
+                  const provider = tts?.catalog.find((c) => c.provider === e.target.value)
+                  void saveTts({
+                    provider: e.target.value,
+                    voice: provider?.voices[0]?.code ?? 'vi-VN',
+                    model: provider?.default_model ?? '',
+                  })
+                }}
+              >
+                {(tts?.catalog ?? []).map((c) => (
+                  <option key={c.provider} value={c.provider}>
+                    {c.label}
+                    {c.mode === 'api' ? (c.api_key_configured ? ' — đã có khoá' : ' — chưa có khoá') : ' — miễn phí'}
+                  </option>
+                ))}
+              </select>
+              {ttsProvider && (
+                <p className="text-[11px] text-muted-foreground">
+                  {ttsProvider.price_per_1m_chars > 0
+                    ? `Đơn giá ${ttsProvider.price_per_1m_chars.toLocaleString('vi-VN')} ${ttsProvider.currency}/1 triệu ký tự · kiểm chứng ${ttsProvider.verified_at}`
+                    : 'Không phát sinh chi phí.'}{' '}
+                  {ttsProvider.mode === 'api' && !ttsProvider.api_key_configured
+                    ? 'Cần khai báo khoá cho nhà cung cấp này trước khi dùng.'
+                    : ''}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Giọng đọc</Label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={ttsEffective?.voice ?? ''}
+                onChange={(e) => void saveTts({ voice: e.target.value })}
+              >
+                {(ttsProvider?.voices ?? []).map((v) => (
+                  <option key={v.code} value={v.code}>
+                    {v.label}
+                  </option>
+                ))}
+                {localVoices.map((v) => (
+                  <option key={`local-${v.code}`} value={v.code}>
+                    {v.label} (trên máy này)
+                  </option>
+                ))}
+              </select>
+              {localVoices.length === 0 && (
+                <p className="text-[11px] text-amber-600">
+                  Máy này chưa có giọng tiếng Việt — cài trong Cài đặt hệ thống để nghe đúng tiếng Việt.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Tốc độ đọc: {ttsEffective?.speed?.toFixed(2) ?? '1.00'}×</Label>
+              <input
+                type="range"
+                min={0.5}
+                max={2}
+                step={0.05}
+                value={ttsEffective?.speed ?? 1}
+                onChange={(e) => void saveTts({ speed: Number(e.target.value) })}
+                className="w-full"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 p-3 text-xs">
+              <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => handleSpeak('preview', 'Dạ, chính sách đang hiệu lực là CSBH The Zen Park, chiết khấu thanh toán sớm 3 phần trăm.')}>
+                <Mic className="h-3.5 w-3.5" /> Nghe thử
+              </Button>
+              <span className="text-muted-foreground">
+                Chi phí tối đa mỗi lượt đọc:{' '}
+                <strong>
+                  {tts ? `${tts.cost_hint.cost.toLocaleString('vi-VN', { maximumFractionDigits: 4 })} ${tts.cost_hint.currency}` : '—'}
+                </strong>
+                {tts && tts.cost_hint.chars > 0 ? ` cho ${tts.cost_hint.chars} ký tự` : ''}
+              </span>
+              <span className="ml-auto flex items-center gap-1">
+                <span className="text-muted-foreground">Giọng này ổn không?</span>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe ổn" onClick={() => void rateVoice(1)}>
+                  👍
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe chưa ổn" onClick={() => void rateVoice(-1)}>
+                  👎
+                </Button>
+              </span>
+            </div>
+
+            {tts?.feedback_summary.total ? (
+              <p className="text-[11px] text-muted-foreground">
+                Giọng này được đánh giá: {tts.feedback_summary.up} ổn / {tts.feedback_summary.down} chưa ổn
+                {tts.feedback_summary.satisfaction != null
+                  ? ` (${Math.round(tts.feedback_summary.satisfaction * 100)}% hài lòng)`
+                  : ''}
+                .
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoicePickerOpen(false)}>
+              Đóng
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -79,3 +79,45 @@ async def test_fallback_execution_on_error():
             response = await llm.ainvoke("Hi")
             assert response.content == "Fallback answer"
             assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_client_that_gui_dung_bo_header_ma_test_ket_noi_bao_cao(provider_server, monkeypatch) -> None:
+    """Client thật (ChatOpenAI) phải gửi **đúng** bộ header mà nút Test kết nối dùng.
+
+    Nếu lệch nhau, nút Test trở thành vô nghĩa: test xanh mà chat đỏ (hoặc ngược lại). Test này chặn
+    đúng kiểu lệch đó bằng cách bắt server giả ghi lại User-Agent nhận được.
+    """
+    from src.services.llm_providers import ProviderConfig, reset_provider_cache, set_provider_cache
+
+    base, seen = provider_server("ok")
+    set_provider_cache(
+        [
+            ProviderConfig(
+                provider_id="TEST-1",
+                name="Nhà cung cấp test",
+                provider="openai",
+                model_name="fake-model",
+                api_key="sk-test",
+                base_url=base,
+            )
+        ]
+    )
+    try:
+        # Chế độ mặc định: khai báo tên ứng dụng.
+        monkeypatch.delenv("LLM_HTTP_HEADERS", raising=False)
+        answer = await get_llm().ainvoke("ping")
+        assert answer.content == "pong"
+        assert seen, "server giả chưa nhận được request nào"
+        assert seen[0].startswith("P096-VLandFuture"), seen[0]
+
+        # Chế độ trình duyệt: phải đổi theo, không cần sửa gì trong mã gọi LLM.
+        seen.clear()
+        monkeypatch.setenv("LLM_HTTP_HEADERS", "browser")
+        answer = await get_llm().ainvoke("ping")
+        assert answer.content == "pong"
+        assert seen and seen[0].startswith("Mozilla/5.0"), seen[0]
+        assert "P096-VLandFuture" in seen[0], "vẫn phải nhận diện được ứng dụng, không giả dạng hoàn toàn"
+    finally:
+        reset_provider_cache()
+

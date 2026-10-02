@@ -367,6 +367,14 @@ export interface QuoteCreatePayload {
 }
 
 /** Response thật của POST/GET /api/v1/quotes (đồng bộ, 201) — không có scenarios/stream_url. */
+/**
+ * Kết quả POST /quotes tuỳ backend:
+ * - TD-4.1 / mock-server: 202 + `stream_url` để theo dõi tiến trình qua SSE.
+ * - FastAPI thật: 201 đồng bộ, trả hồ sơ đầy đủ ngay (không có `stream_url`).
+ * UI phải xử lý được cả hai — dùng `stream_url` nếu có, nếu không thì đọc thẳng trạng thái.
+ */
+export type QuoteCreateOutcome = QuoteCreateResult & { stream_url?: string | null }
+
 export interface QuoteCreateResult {
   quote_id: string
   tenant_id: string
@@ -599,6 +607,23 @@ export interface LeadCreatePayload {
   needs_summary?: string
 }
 
+export interface LeadUpdatePayload {
+  customer_name?: string
+  customer_phone?: string
+  customer_segment?: CustomerSegment
+  project_id?: string
+  preferred_unit_code?: string | null
+  bedrooms?: number | null
+  own_funds_vnd?: number | null
+  monthly_capacity_vnd?: number | null
+  objective?: OptimizationObjective | null
+  lead_temperature?: LeadTemperature
+  temperature?: LeadTemperature
+  status?: LeadDossierStatus
+  needs_summary?: string
+  assigned_sales_id?: string | null
+}
+
 export interface LeadDossier {
   dossier_id: string
   status: LeadDossierStatus
@@ -613,6 +638,19 @@ export interface LeadDossier {
   constraints: CustomerConstraints
   reference_plan: ReferencePlan | null
   converted_quote_id: string | null
+
+  // Backend response & CRM extension fields
+  customer_name?: string
+  customer_phone?: string
+  customer_phone_masked?: string
+  lead_temperature?: LeadTemperature
+  unit_code?: string | null
+  preferred_unit_code?: string | null
+  segment?: CustomerSegment
+  customer_segment?: CustomerSegment
+  assigned_sales_id?: string | null
+  customer_constraints?: CustomerConstraints
+  updated_at?: string
 }
 
 // ─── Compliance (C-11 / F8) ────────────────────────────────────────────────
@@ -620,8 +658,11 @@ export interface LeadDossier {
 export interface ComplianceCheckRequest {
   message_text: string
   mode: ComplianceCheckMode
-  quote_id: string
-  quote_version: number
+  /** Backend thật (`src/api/endpoints/compliance.py`) nhận các field này là tuỳ chọn. */
+  quote_id?: string
+  quote_version?: number
+  policy_version_refs?: string[]
+  claimed_evidence_ids?: string[]
 }
 
 export interface ComplianceClaim {
@@ -701,6 +742,10 @@ export interface RulesTestReport {
   conflict_findings: ConflictFinding[]
   regression: { passed: number; total: number }
   can_publish: boolean
+  /** Mã lần chạy kiểm thử công thức làm bằng chứng cho lần ban hành (API thật trả kèm). */
+  benchmark_run_id?: string
+  /** MATCH nếu văn bản khớp bộ ca vàng đang khoá, DRIFT nếu văn bản mới chưa có bộ ca riêng. */
+  policy_alignment?: 'MATCH' | 'DRIFT' | 'PINNED'
 }
 
 // ─── Evaluation ────────────────────────────────────────────────────────────
@@ -718,10 +763,14 @@ export interface BenchmarkCaseResult {
   name: string
   listed_price_before_tax_vnd: number
   discount_rates: number[]
-  expected: BenchmarkAmounts
-  actual: BenchmarkAmounts
+  /** null với ca bị chặn nghiệp vụ trước khi tính (EXCEPTION_HANDLED) — không có giá để đối soát. */
+  expected: BenchmarkAmounts | null
+  actual: BenchmarkAmounts | null
   delta_vnd: number
   passed: boolean
+  /** PASSED / EXCEPTION_HANDLED / FAILED (API thật trả kèm) */
+  status?: 'PASSED' | 'EXCEPTION_HANDLED' | 'FAILED'
+  execution_time_ms?: number
 }
 
 /** POST /evaluation/benchmark-runs. */
@@ -733,4 +782,9 @@ export interface BenchmarkRun {
   passed: number
   exact_match_rate: number
   cases: BenchmarkCaseResult[]
+  /** Văn bản chính sách mà lần chạy làm bằng chứng (API thật; mock có thể không trả). */
+  policy_id?: string
+  policy_version?: string
+  golden_policy_ref?: string
+  policy_alignment?: 'MATCH' | 'DRIFT' | 'PINNED'
 }

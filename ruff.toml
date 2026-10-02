@@ -5,6 +5,11 @@ line-length = 120
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = ["E501"]
 
+[lint.per-file-ignores]
+# Script chạy trực tiếp phải chèn ROOT_DIR vào sys.path TRƯỚC khi import `src.*`,
+# nên import không thể nằm ở đầu file — đây là chủ ý, không phải lỗi.
+"scripts/seed_canonical_inventory.py" = ["E402"]
+
 [format]
 quote-style = "double"
 indent-style = "space"

@@ -61,7 +61,10 @@ function toRequest(req: IncomingMessage, body: Buffer | undefined, signal: Abort
   for (const [key, value] of Object.entries(req.headers)) {
     if (value !== undefined) headers[key] = Array.isArray(value) ? value.join(', ') : value
   }
-  return new Request(`http://${req.headers.host ?? HOST_FALLBACK}${req.url}`, { method: req.method, headers, body, signal })
+  // Buffer là Uint8Array, nhưng lib DOM của TypeScript không nhận `Uint8Array<ArrayBufferLike>`
+  // trong union BodyInit (dù undici chấp nhận khi chạy). Ép kiểu tường minh, không đổi hành vi.
+  const payload = (body ? new Uint8Array(body) : undefined) as BodyInit | undefined
+  return new Request(`http://${req.headers.host ?? HOST_FALLBACK}${req.url}`, { method: req.method, headers, body: payload, signal })
 }
 
 async function writeResponse(response: Response, res: ServerResponse) {

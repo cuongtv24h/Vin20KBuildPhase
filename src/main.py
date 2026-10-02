@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     manager: CheckpointManager | None = None
     if settings.use_postgres_checkpointer and settings.checkpoint_db_uri:
         # INV-RT-04: persistent checkpointing qua AsyncPostgresSaver (Spike 2).
-        manager = CheckpointManager(db_uri=settings.checkpoint_db_uri)
+        manager = CheckpointManager(db_uri=settings.checkpoint_db_uri, max_pool_size=2)
         await manager.initialize()
         saver = manager.get_async_postgres_checkpointer()
         configure_app_checkpointer(saver)
@@ -91,6 +91,14 @@ async def lifespan(app: FastAPI):
     )
 
     await _bootstrap_database()
+
+    # Nạp nhà cung cấp LLM Admin đã khai báo trong DB (DB trước, ENV sau — xem llm_providers).
+    try:
+        from src.services.llm_providers import refresh_provider_cache
+
+        await refresh_provider_cache()
+    except Exception as exc:  # noqa: BLE001 — không được chặn khởi động app vì cấu hình LLM
+        logger.warning("Không nạp được cấu hình nhà cung cấp LLM: %s", exc)
 
     yield
 

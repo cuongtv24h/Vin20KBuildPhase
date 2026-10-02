@@ -70,6 +70,48 @@ export const leadHandlers = [
     },
     { fixedDelayMs: 100 },
   ),
+  route('leadGet', ({ db, params }) => {
+    const dossier = db.dossiers.find((d) => d.dossier_id === params.dossier_id)
+    if (!dossier) throw notFound(`hồ sơ ${params.dossier_id}`)
+    return { body: dossier }
+  }),
+
+  /** PUT /leads/{id} — Sale cập nhật nhu cầu/ràng buộc; giữ nguyên các trường không gửi lên. */
+  route('leadUpdate', async ({ db, params, json, now }) => {
+    const index = db.dossiers.findIndex((d) => d.dossier_id === params.dossier_id)
+    if (index < 0) throw notFound(`hồ sơ ${params.dossier_id}`)
+    const body = (await json<Record<string, unknown>>()) ?? {}
+    const current = db.dossiers[index]
+    const constraints = { ...current.constraints }
+    for (const key of ['customer_segment', 'project_id', 'preferred_unit_code', 'bedrooms', 'own_funds_vnd', 'monthly_capacity_vnd', 'objective'] as const) {
+      if (body[key] !== undefined) (constraints as Record<string, unknown>)[key] = body[key]
+    }
+    const updated = {
+      ...current,
+      constraints,
+      status: (body.status as typeof current.status) ?? current.status,
+      temperature: (body.lead_temperature ?? body.temperature ?? current.temperature) as typeof current.temperature,
+      needs_summary: typeof body.needs_summary === 'string' ? body.needs_summary : current.needs_summary,
+      customer: {
+        full_name: typeof body.customer_name === 'string' ? body.customer_name : current.customer.full_name,
+        phone: typeof body.customer_phone === 'string' ? body.customer_phone : current.customer.phone,
+      },
+      updated_at: iso(now),
+    }
+    db.dossiers[index] = updated
+    return { body: updated }
+  }),
+
+  route('leadDelete', ({ db, params }) => {
+    const index = db.dossiers.findIndex((d) => d.dossier_id === params.dossier_id)
+    if (index < 0) throw notFound(`hồ sơ ${params.dossier_id}`)
+    if (db.dossiers[index].status === 'CONVERTED_TO_QUOTE') {
+      throw transition('Hồ sơ đã chuyển thành báo giá — không thể xóa.')
+    }
+    db.dossiers.splice(index, 1)
+    return { body: { deleted: true } }
+  }),
+
   route(
     'leadConvert',
     async ({ db, staff, params, now, json }) => ({ status: 202, body: await convertDossier(db, staff(), params.dossier_id, await json<QuoteCreateRequest>(), now) }),
@@ -259,7 +301,7 @@ export const adminHandlers = [
   route('policyRulesTest', ({ db, params, now }) => {
     const policy = db.policies.find((p) => p.policy_id === params.policy_id)
     if (!policy) throw notFound(`chính sách ${params.policy_id}`)
-    return { body: testPolicyRules(policy, db.policies, iso(now)) }
+    return { body: testPolicyRules(policy, db.policies, iso(now), `BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`) }
   }),
 
   /** Ban hành nguyên tử: chạy lại gate, rule chuyển APPROVED_FOR_USE cùng lúc. */
@@ -268,7 +310,7 @@ export const adminHandlers = [
     const policy = db.policies.find((p) => p.policy_id === params.policy_id)
     if (!policy) throw notFound(`chính sách ${params.policy_id}`)
     if (policy.status !== 'DRAFT') throw transition('Chỉ ban hành được bản nháp.')
-    const report = testPolicyRules(policy, db.policies, iso(now))
+    const report = testPolicyRules(policy, db.policies, iso(now), `BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`)
     if (!report.can_publish) throw new MockError(422, 'INPUT_VALIDATION_ERROR', 'Văn bản chưa vượt qua kiểm tra trước ban hành.')
     policy.status = 'PUBLISHED'
     policy.published_at = iso(now)
@@ -277,9 +319,12 @@ export const adminHandlers = [
     return { body: policy }
   }),
 
-  route('benchmarkRun', async ({ db, now }) => {
+  route('benchmarkRun', async ({ db, now, json }) => {
     await delay(scaled(600))
-    return { status: 201, body: runBenchmark(`BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`, iso(now), iso(Date.now())) }
+    // Body tuỳ chọn: backend thật nhận `policy_id`/`policy_version` để ghi bằng chứng theo văn bản.
+    const body = await json<{ policy_id?: string; policy_version?: string }>()
+    const policy = body?.policy_id && body.policy_version ? { policy_id: body.policy_id, policy_version: body.policy_version } : undefined
+    return { status: 201, body: runBenchmark(`BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`, iso(now), iso(Date.now()), policy) }
   }),
 ]
 

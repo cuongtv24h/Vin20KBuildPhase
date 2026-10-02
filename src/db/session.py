@@ -24,6 +24,9 @@ engine = create_async_engine(
     db_url,
     echo=False,
     pool_pre_ping=True,
+    pool_size=3,
+    max_overflow=2,
+    pool_recycle=300,
 )
 
 async_session_factory = async_sessionmaker(
