@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, status
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from src.api.endpoints.catalog import PROJECTS_DATA, UNITS_DATA
+from src.api.endpoints.catalog import UNITS_DATA
 from src.services.llm import get_llm
 
 logger = logging.getLogger(__name__)
