@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from src.agents.copilot import grounding
 from src.db.models import Base
 from src.db.session import get_db_session
 from src.main import app
@@ -25,6 +26,17 @@ async_test_session_factory = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_copilot_grounding_from_local_db(monkeypatch):
+    """Chặn Copilot grounding đọc DB units thật của máy dev trong test.
+
+    `grounding._fetch_db_units` dùng psycopg trỏ thẳng DB cấu hình (machine-dependent);
+    đặt cache = [] để mọi test chỉ chạy với fixture canonical, kết quả không phụ thuộc
+    máy. (DB endpoint FastAPI vẫn chạy qua in-memory SQLite ở fixture bên dưới.)
+    """
+    monkeypatch.setattr(grounding, "_cached_db_units", [], raising=False)
 
 
 @pytest_asyncio.fixture(autouse=True)

@@ -10,6 +10,7 @@ truy cập dữ liệu canonical (chính sách, giỏ hàng) dùng chung cho cá
 
 from __future__ import annotations
 
+import logging
 import unicodedata
 from datetime import date
 from typing import Any
@@ -49,12 +50,11 @@ def resolve_active_policy(project_id: str | None, as_of: date | None = None) -> 
     active = [
         p
         for p in candidates
-        if str(p.get("status", "ACTIVE")) == "ACTIVE"
-        and str(p.get("effective_from", "0000-01-01")) <= tx_date <= str(p.get("effective_to", "9999-12-31"))
+        if str(p.get("effective_from", "0000-01-01")) <= tx_date <= str(p.get("effective_to", "9999-12-31"))
     ]
     if active:
         return active[0]
-    return candidates[0] if candidates else None
+    return None
 
 
 def policy_citations(policy: dict[str, Any], rules: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -104,7 +104,69 @@ def find_rules_by_keyword(keyword: str, project_id: str | None = None) -> list[t
     return hits
 
 
+logger = logging.getLogger(__name__)
+
+_cached_db_units: list[dict[str, Any]] | None = None
+
+
+def _fetch_db_units() -> list[dict[str, Any]]:
+    global _cached_db_units
+    if _cached_db_units is not None:
+        return _cached_db_units
+    try:
+        import psycopg
+
+        from src.config import get_settings
+
+        settings = get_settings()
+        db_url = settings.database_url.replace("+asyncpg", "")
+        with psycopg.connect(db_url, connect_timeout=3) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT unit_code, project_id, floor_number, unit_type, listed_price_before_tax_vnd, status
+                    FROM units;
+                """)
+                rows = cur.fetchall()
+                bedrooms_map = {"STUDIO": 0, "1BR": 1, "2BR": 2, "3BR": 3, "SHOPHOUSE": 0}
+                area_map = {"STUDIO": 35.0, "1BR": 48.5, "2BR": 72.0, "3BR": 98.5, "SHOPHOUSE": 135.0}
+                units = []
+                for row in rows:
+                    uc, pid, fl, ut, price, st = row
+                    block = (
+                        "Tháp Riverside (R)"
+                        if uc.startswith("R-")
+                        else ("Tháp Garden (G)" if uc.startswith("G-") else "Khối đế Shophouse")
+                    )
+                    view = (
+                        "View trực diện sông Sài Gòn"
+                        if uc.startswith("R-")
+                        else ("View công viên & hồ cảnh quan" if uc.startswith("G-") else "Mặt tiền đại lộ thương mại")
+                    )
+                    units.append(
+                        {
+                            "unit_code": uc,
+                            "project_id": pid,
+                            "project_name": "VLand Future Riverside",
+                            "block": block,
+                            "floor": fl,
+                            "bedrooms": bedrooms_map.get(ut, 2),
+                            "area_m2": area_map.get(ut, 70.0),
+                            "view": view,
+                            "listed_price_before_tax_vnd": price,
+                            "status": st,
+                        }
+                    )
+                _cached_db_units = units
+                return units
+    except Exception as exc:
+        logger.warning("Could not load units from DB: %s", exc)
+        return []
+
+
 def list_units() -> list[dict[str, Any]]:
+    db_units = _fetch_db_units()
+    if db_units:
+        return db_units + [u for u in UNITS_DATA if u.get("project_id") != "PROJECT-VLF-001"]
     return list(UNITS_DATA)
 
 
@@ -112,7 +174,7 @@ def find_unit(unit_code: str | None) -> dict[str, Any] | None:
     if not unit_code:
         return None
     wanted = normalize(unit_code).replace(" ", "")
-    for unit in UNITS_DATA:
+    for unit in list_units():
         if normalize(str(unit.get("unit_code"))).replace(" ", "") == wanted:
             return unit
     return None
@@ -125,7 +187,7 @@ def search_units(
     only_available: bool = True,
 ) -> list[dict[str, Any]]:
     results = []
-    for unit in UNITS_DATA:
+    for unit in list_units():
         if only_available and unit.get("status") != "AVAILABLE":
             continue
         if bedrooms and int(unit.get("bedrooms", 0)) != bedrooms:
@@ -143,5 +205,7 @@ def project_name(project_id: str | None) -> str:
     mapping = {
         "THE_ZEN_PARK": "The Zen Park",
         "VLANDFUTURE_SAPPHIRE": "VLandFuture Sapphire",
+        "PROJECT-VLF-001": "VLand Future Riverside",
     }
     return mapping.get(str(project_id), str(project_id or "VLandFuture"))
+

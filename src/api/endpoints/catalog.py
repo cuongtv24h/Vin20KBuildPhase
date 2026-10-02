@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import Principal, create_access_token, get_current_principal
-from src.db.models import UserModel
+from src.db.models import UnitModel, UserModel
 from src.db.session import get_db_session
 
 logger = logging.getLogger(__name__)
@@ -199,10 +199,68 @@ class ReauthGrantSchema(BaseModel):
 # -----------------------------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------------------------
+def _unit_model_to_dict(u: UnitModel) -> dict[str, Any]:
+    bedrooms_map = {"STUDIO": 0, "1BR": 1, "2BR": 2, "3BR": 3, "SHOPHOUSE": 0}
+    area_map = {"STUDIO": 35.0, "1BR": 48.5, "2BR": 72.0, "3BR": 98.5, "SHOPHOUSE": 135.0}
+    block = (
+        "Tháp Riverside (R)"
+        if u.unit_code.startswith("R-")
+        else ("Tháp Garden (G)" if u.unit_code.startswith("G-") else "Khối đế Shophouse")
+    )
+    view = (
+        "View trực diện sông Sài Gòn"
+        if u.unit_code.startswith("R-")
+        else ("View công viên & hồ cảnh quan" if u.unit_code.startswith("G-") else "Mặt tiền đại lộ thương mại")
+    )
+    return {
+        "unit_code": u.unit_code,
+        "project_id": u.project_id,
+        "project_name": "VLand Future Riverside",
+        "block": block,
+        "floor": u.floor_number,
+        "bedrooms": bedrooms_map.get(u.unit_type, 2),
+        "area_m2": area_map.get(u.unit_type, 70.0),
+        "view": view,
+        "listed_price_before_tax_vnd": u.listed_price_before_tax_vnd,
+        "status": u.status,
+    }
+
+
 @router.get("/public/projects", response_model=list[ProjectOverviewSchema])
-async def get_public_projects() -> list[dict[str, Any]]:
-    """GET /api/v1/public/projects — Trang chủ khách hàng & danh mục dự án."""
-    overviews = []
+async def get_public_projects(
+    db: AsyncSession = Depends(get_db_session),
+) -> list[dict[str, Any]]:
+    """GET /api/v1/public/projects — Trang chủ khách hàng & danh mục dự án (DB thật + fixture)."""
+    overviews: list[dict[str, Any]] = []
+
+    # 1. Thêm dự án VLand Future Riverside từ DB thật (40 căn)
+    db_units = (await db.scalars(select(UnitModel))).all()
+    if db_units:
+        vlf_available = [u for u in db_units if u.status == "AVAILABLE"]
+        price_from = min([u.listed_price_before_tax_vnd for u in vlf_available]) if vlf_available else 2_860_000_000
+        overviews.append({
+            "project": {
+                "project_id": "PROJECT-VLF-001",
+                "name": "VLand Future Riverside",
+                "location": "Văn Giang, Hưng Yên (Kết nối Vành đai 3.5 & Cao tốc HN - HP)",
+                "description": "Tổ hợp căn hộ sinh thái cao cấp ven sông, tiện ích 5 sao chuẩn resort, công viên ven sông 3ha.",
+                "handover_time": "Quý IV/2027",
+            },
+            "active_policy": {
+                "policy_id": "POL-2026-EARLY",
+                "policy_version": 1,
+                "content_sha256": "3e23cf6329e46939fc9f6ab43a9b6c039f60bc9f9f83a45c38bc35718dfb5722",
+            },
+            "promotions": [
+                {"title": "Chiết khấu thanh toán sớm 95% (8.0%)", "section": "Điều 1"},
+                {"title": "Hỗ trợ lãi suất 0% trong 24 tháng", "section": "Điều 2"},
+                {"title": "Gói quà tặng nội thất cao cấp 200tr", "section": "Điều 3"},
+            ],
+            "available_units": len(vlf_available),
+            "price_from_vnd": price_from,
+        })
+
+    # 2. Các dự án fixture khác (The Zen Park, VLandFuture Sapphire)
     for proj in PROJECTS_DATA:
         pid = proj["project_id"]
         units = [u for u in UNITS_DATA if u["project_id"] == pid and u["status"] == "AVAILABLE"]
@@ -226,11 +284,28 @@ async def get_public_projects() -> list[dict[str, Any]]:
 
 
 @router.get("/units", response_model=list[UnitSnapshotSchema])
-async def get_units(project_id: str | None = Query(None)) -> list[dict[str, Any]]:
-    """GET /api/v1/units — Giỏ hàng căn hộ, hỗ trợ lọc theo project_id."""
-    if project_id:
+async def get_units(
+    project_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db_session),
+) -> list[dict[str, Any]]:
+    """GET /api/v1/units — Giỏ hàng căn hộ, hỗ trợ đọc trực tiếp từ DB thật."""
+    stmt = select(UnitModel)
+    if project_id and project_id not in ("ALL", ""):
+        stmt = stmt.where(UnitModel.project_id == project_id)
+
+    db_units = (await db.scalars(stmt)).all()
+    converted_db_units = [_unit_model_to_dict(u) for u in db_units]
+
+    # Nếu chỉ tìm dự án trong fixture
+    if project_id and project_id in ("THE_ZEN_PARK", "VLANDFUTURE_SAPPHIRE"):
         return [u for u in UNITS_DATA if u["project_id"] == project_id]
-    return UNITS_DATA
+
+    # Nếu tìm PROJECT-VLF-001 hoặc có căn trong DB
+    if project_id == "PROJECT-VLF-001":
+        return converted_db_units
+
+    # Mặc định (Tất cả): Ghép cả DB units thật và fixture
+    return converted_db_units + [u for u in UNITS_DATA if u["project_id"] != "PROJECT-VLF-001"]
 
 
 @router.post("/auth/login", response_model=AuthSessionSchema)
@@ -325,6 +400,127 @@ async def auth_reauth(
 # Fixture & Endpoints cho Chính sách Bán hàng (Policies)
 # -----------------------------------------------------------------------------
 POLICIES_DATA: list[dict[str, Any]] = [
+    {
+        "policy_id": "CSBH-ZEN-2026-V2.0",
+        "policy_version": "v2.0",
+        "title": "Chính sách Bán hàng The Zen Park — Đợt 2/2026",
+        "project_id": "THE_ZEN_PARK",
+        "status": "EXPIRED",
+        "effective_from": "2026-05-01",
+        "effective_to": "2026-07-31",
+        "document_id": "DOC-ZEN-2026-02",
+        "document_hash": "2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90123456789abcdef0123456789abc",
+        "source_document": "CSBH_TheZenPark_2026_V2_Signed.pdf",
+        "created_at": "2026-04-25T08:00:00Z",
+        "created_by": {"user_id": "USR-ADM-001", "full_name": "Tuấn Minh", "role": "POLICY_ADMIN"},
+        "published_at": "2026-04-30T10:00:00Z",
+        "published_by": {"user_id": "USR-MGR-001", "full_name": "Nguyễn Văn Quản Lý", "role": "MANAGER"},
+        "rules": [
+            {
+                "rule_code": "RESIDENT_DISCOUNT",
+                "title": "Chiết khấu cư dân tri ân",
+                "kind": "PERCENT_DISCOUNT",
+                "discount_rate": 0.015,
+                "cash_equivalent_vnd": None,
+                "interest_support_months": None,
+                "applicable_scenarios": ["PA-CHUDONG", "PA-NHANH", "PA-VAY"],
+                "required_segments": ["EXISTING_RESIDENT"],
+                "min_units_purchased": None,
+                "relations": [],
+                "is_ambiguous": False,
+                "is_selectable": False,
+                "validation_status": "APPROVED_FOR_USE",
+                "source": {
+                    "document_id": "DOC-ZEN-2026-02",
+                    "document_version": "v2.0",
+                    "document_hash": "2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90123456789abcdef0123456789abc",
+                    "clause_id": "Dieu_2_Khoan_1",
+                    "section": "Điều 2, Khoản 1",
+                    "page": 2,
+                    "quote": "Khách hàng là cư dân hiện hữu của VLandFuture có hợp đồng mua bán hợp lệ trước đó được hưởng chiết khấu tri ân 1.5% trên Giá bán chưa bao gồm thuế GTGT và KPBT.",
+                },
+            },
+            {
+                "rule_code": "EARLY_PAY_DISCOUNT",
+                "title": "Chiết khấu thanh toán sớm 95% (V2.0)",
+                "kind": "PERCENT_DISCOUNT",
+                "discount_rate": 0.07,
+                "cash_equivalent_vnd": None,
+                "interest_support_months": None,
+                "applicable_scenarios": ["PA-NHANH"],
+                "required_segments": None,
+                "min_units_purchased": None,
+                "relations": [
+                    {"type": "MUTUALLY_EXCLUSIVE", "rule_code": "FURNITURE_GIFT", "reason": "Không áp dụng đồng thời với quà nội thất."},
+                    {"type": "CONDITIONAL_CONFLICT", "rule_code": "BANK_LOAN_HTLS", "reason": "Không áp dụng đồng thời gói vay hỗ trợ lãi suất."},
+                ],
+                "is_ambiguous": False,
+                "is_selectable": True,
+                "validation_status": "APPROVED_FOR_USE",
+                "source": {
+                    "document_id": "DOC-ZEN-2026-02",
+                    "document_version": "v2.0",
+                    "document_hash": "2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90123456789abcdef0123456789abc",
+                    "clause_id": "Dieu_4_Khoan_2b",
+                    "section": "Điều 4, Khoản 2b",
+                    "page": 4,
+                    "quote": "Khách hàng lựa chọn thanh toán sớm 95% bằng vốn tự có trong vòng 15 ngày kể từ ngày ký HĐMB được hưởng chiết khấu 7.0% trên Giá bán chưa bao gồm thuế GTGT và KPBT.",
+                },
+            },
+            {
+                "rule_code": "BANK_LOAN_HTLS",
+                "title": "Hỗ trợ lãi suất 0% trong 18 tháng (V2.0)",
+                "kind": "BANK_SUPPORT",
+                "discount_rate": None,
+                "cash_equivalent_vnd": None,
+                "interest_support_months": 18,
+                "applicable_scenarios": ["PA-VAY"],
+                "required_segments": None,
+                "min_units_purchased": None,
+                "relations": [
+                    {"type": "CONDITIONAL_CONFLICT", "rule_code": "EARLY_PAY_DISCOUNT", "reason": "Không thể cùng vay ngân hàng và thanh toán sớm bằng vốn tự có."},
+                ],
+                "is_ambiguous": False,
+                "is_selectable": True,
+                "validation_status": "APPROVED_FOR_USE",
+                "source": {
+                    "document_id": "DOC-ZEN-2026-02",
+                    "document_version": "v2.0",
+                    "document_hash": "2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90123456789abcdef0123456789abc",
+                    "clause_id": "Dieu_3_Khoan_1",
+                    "section": "Điều 3, Khoản 1",
+                    "page": 3,
+                    "quote": "Hỗ trợ lãi suất 0% tối đa 18 tháng hoặc đến khi nhận bàn giao nhà.",
+                },
+            },
+            {
+                "rule_code": "FURNITURE_GIFT",
+                "title": "Gói quà tặng nội thất cao cấp 150tr (V2.0)",
+                "kind": "GIFT",
+                "discount_rate": None,
+                "cash_equivalent_vnd": 150_000_000,
+                "interest_support_months": None,
+                "applicable_scenarios": ["PA-CHUDONG", "PA-NHANH", "PA-VAY"],
+                "required_segments": None,
+                "min_units_purchased": None,
+                "relations": [
+                    {"type": "MUTUALLY_EXCLUSIVE", "rule_code": "EARLY_PAY_DISCOUNT", "reason": "Không áp dụng đồng thời với chiết khấu thanh toán sớm 95%."},
+                ],
+                "is_ambiguous": False,
+                "is_selectable": True,
+                "validation_status": "APPROVED_FOR_USE",
+                "source": {
+                    "document_id": "DOC-ZEN-2026-02",
+                    "document_version": "v2.0",
+                    "document_hash": "2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f90123456789abcdef0123456789abc",
+                    "clause_id": "Dieu_6_Khoan_2",
+                    "section": "Điều 6, Khoản 2",
+                    "page": 6,
+                    "quote": "Tặng gói nội thất cao cấp trị giá 150 triệu đồng khi ký HĐMB.",
+                },
+            },
+        ],
+    },
     {
         "policy_id": "CSBH-ZEN-2026-V3.1",
         "policy_version": "v3.1",

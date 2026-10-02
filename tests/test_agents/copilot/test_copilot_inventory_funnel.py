@@ -17,10 +17,16 @@ import json
 
 import pytest
 
-from src.agents.copilot import inventory_funnel
+from src.agents.copilot import grounding, inventory_funnel
 from src.agents.copilot.tools import danh_gia_von_tu_co, tra_cuu_gio_hang
 
 QUESTION = "Khách hàng có 2 tỷ, cần mua căn 3 ngủ"
+
+
+@pytest.fixture(autouse=True)
+def force_canonical_fixture(monkeypatch):
+    monkeypatch.setattr(grounding, "_cached_db_units", [])
+
 
 
 # ─── P3.2 — cổng phân khúc (lỗi cấm) ────────────────────────────────────────────────
