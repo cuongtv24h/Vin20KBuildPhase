@@ -16,14 +16,32 @@ Tất cả nằm trong 3 script ở thư mục này:
 ```bash
 ssh ubuntu@ip-172-31-4-117
 cd ~/vland
-git up                 # = deploy nhánh develop (mặc định)
-git up develop         # chỉ rõ nhánh
+git up                 # deploy nhánh đã deploy thành công lần trước; chưa có thì develop
+git up main            # chỉ định nhánh — các lần sau `git up` sẽ NHỚ nhánh này
 git up --dry-run       # xem script SẼ làm gì, không đổi gì
 git up --force         # chạy đủ mọi bước dù không có commit mới
 ```
 
 Không cần `git pull`, không cần tự `npm install`, không cần tự reload pm2.
 Muốn lùi phiên bản: `bash deploy/rollback.sh`.
+
+### Nhánh & remote mặc định
+
+Nhánh được chọn theo thứ tự ưu tiên (cái trên thắng):
+
+| # | Nguồn | Ví dụ |
+| :-: | :--- | :--- |
+| 1 | Chỉ định trong lệnh | `git up main`, `git up --branch=main` |
+| 2 | Biến môi trường | `DEPLOY_BRANCH=main git up` |
+| 3 | **Nhớ từ lần deploy thành công trước** (`logs/deploy-state: branch`) | `git up` sau khi đã `git up main` một lần |
+| 4 | Mặc định | `develop` (khi chưa từng deploy bằng script này) |
+
+Remote mặc định là `origin`; đổi bằng `git up --remote=upstream develop` hoặc `DEPLOY_REMOTE=upstream git up`.
+Mỗi lần chạy, dòng đầu log in rõ: `Nguồn : origin/develop (… cho remote · … cho nhánh)` — nhìn là biết
+đang lấy từ đâu và vì sao.
+
+> Lưu ý nhỏ của git: `git up --help` (và `git up -h`) **không** chạy script — git in ra định nghĩa alias rồi thoát.
+> Muốn xem trợ giúp: `bash deploy/deploy.sh --help` (hoặc `git up --dry-run` để xem trước kế hoạch).
 
 ---
 
@@ -120,8 +138,9 @@ Thời gian điển hình: sửa 1 file frontend ≈ **1–2 phút**; chỉ sử
 
 | Cờ | Ý nghĩa |
 |---|---|
-| `<branch>` | nhánh cần deploy, mặc định `develop` |
+| `<branch>` | nhánh cần deploy (bỏ trống: nhớ nhánh lần deploy thành công trước, chưa có thì `develop`) |
 | `--branch=<branch>` | tương đương |
+| `--remote=<name>` | remote để lấy code, mặc định `origin` (cũng đặt được bằng `DEPLOY_REMOTE`) |
 | `--dry-run`, `--check` | chỉ in kế hoạch, không thay đổi gì |
 | `--force` | bỏ qua kiểm tra thay đổi: cập nhật code + build + reload dù commit không đổi |
 | `--keep-local` | stash thay đổi cục bộ rồi trả lại sau khi cập nhật |
@@ -135,7 +154,7 @@ Thời gian điển hình: sửa 1 file frontend ≈ **1–2 phút**; chỉ sử
 | `--timeout=<giây>` | thời gian chờ health-check (mặc định 45) |
 | `-h`, `--help` | trợ giúp |
 
-Biến môi trường: `APP_PORT` (mặc định `8000`) cho health-check.
+Biến môi trường: `APP_PORT` (mặc định `8000`) cho health-check · `DEPLOY_BRANCH` · `DEPLOY_REMOTE`.
 
 ---
 
@@ -189,6 +208,7 @@ Khi deploy tự lùi (health-check fail sau lúc reload), log có dạng:
 | `Ổ đĩa còn ...MB` | Dọn bớt: `npm cache clean --force`, `rm -rf frontend/apps/*/dist.bak`, xoá log cũ trong `logs/` |
 | Nginx không được reload | Script chỉ đụng tới nginx khi config đổi **và** `sudo -n true` chạy được (không cần mật khẩu). Chạy tay lệnh in ra trong log |
 | Muốn xem trước mọi thay đổi | `git up --dry-run` |
+| `git up` deploy nhầm nhánh | Xem dòng `Nguồn :` đầu log. Đổi nhánh: `git up <nhánh>` (script nhớ luôn lần này) hoặc tạm thời `DEPLOY_BRANCH=<nhánh> git up` |
 | `git up` báo "không có bước nào cần chạy" mà vừa đổi code | Kiểm tra code đã thật sự lên remote chưa: `git fetch origin develop && git log --oneline -3 HEAD origin/develop`. Nếu `HEAD` == `origin/develop` thì bản trên máy đã là mới nhất — có thể bạn đã push sang **repo/nhánh khác** với remote của VM. Nghi ngờ build/reload chưa chạy thì dùng `git up --force` |
 
 ---

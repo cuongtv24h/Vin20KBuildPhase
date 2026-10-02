@@ -493,6 +493,38 @@ lại web chạy bundle cũ và backend chạy code cũ trong khi code trên đ�
 | `bash -n` + `shellcheck -S style` cả 3 script | sạch |
 
 
+### 11.8 Nhánh & remote mặc định của `git up` (theo câu hỏi người dùng)
+
+Trước đây mặc định **luôn cứng là `develop`**, không nhớ lần trước — `git up main` rồi `git up` lần sau
+sẽ quay về `develop`, trái với mong đợi "chỉ cần chỉ định một lần". Đã sửa:
+
+Thứ tự chọn nhánh: **(1)** chỉ định trong lệnh (`git up main`) → **(2)** `DEPLOY_BRANCH` → **(3)** nhánh
+đã deploy **thành công** gần nhất (`logs/deploy-state: branch`, do chính script ghi ở bước 8) → **(4)**
+`develop`. Remote mặc định `origin`, đổi bằng `git up --remote=<tên>` hoặc `DEPLOY_REMOTE`.
+
+Mỗi lần chạy in rõ: `Nguồn : origin/develop (mặc định cho remote · nhớ từ lần deploy thành công trước cho nhánh)`,
+kèm gợi ý đổi nhánh khi đang dùng trí nhớ. Lỗi cũng rõ ràng: remote không tồn tại → liệt kê các remote đang có;
+nhánh không tồn tại → gợi ý `git ls-remote --heads <remote>` / `git up --branch=<nhánh>`.
+
+Alias `git up` cũng được viết lại thành một hàm có `exec` (đúng mã thoát, không thêm tiến trình) và
+gọi trần để **không bao giờ nhân đôi tham số**. Ghi chú: `git up --help` / `git up -h` do **git** chặn
+(in ra định nghĩa alias) — dùng `bash deploy/deploy.sh --help`.
+
+**Kiểm chứng (fixture 2 remote `origin` + `upstream`, 3 nhánh `develop`/`main`):**
+
+| Kịch bản | Kết quả |
+| :--- | :--- |
+| VM mới, chưa deploy lần nào, `git up` | `origin/develop` (mặc định) |
+| `git up main` | deploy `main`, `logs/deploy-state` ghi `branch=main` |
+| **`git up` (không tham số) sau đó** | **nhớ `main`**, không quay về `develop` |
+| `DEPLOY_BRANCH=develop git up` | ghi đè trí nhớ → `origin/develop`; lần `git up` sau nhớ `develop` |
+| `git up --remote=upstream develop` | `Nguồn : upstream/develop`, in rõ URL remote đang dùng |
+| `git up --branch=khong-co-nhanh-nay` | lỗi rõ + gợi ý (`git ls-remote --heads origin`), exit 1 |
+| `git up --remote=khong-co` | lỗi rõ + liệt kê remote hiện có (`origin upstream`), exit 1 |
+| `--branch=` để trống | lỗi rõ, exit 2 |
+| `git up --dry-run` | in đúng nguồn, không đổi gì |
+
+
 ### 11.5 Kiểm chứng (chạy thật trong sandbox, không phải trên VM thật)
 
 Vì sandbox không có SSH tới VM, việc kiểm chứng được làm bằng **repo fixture** (repo bare giả làm

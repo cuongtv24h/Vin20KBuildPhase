@@ -21,8 +21,9 @@
 #      gần nhất nếu deploy hỏng.
 #
 # Dùng:
-#   git up                                   # deploy nhánh develop (mặc định)
-#   git up develop                           # chỉ rõ nhánh
+#   git up                                   # nhớ nhánh lần deploy trước, chưa có thì develop
+#   git up develop                           # chỉ rõ nhánh (lần sau `git up` sẽ nhớ develop)
+#   git up --remote=upstream main            # lấy từ remote khác (mặc định: origin)
 #   bash deploy/deploy.sh --dry-run          # xem sẽ làm gì, không đổi gì
 #   bash deploy/deploy.sh --force            # chạy đủ bước dù không có gì mới
 #   bash deploy/deploy.sh --no-pm2 --no-nginx  # dev box: chỉ đồng bộ + build
@@ -52,7 +53,10 @@ SCRIPT_DIR="$P096_SELF_DIR"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Mặc định ──────────────────────────────────────────────────────────────────
-BRANCH="develop"
+BRANCH=""                              # phân giải sau khi đọc cờ: chỉ định > DEPLOY_BRANCH > nhớ lần trước > develop
+BRANCH_GIVEN=0
+REMOTE="${DEPLOY_REMOTE:-origin}"      # remote để fetch/so sánh (mặc định origin)
+REMOTE_GIVEN=0
 DRY_RUN=0
 FORCE=0
 KEEP_LOCAL=0
@@ -100,8 +104,9 @@ usage() {
     cat <<'EOF'
 
 Cờ:
-  <branch>              nhánh cần deploy (mặc định: develop)
+  <branch>              nhánh cần deploy (bỏ trống: nhớ nhánh lần deploy thành công trước, chưa có thì develop)
   --branch=<branch>     tương đương
+  --remote=<name>       remote để lấy code (mặc định: origin) — cũng đặt được bằng DEPLOY_REMOTE
   --dry-run, --check    chỉ in ra sẽ làm gì, không thay đổi gì
   --force               bỏ qua kiểm tra thay đổi: cập nhật code + build + reload dù commit không đổi
                         (pip/npm ci vẫn dựa trên dấu vết requirements/lockfile — đúng thì thôi)
@@ -120,7 +125,8 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --branch=*)          BRANCH="${1#*=}" ;;
+        --branch=*)          BRANCH="${1#*=}"; BRANCH_GIVEN=1 ;;
+        --remote=*)          REMOTE="${1#*=}"; REMOTE_GIVEN=1 ;;
         --dry-run|--check)   DRY_RUN=1 ;;
         --force)             FORCE=1 ;;
         --keep-local)        KEEP_LOCAL=1 ;;
@@ -134,12 +140,30 @@ while [[ $# -gt 0 ]]; do
         --timeout=*)         HEALTH_TIMEOUT="${1#*=}" ;;
         -h|--help)           usage; exit 0 ;;
         -*)                  fail "Cờ không hợp lệ: $1"; usage; exit 2 ;;
-        *)                   BRANCH="$1" ;;
+        *)                   BRANCH="$1"; BRANCH_GIVEN=1 ;;
     esac
     shift
 done
 
 cd "$REPO_DIR"
+
+# ── Phân giải nhánh & remote ──────────────────────────────────────────────────
+# Thứ tự ưu tiên: chỉ định trong lệnh (`git up develop`) > biến môi trường DEPLOY_BRANCH
+# > nhánh của lần deploy THÀNH CÔNG trước (logs/deploy-state) > develop.
+# Nhờ vậy `git up main` một lần là các lần sau `git up` vẫn đi đúng `main`.
+STATE_BRANCH="$(grep '^branch=' "$STATE_FILE" 2>/dev/null | cut -d= -f2 || true)"
+if (( BRANCH_GIVEN == 1 )); then
+    [[ -n "$BRANCH" ]] || { fail "Tên nhánh để trống (--branch= hoặc tham số)."; exit 2; }
+    BRANCH_SOURCE="bạn chỉ định trong lệnh"
+elif [[ -n "${DEPLOY_BRANCH:-}" ]]; then
+    BRANCH="$DEPLOY_BRANCH"; BRANCH_SOURCE="biến môi trường DEPLOY_BRANCH"
+elif [[ -n "$STATE_BRANCH" ]]; then
+    BRANCH="$STATE_BRANCH"; BRANCH_SOURCE="nhớ từ lần deploy thành công trước ($STATE_FILE)"
+else
+    BRANCH="develop"; BRANCH_SOURCE="mặc định (chưa có lần deploy thành công nào trước đó)"
+fi
+[[ -n "$REMOTE" ]] || { fail "Tên remote để trống (--remote= hoặc DEPLOY_REMOTE)."; exit 2; }
+if (( REMOTE_GIVEN == 1 )); then REMOTE_SOURCE="bạn chỉ định"; else REMOTE_SOURCE="mặc định"; fi
 
 # ── Trạng thái dùng cho rollback khi có lỗi ───────────────────────────────────
 CODE_SWITCHED=0
@@ -179,7 +203,14 @@ die() { on_error "${1:-1}"; }
 trap 'on_error $?' ERR
 
 step "[P-096] Bắt đầu deploy — nhánh '$BRANCH' — $(date '+%Y-%m-%d %H:%M:%S')"
-log "Repo: $REPO_DIR"
+log "Repo   : $REPO_DIR"
+log "Nguồn  : $REMOTE/$BRANCH ($REMOTE_SOURCE cho remote · $BRANCH_SOURCE cho nhánh)"
+if [[ "$BRANCH_SOURCE" == nhớ* || -n "${DEPLOY_BRANCH:-}" ]]; then
+    info "Muốn đổi nhánh: git up <nhánh> (vd: git up main) hoặc git up --branch=<nhánh>."
+fi
+if (( REMOTE_GIVEN == 1 )); then
+    info "Đang dùng remote '$REMOTE' ($(git remote get-url "$REMOTE" 2>/dev/null || echo 'chưa cấu hình'))."
+fi
 
 # ── 0. Kiểm tra sơ bộ ─────────────────────────────────────────────────────────
 step "0/8 Kiểm tra sơ bộ"
@@ -204,11 +235,17 @@ if (( FREE_MB < MIN_FREE_MB )); then
 fi
 ok "Ổ đĩa còn ${FREE_MB}MB"
 
-if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-    fail "Không thấy nhánh '$BRANCH' trên origin. Kiểm tra: git ls-remote --heads origin"
+if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
+    fail "Repo này không có remote tên '$REMOTE'. Đang có: $(git remote | tr '\n' ' ')"
+    fail "Xem lại: git remote -v   ·   hoặc dùng --remote=<tên remote>"
     die 1
 fi
-ok "Nhánh '$BRANCH' tồn tại trên origin"
+if ! git ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null 2>&1; then
+    fail "Không thấy nhánh '$BRANCH' trên remote '$REMOTE'."
+    fail "Kiểm tra: git ls-remote --heads $REMOTE   ·   hoặc deploy nhánh khác: git up --branch=develop"
+    die 1
+fi
+ok "Nhánh '$BRANCH' tồn tại trên '$REMOTE' ($(git remote get-url "$REMOTE"))"
 
 SUDO_OK=0
 if [[ "$RUN_NGINX" == 1 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
@@ -229,10 +266,10 @@ else
 fi
 
 # ── 1. Lấy code mới (fetch + reset, KHÔNG dùng git pull) ──────────────────────
-step "1/8 Lấy code mới từ origin/$BRANCH"
+step "1/8 Lấy code mới từ $REMOTE/$BRANCH"
 OLD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-git fetch --prune --quiet origin "$BRANCH"
-TARGET_SHA="$(git rev-parse "origin/$BRANCH")"
+git fetch --prune --quiet "$REMOTE" "$BRANCH"
+TARGET_SHA="$(git rev-parse "$REMOTE/$BRANCH")"
 LAST_DEPLOYED="$(last_deployed_sha)"
 log "Commit hiện tại : ${OLD_SHA:-<chưa có>}"
 log "Commit đích    : $TARGET_SHA ($(git log -1 --format=%s "$TARGET_SHA" | cut -c1-80))"
@@ -296,7 +333,7 @@ if [[ "$SKIP_CODE" == 0 && "$DRY_RUN" == 0 ]]; then
         fi
     fi
 
-    # 1b. Đưa nhánh local về đúng commit của origin — không bao giờ kẹt merge/conflict.
+    # 1b. Đưa nhánh local về đúng commit của remote — không bao giờ kẹt merge/conflict.
     git checkout -q -B "$BRANCH" "$TARGET_SHA"
     CODE_SWITCHED=1
     ok "Đã cập nhật code: $(git rev-parse --short "${OLD_SHA:-$TARGET_SHA}") → $(git rev-parse --short "$TARGET_SHA")"

@@ -70,9 +70,10 @@ if [[ "$DO_CLEANUP" == 1 ]]; then
 fi
 
 # ── 3. Đặt alias ──────────────────────────────────────────────────────────────
-# Lưu ý cú pháp: git nối tham số vào CUỐI lệnh alias, nên hàm `f` không cần "$@" khi gọi;
-# viết `f` trần để `git up develop --force` truyền đúng vào deploy.sh.
-git config --global alias.up "!f() { cd \"$REPO_DIR\" && bash deploy/deploy.sh \"\$@\"; }; f"
+# Cú pháp: git nối tham số người dùng vào CUỐI dòng lệnh alias. Vì vậy định nghĩa một
+# hàm `up` rồi gọi trần `up` (không `up "$@"`) — nếu gọi kèm "$@" thì mọi tham số bị
+# nhân đôi (`git up --help` → `--help --help` → báo cờ không hợp lệ).
+git config --global alias.up "!up() { cd \"$REPO_DIR\" && exec bash deploy/deploy.sh \"\$@\"; }; up"
 log "• Đã đặt alias: git config --global alias.up"
 log "    $(git config --global --get alias.up)"
 
