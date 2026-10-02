@@ -447,7 +447,53 @@ cũ nếu config mới sai.
 | Sửa file `deploy.sh` giữa lúc chạy | bash đọc dở file → script đứt tay | tự chạy bằng bản sao `/tmp/p096-deploy-*.sh` (giữ PID/tham số) |
 | Thời gian điển hình | luôn ~2–4 phút | sửa backend ~10–20 giây; sửa frontend ~1–2 phút |
 
-### 11.4 Kiểm chứng (chạy thật trong sandbox, không phải trên VM thật)
+### 11.4 Vá tiếp: `git up` báo "không đổi gì" dù vừa có code mới (phát hiện từ log chạy thật trên VM)
+
+Chạy trên VM sau khi kéo code bằng tay, log ra:
+
+```
+Bỏ qua pip (requirements.txt không đổi)
+Bỏ qua npm ci (lockfile không đổi, node_modules còn nguyên)
+4/8 Build frontend
+Bỏ qua build (frontend không đổi, dist còn nguyên)
+5/8 Backend (pm2)
+Bỏ qua reload (backend không đổi)
+```
+
+**Đây là lỗi thiết kế thật, không phải người dùng làm sai.** Bản §11.2 so `HEAD` với `origin/<nhánh>`
+để quyết định "có gì đổi không". Nhưng khi code về máy bằng `git pull` tay (đúng thao tác gỡ kẹt ở
+§11.6) thì `HEAD` đã bằng `origin` → script tưởng "không có gì đổi" → **bỏ qua build & reload**, để
+lại web chạy bundle cũ và backend chạy code cũ trong khi code trên đĩa đã mới.
+
+Đã sửa:
+
+1. **Mốc so sánh = commit đã deploy THÀNH CÔNG** (`logs/deploy-state: current`), không phải `HEAD`.
+   Chưa có mốc → chạy đủ bước; mốc không còn trong repo (force-push) hoặc không phải tổ tiên của
+   commit đích → chạy đủ bước.
+2. **Lưới an toàn cho build**: `dist/index.html` cũ hơn file nguồn trong `frontend/**/src/` → build lại.
+3. **Lưới an toàn cho pm2**: mã nguồn backend (`src/*.py`, `requirements.txt`, `run.py`) mới hơn thời
+   điểm tiến trình pm2 khởi động (`pm2 jlist → pm2_env.pm_uptime`) → reload. Dùng mtime file thay vì
+   mốc thời gian commit để tránh commit mang ngày tương lai (lệch đồng hồ máy khác) gây reload vô ích.
+4. Log nói rõ lý do: "Code trên server đã là <sha> nhưng CHƯA deploy bằng script này (kéo code tay…)".
+5. Khi không có bước nào cần chạy, in gợi ý `git up --force`.
+
+**Kiểm chứng (fixture, pm2/health giả):**
+
+| Kịch bản | Kết quả |
+| :--- | :--- |
+| Lần đầu chạy script (chưa có mốc) | chạy đủ bước: `pip=1 npm-ci=1 build=1` + reload |
+| Chạy lại ngay sau deploy thành công | bỏ qua build + **0** lần reload (không báo động giả) |
+| **Kéo tay `git pull` rồi mới `git up`** | nhận ra "CHƯA deploy bằng script", diff `2 file` từ mốc cũ → build + reload |
+| **Mốc đã trùng `HEAD` nhưng dist & pm2 cũ hơn nguồn** (đúng trạng thái VM hiện tại) | lưới an toàn bắt: "Mã nguồn frontend mới hơn bản build" → build; "Mã nguồn backend mới hơn tiến trình" → reload |
+| Commit chỉ sửa frontend | build, **0** reload |
+| Commit chỉ sửa backend | reload, không build |
+| Deploy lỗi (health 500) | tự lùi về `state.current`, `prev < current`, exit 1 |
+| Lùi tay 2 lần | đi về quá khứ liên tiếp, không quay lại commit vừa bỏ |
+| `git up` sau rollback | tự về nhánh `develop` đúng bằng `origin/develop` |
+| `bash -n` + `shellcheck -S style` cả 3 script | sạch |
+
+
+### 11.5 Kiểm chứng (chạy thật trong sandbox, không phải trên VM thật)
 
 Vì sandbox không có SSH tới VM, việc kiểm chứng được làm bằng **repo fixture** (repo bare giả làm
 `origin`, một clone giả làm server) + `pm2` giả + health server giả:
@@ -466,9 +512,9 @@ Vì sandbox không có SSH tới VM, việc kiểm chứng được làm bằng 
 | `rollback.sh` sau deploy thành công | `HEAD` detached đúng commit trước, state đảo `prev/current`, `git up` lần sau tự về nhánh `develop` |
 
 **Chưa kiểm chứng:** chạy thật trên VM (không có SSH từ sandbox) và đường đi `nginx` (sandbox không có nginx/sudo).
-Ba lệnh ở §11.5 là bước chạy thật trên VM.
+Ba lệnh ở §11.6 là bước chạy thật trên VM.
 
-### 11.5 Người dùng cần chạy (một lần, ~1 phút)
+### 11.6 Người dùng cần chạy (một lần, ~1 phút)
 
 ```bash
 cd ~/vland
@@ -480,7 +526,7 @@ git up                                       # deploy thật từ nay
 
 Nếu chỉ muốn gỡ kẹt để deploy tiếp mà chưa đổi script: `git checkout -- frontend/package-lock.json && git pull`.
 
-### 11.6 Chống tái phát
+### 11.7 Chống tái phát
 
 Thêm bước CI `bash -n deploy/*.sh` (`.github/workflows/ci.yml`) để script deploy sai cú pháp không lọt vào nhánh.
 
@@ -503,6 +549,6 @@ Thêm bước CI `bash -n deploy/*.sh` (`.github/workflows/ci.yml`) để script
 6. **Cache tool hiện trong-một-lượt** (theo phiên chat). Cache xuyên lượt/TTL cần thêm khoá theo `transaction_date` + chính sách hiệu lực để không trả dữ liệu cũ — nên làm cùng lúc với dashboard chi phí.
 7. **Eval mới chạy offline tất định** (không cần API key). Muốn đo chất lượng LLM thật thì chạy `python scripts/run_copilot_eval.py --mode llm` khi có `OPENAI_API_KEY`; bộ ngưỡng CI hiện bám chế độ offline để phù hợp môi trường không có key.
 8. **Script deploy mới chưa chạy trên VM thật** (sandbox không SSH được vào `ip-172-31-4-117`): đã test end-to-end bằng
-   repo fixture + pm2/health giả (§11.4). Việc cần làm: chạy 3 lệnh ở §11.5 trên VM, rồi deploy thử một commit nhỏ
+   repo fixture + pm2/health giả (§11.5). Việc cần làm: chạy 3 lệnh ở §11.6 trên VM, rồi deploy thử một commit nhỏ
    (đổi 1 file backend) để xác nhận log `pip=0 npm-ci=0 build=0` và thời gian ~10–20 giây. Đường nginx chỉ được
    kiểm chứng một phần (sandbox không có nginx/sudo) — nếu VM yêu cầu mật khẩu sudo, script in ra lệnh chạy tay.

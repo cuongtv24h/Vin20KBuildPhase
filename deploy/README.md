@@ -85,6 +85,28 @@ Bản cũ chạy **mọi** bước mỗi lần: `pip install` + `npm install` + 
 | `nginx` | chỉ khi `deploy/p096.nginx.conf` đổi (và chỉ chạy nếu sudo không cần mật khẩu) |
 | Cập nhật code | chỉ khi có commit mới (`git up --force` để bỏ qua kiểm tra) |
 
+### 4.1 Mốc so sánh là **lần deploy thành công gần nhất**, không phải `HEAD`
+
+`.deploy-state` (cụ thể `logs/deploy-state: current`) ghi commit đã deploy **thành công**. Script so
+`current` với commit đích để biết cần chạy bước gì — vì code có thể đã về máy bằng đường khác:
+
+* kéo tay `git pull` (không build, không reload),
+* lần chạy script cũ,
+* deploy hỏng dở dang rồi chạy lại.
+
+Ví dụ thật: bạn `git pull` tay để lấy code mới rồi chạy `git up` — nếu script so với `HEAD` thì thấy
+"không có gì đổi" và **bỏ qua build/reload**, để lại web chạy bundle cũ và backend chạy code cũ.
+Từ bản này, script so với mốc deploy thành công nên vẫn build & reload đúng.
+
+Thêm hai **lưới an toàn** khi mốc đã trùng commit đích nhưng thực tế vẫn chưa chạy:
+
+| Kiểm tra | Khi nào kích hoạt |
+| :--- | :--- |
+| Mã nguồn frontend mới hơn `frontend/apps/internal/dist/index.html` | build lại |
+| Mã nguồn backend (`src/*.py`, `requirements.txt`, `run.py`) mới hơn thời điểm tiến trình pm2 khởi động | reload pm2 |
+
+Vì vậy `git up` chỉ thật sự im lặng khi mọi thứ đã đúng; nếu vẫn nghi ngờ, chạy `git up --force`.
+
 Ngoài ra: `pip` và `npm ci` chạy **song song**; `pm2 reload` là zero-downtime; có khoá
 `flock logs/.deploy.lock` để hai lần deploy không giẫm lên nhau; health-check dừng ngay khi
 API trả lời (không chờ đủ timeout).
@@ -167,6 +189,7 @@ Khi deploy tự lùi (health-check fail sau lúc reload), log có dạng:
 | `Ổ đĩa còn ...MB` | Dọn bớt: `npm cache clean --force`, `rm -rf frontend/apps/*/dist.bak`, xoá log cũ trong `logs/` |
 | Nginx không được reload | Script chỉ đụng tới nginx khi config đổi **và** `sudo -n true` chạy được (không cần mật khẩu). Chạy tay lệnh in ra trong log |
 | Muốn xem trước mọi thay đổi | `git up --dry-run` |
+| `git up` báo "không có bước nào cần chạy" mà vừa đổi code | Kiểm tra code đã thật sự lên remote chưa: `git fetch origin develop && git log --oneline -3 HEAD origin/develop`. Nếu `HEAD` == `origin/develop` thì bản trên máy đã là mới nhất — có thể bạn đã push sang **repo/nhánh khác** với remote của VM. Nghi ngờ build/reload chưa chạy thì dùng `git up --force` |
 
 ---
 

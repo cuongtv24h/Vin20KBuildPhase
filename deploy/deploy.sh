@@ -75,6 +75,12 @@ STAMP_DIR="$REPO_DIR/.deploy-stamps"
 STATE_FILE="$LOG_DIR/deploy-state"
 mkdir -p "$LOG_DIR" "$BACKUP_DIR" "$STAMP_DIR"
 
+# Commit đã deploy THÀNH CÔNG gần nhất (ghi ở bước 8, chỉ khi mọi bước đều qua).
+last_deployed_sha() {
+    [[ -f "$STATE_FILE" ]] || return 0
+    grep '^current=' "$STATE_FILE" 2>/dev/null | cut -d= -f2 || true
+}
+
 if [[ -t 1 ]]; then
     C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
     C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_RED=$'\033[31m'; C_CYAN=$'\033[36m'
@@ -227,14 +233,21 @@ step "1/8 Lấy code mới từ origin/$BRANCH"
 OLD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
 git fetch --prune --quiet origin "$BRANCH"
 TARGET_SHA="$(git rev-parse "origin/$BRANCH")"
+LAST_DEPLOYED="$(last_deployed_sha)"
 log "Commit hiện tại : ${OLD_SHA:-<chưa có>}"
 log "Commit đích    : $TARGET_SHA ($(git log -1 --format=%s "$TARGET_SHA" | cut -c1-80))"
+log "Đã deploy lần cuối: ${LAST_DEPLOYED:-<chưa từng deploy bằng script này>}"
 
 SKIP_CODE=0
 CURRENT_BRANCH="$(git symbolic-ref --quiet --short HEAD || true)"   # rỗng = đang detached (sau rollback)
 if [[ -n "$OLD_SHA" && "$OLD_SHA" == "$TARGET_SHA" && "$FORCE" == 0 && "$CURRENT_BRANCH" == "$BRANCH" ]]; then
     SKIP_CODE=1
-    ok "Không có commit mới — bỏ qua cập nhật code, chỉ kiểm tra dịch vụ."
+    if [[ "$LAST_DEPLOYED" == "$TARGET_SHA" ]]; then
+        ok "Không có commit mới và commit này đã deploy thành công — chỉ kiểm tra dịch vụ."
+    else
+        ok "Code trên server đã là ${TARGET_SHA:0:8} nhưng CHƯA deploy bằng script này (kéo code tay / lần chạy đầu)."
+        info "→ Sẽ chạy các bước cần thiết để máy thực sự chạy đúng commit này."
+    fi
     if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
         warn "Vẫn còn thay đổi cục bộ trên server — sẽ sao lưu & dọn ở lần có commit mới (hoặc chạy --force để xử lý ngay)."
     fi
@@ -292,16 +305,28 @@ elif [[ "$DRY_RUN" == 1 ]]; then
 fi
 
 # ── 2. Phát hiện file thay đổi để chỉ chạy bước cần thiết ─────────────────────
+# Mốc so sánh là commit ĐÃ DEPLOY THÀNH CÔNG (logs/deploy-state: current), KHÔNG phải HEAD:
+# code có thể đã về máy bằng `git pull` tay (hoặc lần chạy script cũ) mà chưa hề được
+# build & reload — so với HEAD sẽ tưởng "không có gì đổi" rồi bỏ qua, để lại service chạy code cũ.
 step "2/8 Xác định bước cần chạy"
 CHANGED=""
 ALL_CHANGED=0
-if [[ -z "$OLD_SHA" ]]; then
-    ALL_CHANGED=1                     # deploy lần đầu trên máy này
-elif [[ "$OLD_SHA" != "$TARGET_SHA" ]]; then
-    CHANGED="$(git diff --name-only "$OLD_SHA" "$TARGET_SHA")"
-fi
 if [[ "$FORCE" == 1 ]]; then
     ALL_CHANGED=1
+elif [[ -z "$LAST_DEPLOYED" ]]; then
+    ALL_CHANGED=1                     # chưa từng deploy thành công bằng script này → chạy đủ bước
+    info "Chưa có mốc deploy thành công trước đó — chạy đủ bước cho chắc."
+elif ! git cat-file -e "${LAST_DEPLOYED}^{commit}" 2>/dev/null; then
+    ALL_CHANGED=1                     # mốc cũ không còn trong repo (force-push) → chạy đủ bước
+    info "Mốc deploy cũ (${LAST_DEPLOYED:0:8}) không còn trong repo — chạy đủ bước."
+elif [[ "$LAST_DEPLOYED" != "$TARGET_SHA" ]]; then
+    if git merge-base --is-ancestor "$LAST_DEPLOYED" "$TARGET_SHA" 2>/dev/null; then
+        CHANGED="$(git diff --name-only "$LAST_DEPLOYED" "$TARGET_SHA")"
+        info "Thay đổi kể từ lần deploy thành công ${LAST_DEPLOYED:0:8}: $(printf '%s\n' "$CHANGED" | grep -c . ) file."
+    else
+        ALL_CHANGED=1                 # lịch sử rẽ nhánh (rollback/force-push) → chạy đủ bước
+        info "Mốc deploy cũ không phải tổ tiên của commit đích — chạy đủ bước."
+    fi
 fi
 
 has() { [[ "$ALL_CHANGED" == 1 ]] && return 0; grep -qE "$1" <<<"$CHANGED"; }
@@ -328,8 +353,20 @@ if [[ "$RUN_INSTALL" == 1 ]]; then
         need_npm=1
     fi
 fi
-if [[ "$RUN_BUILD" == 1 && ( "$FRONTEND_CHANGED" == 1 || ! -f frontend/apps/internal/dist/index.html ) ]]; then
-    need_build=1
+DIST_INDEX="frontend/apps/internal/dist/index.html"
+if [[ "$RUN_BUILD" == 1 ]]; then
+    if [[ "$FRONTEND_CHANGED" == 1 || ! -f "$DIST_INDEX" ]]; then
+        need_build=1
+    else
+        # Lưới an toàn: code về máy bằng đường khác (git pull tay) thì bản build hiện có đã cũ,
+        # dù commit không đổi so với lần chạy trước. So mtime nguồn với dist.
+        NEWER_SRC="$(find frontend/apps frontend/packages -type f \( -path '*/src/*' -o -name '*.css' \) \
+            -not -path '*/node_modules/*' -not -path '*/dist/*' -newer "$DIST_INDEX" -print -quit 2>/dev/null || true)"
+        if [[ -n "$NEWER_SRC" ]]; then
+            need_build=1
+            info "Mã nguồn frontend mới hơn bản build hiện có (vd: $NEWER_SRC) — build lại."
+        fi
+    fi
 fi
 
 log "Thay đổi: requirements=$REQ_CHANGED lockfile=$LOCK_CHANGED frontend=$FRONTEND_CHANGED backend=$BACKEND_CHANGED nginx=$NGINX_CHANGED"
@@ -360,6 +397,20 @@ install_npm() {
     ( cd frontend && npm ci --no-audit --no-fund --prefer-offline )
     frontend_hash > "$STAMP_DIR/package-lock.sha256"
     ok "Node deps xong"
+}
+
+# Thời điểm pm2 khởi động tiến trình (ms) — để biết service có đang chạy code mới hay không.
+pm2_uptime_ms() {
+    command -v node >/dev/null 2>&1 || return 0
+    pm2 jlist 2>/dev/null | node -e '
+let s = "";
+process.stdin.on("data", (d) => { s += d; })
+  .on("end", () => {
+    try {
+      const app = JSON.parse(s).find((a) => a.name === "p096-backend");
+      if (app && app.pm2_env && app.pm2_env.pm_uptime) process.stdout.write(String(app.pm2_env.pm_uptime));
+    } catch (_) { /* pm2 trả về không phải JSON → bỏ qua kiểm tra */ }
+  });' 2>/dev/null || true
 }
 
 PIDS=()
@@ -407,6 +458,24 @@ if [[ "$RUN_PM2" == 0 ]]; then
 elif ! command -v pm2 >/dev/null 2>&1; then
     warn "Máy không có pm2 — bỏ qua (dev box? dùng --no-pm2 cho gọn log)."
 elif pm2 describe p096-backend >/dev/null 2>&1; then
+    if [[ "$PM2_NEEDED" == 0 ]]; then
+        # Lưới an toàn: tiến trình khởi động TRƯỚC mã nguồn đang nằm trên đĩa → chưa nạp code mới.
+        # Dùng mtime file (thời điểm checkout/pull) chứ không dùng mốc thời gian commit, để tránh
+        # trường hợp commit mang ngày tương lai (đồng hồ máy khác lệch) gây reload vô ích mỗi lần.
+        NEWEST_SRC_TS="$(find src -type f -name '*.py' -not -path '*/__pycache__/*' -printf '%T@\n' 2>/dev/null \
+            | sort -rn | head -1 | cut -d. -f1 || true)"
+        for extra in requirements.txt run.py; do
+            if [[ -f "$extra" ]]; then
+                extra_ts="$(stat -c %Y "$extra" 2>/dev/null || echo 0)"
+                if [[ -n "$NEWEST_SRC_TS" ]] && (( extra_ts > NEWEST_SRC_TS )); then NEWEST_SRC_TS="$extra_ts"; fi
+            fi
+        done
+        PM2_START_MS="$(pm2_uptime_ms)"
+        if [[ -n "$PM2_START_MS" && -n "$NEWEST_SRC_TS" ]] && (( PM2_START_MS / 1000 < NEWEST_SRC_TS )); then
+            PM2_NEEDED=1
+            info "Mã nguồn backend mới hơn tiến trình đang chạy — reload để nạp code mới."
+        fi
+    fi
     if [[ "$PM2_NEEDED" == 1 ]]; then
         [[ -x .venv/bin/python ]] || { fail "Thiếu .venv/bin/python — pm2 không chạy được. Chạy: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"; die 1; }
         CAN_ROLLBACK=1
@@ -519,6 +588,11 @@ if [[ "$KEEP_LOCAL" == 1 ]] && git stash list | grep -q "p096-deploy-$DEPLOY_TS"
     else
         warn "Stash pop bị xung đột — thay đổi vẫn nằm trong: git stash list (p096-deploy-$DEPLOY_TS)"
     fi
+fi
+
+if [[ "$SKIP_CODE" == 1 && "$need_pip" == 0 && "$need_npm" == 0 && "$need_build" == 0 && "$PM2_NEEDED" == 0 ]]; then
+    info "Không có bước nào cần chạy (code, deps, build, pm2 đều đã đúng commit này)."
+    info "Nếu bạn vừa tự kéo code bằng tay và nghi build/reload chưa chạy: git up --force"
 fi
 
 log ""
