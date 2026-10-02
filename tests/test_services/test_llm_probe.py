@@ -148,8 +148,7 @@ async def test_chan_ca_hai_kieu_client_thi_phai_noi_dung_viec_can_lam(provider_s
     # Có IP để gửi cho nhà cung cấp allowlist (không bắt Admin tự đi tra).
     assert "203.0.113.9" in result.detail
     assert "allowlist" in result.detail
-    # Có nêu phương án thay thế khả thi: relay do chính mình kiểm soát (mẫu Vercel trong repo).
-    assert "deploy/vercel-relay" in result.detail
+    assert "proxy" in result.detail
     # Bằng chứng để Admin gửi thẳng cho nhà cung cấp: họ luôn hỏi mã cf-ray.
     assert "cf-ray" in result.detail and "8f3c1a2b9d6e4f11-SIN" in result.detail
     assert "cf-mitigated=challenge" in result.detail

@@ -923,23 +923,15 @@ head -c 200 /tmp/cf.txt; echo
   (dùng client mang vân tay khác, ví dụ lớp impersonate kiểu trình duyệt) — cần một đợt riêng vì phải thêm phụ thuộc.
 * `HTTP 403` + HTML `Just a moment` ⇒ **chặn theo IP (#2)** ⇒ đường sửa nằm ở hạ tầng (allowlist/relay).
 
-**Đã chuẩn bị sẵn: relay trên chính Vercel của bạn** — `deploy/vercel-relay/README.md` + file
-`app/api/llm-relay/[...path]/route.ts`. Vì ứng dụng Vercel của bạn đã chứng minh là gọi được, relay dùng chính
-hạ tầng đó làm đường đi cho máy chủ PricePolicy:
-
-* Base URL trong màn hình quản trị = `https://<app>.vercel.app/api/llm-relay/<TOKEN>/v1` (token nằm trong URL vì
-  backend chưa hỗ trợ header riêng cho từng nhà cung cấp — xem mục 2 ở §10).
-* Host đích **ghim cứng** bằng `LLM_RELAY_UPSTREAM` (không thành proxy mở), có token chặn lạm dụng, **không lưu khoá API**.
-* Giới hạn phải biết: chỉ có tác dụng nếu Vercel gọi nhà cung cấp **từ server** (nếu app đang gọi từ trình duyệt thì
-  relay serverless có thể vẫn bị chặn); thêm ~50–200 ms mỗi lượt; hàm Vercel Hobby bị cắt sau ~10 giây.
-* Trong README có sẵn lệnh `curl` để kiểm tra relay trước khi khai báo vào hệ thống, và tiêu chí để bỏ relay khi
-  nhà cung cấp allowlist IP xong (đổi lại Base URL, không cần deploy).
+**Phương án (chỉ để thảo luận — CHƯA triển khai):** một relay đặt ở hạ tầng không bị Cloudflare chặn
+(ví dụ chính hạ tầng Vercel của bạn, nếu nó gọi nhà cung cấp **từ server**) sẽ là đường đi hợp lệ cho máy chủ.
+Nguyên tắc nếu làm: ghim cứng host đích (không thành proxy mở), có token chặn lạm dụng, **không lưu khoá API**,
+và luôn có đường quay lại Base URL gốc khi nhà cung cấp allowlist IP xong. Đây là **đề xuất**, sẽ chỉ được
+triển khai khi có yêu cầu cụ thể.
 
 **Cảnh báo bảo mật (nên kiểm tra ngay):** nếu ứng dụng Vercel đang gọi nhà cung cấp **từ trình duyệt**, khoá API
 nằm trong mã phía client ⇒ **bất kỳ ai mở DevTools cũng lấy được khoá**, dùng hết hạn mức của bạn. Việc cần làm:
 kiểm tra như ở bảng trên; nếu đúng thì **đổi khoá mới** và chuyển lời gọi về phía server (route/serverless của Vercel).
-
-**Câu chẩn đoán trong ứng dụng đã cập nhật** để nêu đúng phương án này khi bị chặn theo IP, kèm đường dẫn tới mẫu relay.
 
 ---
 
@@ -975,3 +967,8 @@ kiểm tra như ở bảng trên; nếu đúng thì **đổi khoá mới** và c
     chuyển tiếp đã được chứng minh bằng test gọi thật (§14.6), nhưng một nút "Test cả chuỗi" trong màn hình
     quản trị sẽ giúp Admin tự tin trước khi sự cố thật xảy ra — nên làm cùng lúc với việc hiển thị số lần
     phải chuyển tiếp lên tab Chi phí & hiệu năng.
+
+**Nguyên tắc làm việc (người dùng yêu cầu, ghi lại để không lặp lại):** câu hỏi của người dùng để **tìm hiểu vấn đề**
+thì phần trả lời dừng ở **thảo luận – phản biện – đề xuất giải pháp**; **không tự triển khai** tính năng/code mới
+cho tới khi có yêu cầu cụ thể. Bản relay Vercel viết ở lượt trước đã được **gỡ khỏi repo** theo yêu cầu này; ở đây
+chỉ còn phần phân tích nguyên nhân và các phương án để thảo luận.
