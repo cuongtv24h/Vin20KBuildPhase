@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from src.agents.copilot import intents
+from src.agents.copilot import grounding, intents
 
 # Liên từ tách mệnh đề. Giữ "và" ở mức thận trọng: chỉ tách khi hai vế đều có động từ nghiệp vụ,
 # tránh cắt vụn câu như "giá và chính sách" thành 2 bước vô nghĩa.
@@ -85,6 +85,38 @@ def _tool_for(intent: str, args: dict) -> str | None:
     return None
 
 
+#: Mẫu bóc CHỦ ĐỀ của tin nhắn: phần sau "về / liên quan / nói về" là nội dung Sale muốn nhắc khách.
+_COMPOSE_TOPIC_RE = re.compile(
+    r"(?:về|về việc|liên quan (?:tới|đến)|nói về|xung quanh)\s+(?P<topic>.+)$",
+    re.IGNORECASE,
+)
+#: Đuôi câu mệnh lệnh/lịch sự không thuộc chủ đề.
+_COMPOSE_TOPIC_TRIM_RE = re.compile(
+    r"\s*(?:giúp (?:em|mình|anh|chị)|cho (?:em|mình|anh|chị)|nhé|giùm em|ạ|với ạ)\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+#: Trần độ dài chủ đề — dài hơn là câu mệnh lệnh, không phải chủ đề.
+_COMPOSE_TOPIC_MAX_CHARS = 60
+
+
+def _compose_topic(clause: str) -> str:
+    """Bóc chủ đề tin nhắn khỏi câu mệnh lệnh của Sale ('' nếu không rõ).
+
+    Ví dụ: "Viết tin nhắn Zalo gửi khách về chiết khấu thanh toán sớm" → "chiết khấu thanh toán sớm".
+    Thà để trống còn hơn nhét nguyên câu mệnh lệnh vào tin gửi khách.
+    """
+    match = _COMPOSE_TOPIC_RE.search(str(clause or ""))
+    if not match:
+        return ""
+    topic = _COMPOSE_TOPIC_TRIM_RE.sub("", match.group("topic").strip()).strip(" .,;:")
+    if not topic or len(topic) > _COMPOSE_TOPIC_MAX_CHARS:
+        return ""
+    # Đại từ chỉ định ("căn này", "việc đó") không phải chủ đề — chúng trỏ vào ngữ cảnh hội thoại.
+    if grounding.normalize(topic) in {"can nay", "can do", "viec nay", "viec do", "no", "cai nay", "cai do"}:
+        return ""
+    return topic
+
+
 def _args_for(intent: str, clause: str, entity: dict) -> dict:
     tx_date = str(entity.get("transaction_date") or "")
     unit = str(entity.get("unit_code") or entity.get("current_unit") or "ZEN-A-1205")
@@ -111,7 +143,13 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
             "ngay_giao_dich": tx_date,
         }
     if intent == intents.INTENT_COMPOSE_MESSAGE:
-        return {"ma_can": unit, "ten_khach": entity.get("customer_name") or "", "noi_dung_chinh": ""}
+        return {
+            "ma_can": unit,
+            "ten_khach": entity.get("customer_name") or "",
+            # Chủ đề Sale muốn nhắc trong tin (nếu bóc được) để bản nháp nói ĐÚNG việc Sale yêu cầu
+            # thay vì một tin chung chung — xem `_compose_topic`.
+            "noi_dung_chinh": _compose_topic(clause),
+        }
     if intent == intents.INTENT_LOOKUP_CUSTOMER:
         return {"tu_khoa": entity.get("customer_name") or clause}
     if intent == intents.INTENT_CHECK_F8:

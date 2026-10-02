@@ -171,6 +171,11 @@ def score(question: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     max_questions = question.get("max_questions")
     questions_ok = max_questions is None or reply.count("?") <= int(max_questions)
 
+    # `notes_contain`: nội dung phải xuất hiện ở **banner ghi chú nội bộ** (không phải trong thân văn bản).
+    # Dùng cho luật P2.4/K2: thân tin gửi khách phải SẠCH, còn kết luận kiểm duyệt vẫn phải tới tay Sale.
+    notes_text = str(result.get("internal_notes") or "")
+    missing_notes = [t for t in question.get("notes_contain") or [] if t.lower() not in notes_text.lower()]
+
     # Vệ sinh hình thức — luật đã chốt, áp cho MỌI câu (không cần khai báo trong đề):
     #  1. không lộ định danh nội bộ kiểu `gia_toi_da_vnd` (P2.5);
     #  2. bảng phải nằm riêng dòng, không dính câu văn (P1.5b);
@@ -192,6 +197,7 @@ def score(question: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         "segment_ok": segment_ok,
         "notes_ok": notes_ok,
         "forbidden_hits": forbidden_hits,
+        "missing_notes": missing_notes,
         "table_ok": table_ok,
         "questions_ok": questions_ok,
         "hygiene": hygiene,
@@ -229,6 +235,10 @@ def summarize(results: list[dict[str, Any]], scored: list[dict[str, Any]]) -> di
             content_violations.append({"id": qid, "kind": "expect_table", "detail": "thiếu bảng markdown"})
         if not s["questions_ok"]:
             content_violations.append({"id": qid, "kind": "max_questions", "detail": "hỏi lại quá nhiều câu"})
+        for term in s.get("missing_notes") or []:
+            content_violations.append(
+                {"id": qid, "kind": "notes_contain", "detail": f"banner nội bộ thiếu: {term}"}
+            )
         for issue in s["hygiene"]:
             content_violations.append({"id": qid, "kind": "hygiene", "detail": issue})
 
@@ -304,6 +314,8 @@ def print_report(results: list[dict[str, Any]], scored: list[dict[str, Any]], re
             note += f" | hình thức: {s['hygiene']}"
         if not s.get("table_ok", True):
             note += " | thiếu bảng"
+        if s.get("missing_notes"):
+            note += f" | thiếu ở banner nội bộ: {s['missing_notes']}"
         if s.get("known_gap"):
             note += " | [lỗ hổng đã biết]"
 

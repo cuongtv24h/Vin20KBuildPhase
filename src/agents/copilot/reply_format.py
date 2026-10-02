@@ -287,7 +287,100 @@ def strip_internal_names(text: str) -> tuple[str, list[str]]:
     return cleaned, found
 
 
+# ─── 4. Che phần trích dẫn khi quét rò rỉ ──────────────────────────────────────────
+
+#: Các cặp ngoặc kép thường gặp (nháy đơn cũng dùng vì tool in `'câu bị chặn'`).
+_QUOTED_SPAN_RE = re.compile(r"['\"“”‘’«»]([^'\"“”‘’«»]{4,300})['\"“”‘’«»]")
+
+
+def _normalize_claim(text: str) -> str:
+    lowered = text.lower().replace("\u2019", "'")
+    return re.sub(r"\s+", " ", lowered).strip(" .,;:'\"“”‘’")
+
+
+def mask_quoted_claims(text: str, claims: list[str]) -> tuple[str, int]:
+    """Thay các đoạn **trích dẫn lại câu đang bị kiểm duyệt** bằng một ký hiệu an toàn.
+
+    Vì sao cần: khi Sale nhờ kiểm một phát ngôn rủi ro ("cam kết sinh lời 20% mỗi năm"), kết luận kiểm
+    duyệt **buộc phải trích lại** đúng câu đó để nói rõ chỗ sai. Nếu đem quét rò rỉ cả câu trả lời thì
+    chính phần trích dẫn hợp lệ này kích hoạt luật cấm "cam kết sinh lời" ⇒ bộ chặn nuốt mất kết luận,
+    và Sale không nhận được cảnh báo ở đúng ca quan trọng nhất.
+
+    Nguyên tắc an toàn: **chỉ** che đoạn nằm trong ngoặc kép và **khớp với văn bản đã được kiểm duyệt**
+    (do tool cung cấp). Câu do model tự viết, kể cả khi na ná, vẫn bị quét bình thường — không nới lỏng.
+
+    Trả về `(văn bản đã che, số đoạn đã che)`.
+    """
+    if not text or not claims:
+        return text, 0
+    wanted = [_normalize_claim(c) for c in claims if c and c.strip()]
+    if not wanted:
+        return text, 0
+
+    masked = 0
+
+    def _replace(match: re.Match[str]) -> str:
+        nonlocal masked
+        inner = _normalize_claim(match.group(1))
+        if not inner:
+            return match.group(0)
+        for claim in wanted:
+            if len(inner) >= 6 and (inner in claim or claim in inner):
+                masked += 1
+                return "[nội dung đang được kiểm duyệt]"
+        return match.group(0)
+
+    return _QUOTED_SPAN_RE.sub(_replace, text), masked
+
+
+#: Độ dài tối thiểu của một dòng **do engine viết** để được miễn theo kiểu trùng nguyên văn.
+REVIEW_TEXT_MIN_CHARS = 12
+
+
+def mask_review_text(
+    text: str,
+    *,
+    engine_texts: list[str] | None = None,
+    reviewed_texts: list[str] | None = None,
+) -> tuple[str, int]:
+    """Che phần **do hệ thống kiểm duyệt sinh ra** trước khi quét rò rỉ đầu ra.
+
+    Phải tách đúng hai loại văn bản, vì mức độ tin cậy khác nhau:
+
+    * `engine_texts` — câu chữ do **engine tất định** viết (dòng kết luận, lý do, mã luật). Đây là văn
+      bản của hệ thống, hiển thị nguyên văn cho Sale là đúng ⇒ miễn theo kiểu **trùng nguyên văn**
+      (≥ 12 ký tự). Không có đường nào để model lợi dụng: câu model tự viết không trùng nguyên văn.
+    * `reviewed_texts` — **nội dung đang bị kiểm duyệt** (câu Sale nhờ kiểm, câu bị gắn cờ). Đây là văn
+      bản có thể chứa cụm từ nguy hiểm, nên **chỉ** được miễn khi nằm trong **ngoặc kép** và khớp với
+      chính văn bản đó — tức là đang được *trích dẫn để nói rõ chỗ sai*.
+
+    Nhờ vậy: kết luận F8 hiển thị được đầy đủ (cả phần trích dẫn lẫn lời giải thích), mà một câu cam kết
+    trái luật do model tự viết — dù có bọc ngoặc kép — vẫn bị chặn như cũ.
+    """
+    if not text:
+        return text, 0
+
+    masked_text = text
+    masked_count = 0
+
+    lines = sorted(
+        {s.strip() for s in (engine_texts or []) if s and len(s.strip()) >= REVIEW_TEXT_MIN_CHARS},
+        key=len,
+        reverse=True,
+    )
+    for line in lines:
+        if line in masked_text:
+            masked_count += masked_text.count(line)
+            masked_text = masked_text.replace(line, "[nội dung đang được kiểm duyệt]")
+
+    masked_text, quoted_count = mask_quoted_claims(masked_text, list(reviewed_texts or []))
+    return masked_text, masked_count + quoted_count
+
+
 __all__ = [
+    "REVIEW_TEXT_MIN_CHARS",
+    "mask_quoted_claims",
+    "mask_review_text",
     "normalize_markdown",
     "strip_internal_names",
 ]

@@ -261,7 +261,26 @@ def _finalize(
     if action_type == intents.INTENT_CREATE_CUSTOMER and isinstance(action_data, dict):
         action_data["customer_name"] = _sanitize_customer_name(action_data.get("customer_name", ""))
 
-    leak = scan_output_leakage(text)
+    # Kết luận kiểm duyệt **buộc phải trích lại** câu đang bị kiểm để Sale biết sai ở đâu — nếu quét
+    # rò rỉ cả phần trích dẫn đó thì bộ chặn sẽ nuốt mất kết luận F8 (lỗi thật gặp ở đợt 15). Chỉ che
+    # phần nằm trong ngoặc kép và khớp ĐÚNG văn bản đã được tool kiểm duyệt; phần model tự viết vẫn bị quét.
+    engine_texts: list[str] = []
+    reviewed_texts: list[str] = []
+    for obs in observations:
+        if obs.get("tool") != "kiem_tra_phat_ngon_f8":
+            continue
+        # Câu chữ của engine (kết luận, lý do, mã luật): được hiển thị nguyên văn.
+        engine_texts.extend(str(obs.get("summary") or "").splitlines())
+        # Nội dung đang bị kiểm duyệt: chỉ miễn khi được TRÍCH DẪN trong ngoặc kép.
+        reviewed_texts.append(str(obs.get("checked_content") or ""))
+        reviewed_texts.extend(str(c) for c in (obs.get("flagged_claims") or []))
+    scan_text, masked = reply_format.mask_review_text(
+        text, engine_texts=engine_texts, reviewed_texts=reviewed_texts
+    )
+    if masked:
+        logger.info("Miễn %d đoạn trích dẫn đã kiểm duyệt khi quét rò rỉ đầu ra.", masked)
+
+    leak = scan_output_leakage(scan_text)
     if not leak.is_safe:
         logger.warning("Chặn rò rỉ ở output Copilot: %s", leak.detected_patterns)
         text = (
@@ -283,7 +302,15 @@ def _finalize(
         and not obs.get("error_code")
         for obs in observations
     )
-    grounded = bool(citations) or lookup_ok or intent.intent in (intents.INTENT_SMALL_TALK,)
+    #  4. Tool tất định tự khai báo đầu ra của nó là dữ liệu hệ thống (kết luận kiểm duyệt F8, bản nháp
+    #     dựng từ catalog) — `grounded: true` trong payload, tránh gắn nhãn "chưa đối chiếu" oan.
+    deterministic_ok = any(obs.get("grounded") is True for obs in observations)
+    grounded = (
+        bool(citations)
+        or lookup_ok
+        or deterministic_ok
+        or intent.intent in (intents.INTENT_SMALL_TALK,)
+    )
 
     # Prompt đã dặn không nhắc lệnh gạch chéo, nhưng model vẫn có thể nhắc — chặn ở output.
     text = commands.strip_command_mentions(text)
@@ -305,6 +332,10 @@ def _finalize(
     # `internal_notes`, UI hiển thị ở banner riêng. Nhờ vậy Sale bấm "Copy cho khách" là ra văn bản
     # gửi được ngay, không dính câu quy trình nội bộ.
     notes: list[str] = []
+    for obs in observations:
+        tool_note = str(obs.get("internal_notes") or "").strip()
+        if tool_note:
+            notes.append(tool_note)
     if not check.verified:
         logger.warning("Verifier phát hiện số liệu không có nguồn: %s", check.unsupported)
         notes.append(

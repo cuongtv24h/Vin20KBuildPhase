@@ -1140,16 +1140,60 @@ không."*
 4. **[Thấp]** Lớp tất định chỉ hiểu 50/57 câu (7 câu cần LLM: bóc tên dự án, hỏi theo mã căn, thời hạn ưu
    đãi, đại từ "căn này"); chip "mở rộng phân khúc" giữ nguyên trần giá cũ nên lại ra kết quả rỗng.
 
+### 16.5d Sửa hai lỗi nặng nhất do bộ kịch bản phát hiện + phân tích lỗi time-travel
+
+**Lỗi 1 — kết luận kiểm duyệt F8 bị bộ chặn rò rỉ nuốt mất.** Kết luận buộc phải trích lại câu bị chặn
+("cam kết sinh lời 20%"), mà luật cấm `ILLEGAL_COMMITMENT_VI` khớp chính phần trích dẫn ⇒ toàn bộ câu trả
+lời bị thay bằng câu từ chối chung ⇒ **đúng ca quan trọng nhất, Sale không nhận được cảnh báo**.
+
+*Cách sửa* (`reply_format.mask_review_text` + `graph._finalize`), tách đúng hai loại văn bản:
+- `engine_texts` — câu chữ **do engine kiểm duyệt viết** (kết luận, lý do, mã luật): miễn theo kiểu trùng
+  nguyên văn (≥ 12 ký tự). Engine viết thì hiển thị nguyên văn là đúng, và model không thể lợi dụng vì câu
+  nó tự viết không trùng nguyên văn.
+- `reviewed_texts` — **nội dung đang bị kiểm** (câu Sale nhờ kiểm, câu bị gắn cờ): **chỉ** miễn khi nằm
+  trong ngoặc kép và khớp đúng văn bản đó (tức là đang được trích dẫn để chỉ chỗ sai).
+- Test khoá **cả hai chiều**: cam kết trái luật do model tự viết (kể cả bọc ngoặc kép) và rò rỉ API key
+  vẫn bị chặn như cũ; biến thể khó hơn (lời giải thích của engine cũng chứa cụm bị cấm) cũng không làm mất
+  kết luận. Kèm theo: F8 khai báo `grounded: true` (đầu ra tất định) nên không còn ghi chú "chưa đối chiếu"
+  gây nhiễu — nằm trong nhóm sửa của lỗi này.
+
+**Lỗi 2 — bản nháp gửi khách trộn nhãn kiểm duyệt nội bộ** (`Bản nháp (SUPPORTED)`, `F8: ALLOW_SEND`) ⇒
+bấm "Copy cho khách" là khách nhận luôn mã nội bộ, vi phạm chốt P2.4/K2.
+
+*Cách sửa*: `soan_tin_tu_van` trả `summary` = **thân tin** (văn bản gửi khách) và `internal_notes` =
+kết luận kiểm duyệt dạng **tiếng Việt**; `_finalize` gom `internal_notes` do tool khai báo vào banner nội
+bộ. Bộ chấm có thêm tiêu chí `notes_contain` để kiểm **cả hai chiều**: thân tin CẤM chứa mã nội bộ, banner
+nội bộ BẮT BUỘC có kết luận kiểm duyệt. Thêm `planner._compose_topic` bóc chủ đề Sale yêu cầu ("về chiết
+khấu thanh toán sớm") để bản nháp nói đúng việc, và không nhét câu mệnh lệnh vào tin gửi khách.
+
+**Kết quả:** hai câu chuyển từ nhãn "lỗ hổng đã biết" sang **tiêu chí kiểm thật** và đang ĐẠT; bộ kịch
+bản còn 5 câu ghi nhận lỗ hổng (AT-03, AT-04, AT-05, CS-07, CS-08, RONG-04). `pytest` **633 passed**.
+
+**Lỗi time-travel chính sách — phân tích để chốt (chưa sửa).** Ba vấn đề tách biệt:
+
+| | Vấn đề | Bằng chứng |
+|---|---|---|
+| a | **Dữ liệu thiếu**: chỉ có `CSBH-ZEN-2026-V3.1` (01/08→31/12/2026) và `CSBH-SAPPHIRE-2026-V1.0` (01/01→31/12/2026). Ngày 15/07/2026 **không bản nào** của The Zen Park hiệu lực ⇒ kỳ vọng `V2.0` của `POL-04` không thể đạt | bảng `POLICIES_DATA` |
+| b | **Code rơi về ứng viên đầu tiên**: `resolve_active_policy` khi không có bản nào phủ ngày vẫn trả về chính sách đầu tiên của dự án, câu trả lời vẫn ghi "đang hiệu lực tại <ngày>" | chạy thật CS-08: tiêu đề "(VLandFuture Sapphire)" nhưng nội dung trích `CSBH-ZEN-2026-V3.1` |
+| c | **Tên dự án không được truyền xuống tool**: `_args_for(LOOKUP_POLICY)` chỉ truyền câu hỏi + ngày ⇒ tool trộn hai dự án | `planner._args_for` |
+
+Hệ quả nghiệp vụ: **Sale có thể trích sai văn bản chính sách cho giao dịch tháng 7**. Ba lựa chọn A (chỉ
+sửa kỳ vọng), B (sửa code cho trung thực + bóc tên dự án — đề xuất làm trước), C (B + thêm dữ liệu lịch sử
+`CSBH-ZEN-2026-V2.0` để demo đúng năng lực time-travel) được trình bày kèm đánh giá được/mất trong
+`docs/team_report/copilot_sale_scenarios.md` §5.2, chờ người dùng chốt.
+
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
-- `pytest -q` → **615 passed** (572 → 615; thêm 4 file test: `test_copilot_anchors.py` 12 ca,
-  `test_copilot_inventory_funnel.py` 15 ca, `test_copilot_reply_format.py` 14 ca, +2 ca trong
-  `test_copilot_answer_clarity.py`).
+- `pytest -q` → **633 passed** (572 → 633; thêm 5 file test: `test_copilot_anchors.py` 12 ca,
+  `test_copilot_inventory_funnel.py` 15 ca, `test_copilot_reply_format.py` 14 ca,
+  `test_copilot_f8_and_draft.py` 13 ca, +2 ca trong `test_copilot_answer_clarity.py`).
 - `ruff check src/ tests/ scripts/` → sạch. `npm run lint` → **126 cảnh báo, 0 lỗi**.
 - Frontend: `npm test` → api-client **14**, ui **12**, mock-server **39** (65 tổng); `tsc -b apps/internal` 0 lỗi;
   build nội bộ OK.
 - `scripts/run_copilot_eval.py` (34 câu vàng): tool **100%** · citation **100%** · **bịa 0.0%** ·
   **cổng phân khúc ĐẠT**.
+- Bộ kịch bản Sale (58 câu, 7 câu chỉ chạy ở chế độ LLM): 46/51 câu tính điểm — tool **100%** ·
+  citation **100%** · bịa **0.0%** · cổng phân khúc **ĐẠT** · cổng nội dung/hình thức **ĐẠT**.
 - Ví dụ chạy thật: câu "2 tỷ là vốn tự có thì có mua được căn 3 ngủ không?" → 3 mỏ neo
   (`31.8%`, `2.171.600.000 ₫`, `6.832.000.000 ₫`), nhãn ngân sách đúng, **không** còn ghi chú nội bộ.
 

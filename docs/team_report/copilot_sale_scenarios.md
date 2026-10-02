@@ -5,10 +5,10 @@
 
 | | |
 |---|---|
-| File máy chạy được | `eval/copilot/sale_scenarios.json` (57 kịch bản, 12 nhóm) |
-| Bộ chấm | `scripts/run_copilot_eval.py` — nay chấm thêm: `must_not_contain`, `expect_table`, `max_questions`, vệ sinh hình thức |
+| File máy chạy được | `eval/copilot/sale_scenarios.json` (58 kịch bản, 12 nhóm) |
+| Bộ chấm | `scripts/run_copilot_eval.py` — chấm thêm: `must_not_contain`, `expect_table`, `max_questions`, `notes_contain`, vệ sinh hình thức |
 | Báo cáo | `eval/results/sale_scenarios_report.json` |
-| Cổng tự động | `tests/test_agents/copilot/test_copilot_eval.py` (4 test: phủ nhóm/tool, chạy đạt cổng, báo cáo lỗ hổng, kiểm bộ chấm) |
+| Cổng tự động | `tests/test_agents/copilot/test_copilot_eval.py` (5 test: phủ nhóm/tool, chạy đạt cổng, báo cáo lỗ hổng, kiểm bộ chấm) |
 
 ## 1. Chạy thế nào
 
@@ -27,11 +27,9 @@
 
 - `--strict`: coi **thiếu nội dung bắt buộc** (`must_contain`) là lỗi. Nên bật khi chạy `--mode llm` trên VM.
 - Không có cờ nào: cổng **nội dung/hình thức** (CẤM xuất hiện, thiếu bảng, hỏi dồn, lộ tên nội bộ,
-  bảng dính câu văn) vẫn chạy và **chặn CI mặc định** — đây đều là lỗi đã từng xảy ra thật.
-- Câu có nhãn `chỉ LLM` bị **bỏ qua khi chạy offline** và được liệt kê riêng trong báo cáo, để không ai
-  tưởng nhầm là đã kiểm.
-- Câu có nhãn `lỗ hổng` **vẫn chạy, vẫn báo cáo**, nhưng không tính vào mẫu số điểm — bộ chấm phải phản
-  ánh đúng phần hệ thống đang làm được.
+  bảng dính câu văn, thiếu kết luận kiểm duyệt ở banner nội bộ) vẫn chạy và **chặn CI mặc định**.
+- Câu có nhãn `chỉ LLM` bị **bỏ qua khi chạy offline** và được liệt kê riêng trong báo cáo.
+- Câu có nhãn `lỗ hổng` **vẫn chạy, vẫn báo cáo**, nhưng không tính vào mẫu số điểm.
 
 ## 2. Bảng kịch bản theo nhóm việc của Sale
 
@@ -90,22 +88,23 @@
 | CS-04 · chỉ LLM | Hỗ trợ lãi suất 0% kéo dài bao lâu? | một trong: `tra_cuu_chinh_sach` · phải có: `24` | **(chỉ chạy ở chế độ LLM)** Hỏi thời hạn ưu đãi ('kéo dài bao lâu') không có từ khoá chính sách nào — cần LLM. Tối đa 24 tháng hoặc đến khi nhận bàn giao — phải nêu đúng con số, không 'khoảng 2 năm'. |
 | CS-05 | Gói quà tặng nội thất 200 triệu áp dụng thế nào? | một trong: `tra_cuu_chinh_sach` · phải có: `200` | Quà tặng hiện vật — không được quy đổi thành tiền mặt hay chiết khấu (sai lệch nghiệp vụ). |
 | CS-06 | Chính sách bên VLandFuture Sapphire quy định gì? | một trong: `tra_cuu_chinh_sach` · phải có: `SAPPHIRE` | Hai dự án hai chính sách khác nhau: câu hỏi Sapphire KHÔNG được trả lời bằng điều khoản The Zen Park. |
-| CS-07 · lỗ hổng, chỉ LLM | Ngày 15/07/2026 thì chính sách nào có hiệu lực cho The Zen Park? | một trong: `tra_cuu_chinh_sach` | **(chỉ chạy ở chế độ LLM)** **(lỗ hổng đã biết)** Time-travel: V3.1 chỉ hiệu lực từ 01/08/2026 và dữ liệu canonical KHÔNG có bản cũ hơn ⇒ đúng nghiệp vụ phải trả 'chưa có chính sách hiệu lực cho The Zen Park tại ngày này'. Kịch bản vàng POL-04 đang kỳ vọng 'V2.0' (không tồn tại trong dữ liệu) nên đang báo missing_terms — cần chốt: bổ sung dữ liệu V2.0 hay sửa kỳ vọng. |
+| CS-07 · lỗ hổng · chỉ LLM | Ngày 15/07/2026 thì chính sách nào có hiệu lực cho The Zen Park? | một trong: `tra_cuu_chinh_sach` | **(chỉ chạy ở chế độ LLM)** **(lỗ hổng đã biết)** Time-travel: V3.1 chỉ hiệu lực từ 01/08/2026 và dữ liệu canonical KHÔNG có bản cũ hơn ⇒ đúng nghiệp vụ phải trả 'chưa có chính sách hiệu lực cho The Zen Park tại ngày này'. Kịch bản vàng POL-04 đang kỳ vọng 'V2.0' (không tồn tại trong dữ liệu) nên đang báo missing_terms — cần chốt: bổ sung dữ liệu V2.0 hay sửa kỳ vọng. |
+| CS-08 · lỗ hổng | Chính sách nào đang hiệu lực cho The Zen Park? | một trong: `tra_cuu_chinh_sach` | **(lỗ hổng đã biết)** LỖI THẬT (đợt 15, dùng được cả khi chạy offline): ngày giao dịch 15/07/2026, chính sách The Zen Park V3.1 chưa có hiệu lực (bắt đầu 01/08/2026) và dữ liệu KHÔNG có bản nào cũ hơn. Đúng nghiệp vụ phải trả 'chưa có chính sách hiệu lực cho The Zen Park tại ngày này' + liệt kê các bản đang có kèm khoảng hiệu lực. Hiện hệ thống trả về một chính sách KHÁC hiệu lực (Sapphire V1.0) kèm các điều khoản trộn giữa hai dự án — vì `resolve_active_policy` rơi về ứng viên đầu tiên khi không có chính sách nào phủ ngày đó, và tool không nhận được tên dự án từ câu hỏi. Mức độ: Sale có thể trích sai văn bản cho giao dịch tháng 7. Xem mục 5 tài liệu kèm (options A/B/C). |
 
 ### Soạn tin gửi khách
 
 | Mã | Sale hỏi | Kỳ vọng máy kiểm | Kiểm điều gì |
 |---|---|---|---|
-| TIN-01 · lỗ hổng | Soạn tin tư vấn cho khách đang quan tâm căn ZEN-A-1205 | một trong: `soan_tin_tu_van` · phải có: `ZEN-A-1205` · CẤM: `ALLOW_SEND`, `Bản nháp` | **(lỗ hổng đã biết)** LỖI THẬT: thân bản nháp trộn nhãn kiểm duyệt nội bộ ('Bản nháp (SUPPORTED)', 'F8: ALLOW_SEND') ⇒ 'Copy cho khách' là khách nhận luôn mã nội bộ (vi phạm P2.4/K2). Ngoài ra bản offline luôn soạn cho căn mặc định ZEN-A-1205 chứ không theo căn Sale nêu. Bản nháp gửi khách: KHÔNG dính ghi chú nội bộ, không tên tool/tham số — Sale bấm 'Copy cho khách' là gửi được ngay (P2.4/P2.5). |
-| TIN-02 · lỗ hổng | Viết tin nhắn Zalo gửi khách về chiết khấu thanh toán sớm | một trong: `soan_tin_tu_van` · phải có: `thanh toán sớm` · CẤM: `ALLOW_SEND`, `Bản nháp` | **(lỗ hổng đã biết)** LỖI THẬT: thân bản nháp trộn nhãn kiểm duyệt nội bộ ('Bản nháp (SUPPORTED)', 'F8: ALLOW_SEND') ⇒ 'Copy cho khách' là khách nhận luôn mã nội bộ (vi phạm P2.4/K2). Ngoài ra bản offline luôn soạn cho căn mặc định ZEN-A-1205 chứ không theo căn Sale nêu. Tin về ưu đãi: phải nêu đúng mức chiết khấu theo chính sách hiệu lực, không hứa thêm. |
+| TIN-01 | Soạn tin tư vấn cho khách đang quan tâm căn ZEN-A-1205 | một trong: `soan_tin_tu_van` · phải có: `ZEN-A-1205` · CẤM: `ALLOW_SEND`, `SUPPORTED`, `Bản nháp`, `F8:` · banner nội bộ có: `Kiểm duyệt F8` | Bản nháp gửi khách: thân tin (`summary`) phải SẠCH mã nội bộ để bấm 'Copy cho khách' là gửi được ngay (P2.4/K2), còn kết luận kiểm duyệt F8 phải hiện ở banner ghi chú nội bộ (`notes_contain`) — không được im lặng bỏ đi. ĐÃ SỬA (đợt 15) và nay được cổng CI kiểm hai chiều. |
+| TIN-02 | Viết tin nhắn Zalo gửi khách về chiết khấu thanh toán sớm | một trong: `soan_tin_tu_van` · phải có: `thanh toán sớm` · CẤM: `ALLOW_SEND`, `SUPPORTED`, `Bản nháp`, `F8:` · banner nội bộ có: `Kiểm duyệt F8` | Như TIN-01, cộng thêm: chủ đề 'chiết khấu thanh toán sớm' phải được bóc từ câu mệnh lệnh để bản nháp nói đúng việc Sale yêu cầu thay vì một tin chung chung. |
 | TIN-03 · chỉ LLM | Soạn tin cho khách về căn này nhé | một trong: `soan_tin_tu_van` · phải có: `ZEN-B-1502` · sạch ghi chú nội bộ | **(chỉ chạy ở chế độ LLM)** Ngữ cảnh đang mở căn ZEN-B-1502: 'căn này' phải được hiểu là căn đó (slot memory) — không được hỏi lại mã căn. |
-| TIN-04 · lỗ hổng | Soạn tin nhắn mời khách đi xem nhà mẫu The Zen Park | một trong: `soan_tin_tu_van` · CẤM: `ALLOW_SEND`, `Bản nháp` | **(lỗ hổng đã biết)** LỖI THẬT: thân bản nháp trộn nhãn kiểm duyệt nội bộ ('Bản nháp (SUPPORTED)', 'F8: ALLOW_SEND') ⇒ 'Copy cho khách' là khách nhận luôn mã nội bộ (vi phạm P2.4/K2). Ngoài ra bản offline luôn soạn cho căn mặc định ZEN-A-1205 chứ không theo căn Sale nêu. Tin mời: không cần số liệu giá; quan trọng là giọng văn gửi được cho khách và không có chữ nội bộ. |
+| TIN-04 | Soạn tin nhắn mời khách đi xem nhà mẫu The Zen Park | một trong: `soan_tin_tu_van` · CẤM: `ALLOW_SEND`, `SUPPORTED`, `Bản nháp`, `F8:` · banner nội bộ có: `Kiểm duyệt F8` | Tin mời xem nhà: không cần số liệu giá; quan trọng là giọng văn gửi được cho khách, không chữ nội bộ, và bản nháp vẫn có kết luận kiểm duyệt ở banner riêng. |
 
 ### Kiểm phát ngôn F8
 
 | Mã | Sale hỏi | Kỳ vọng máy kiểm | Kiểm điều gì |
 |---|---|---|---|
-| F8-01 · lỗ hổng | Phát ngôn này có vi phạm không: cam kết sinh lời 20% mỗi năm | một trong: `kiem_tra_phat_ngon_f8` · phải có: `BỊ CHẶN` · CẤM: `nội dung nội bộ` | **(lỗ hổng đã biết)** LỖI THẬT đang chặn luồng F8: bộ chặn rò rỉ đầu ra (`scan_output_leakage`) thấy chính CÂU ĐANG BỊ KIỂM TRA trong kết luận ('cam kết sinh lời 20%') nên thay toàn bộ câu trả lời bằng 'Em xin phép không hiển thị nội dung nội bộ đó'. Hệ quả: đúng ca quan trọng nhất (phát ngôn bị chặn) thì Sale không nhận được kết luận F8. Bộ vàng chỉ kiểm tool nên lỗi lọt qua dưới dạng missing_terms. |
+| F8-01 | Phát ngôn này có vi phạm không: cam kết sinh lời 20% mỗi năm | một trong: `kiem_tra_phat_ngon_f8` · phải có: `BỊ CHẶN`, `PROHIBITED` · CẤM: `nội dung nội bộ`, `Em xin phép không hiển thị` · sạch ghi chú nội bộ | ĐÃ SỬA (đợt 15): kết luận kiểm duyệt buộc phải trích lại câu bị chặn, nhưng bộ chặn rò rỉ đầu ra quét chính phần trích dẫn nên nuốt mất kết luận — Sale không nhận được cảnh báo ở đúng ca quan trọng nhất. Nay chỉ miễn các đoạn nằm trong NGOẶC KÉP và khớp đúng văn bản đã được tool kiểm duyệt; câu model tự viết vẫn bị quét bình thường (có test riêng cho cả hai chiều). |
 | F8-02 | Câu này gửi khách được chưa: em bao duyệt vay 100% | một trong: `kiem_tra_phat_ngon_f8` · phải có: `BỊ CHẶN` · CẤM: `nội dung nội bộ` | Bao duyệt vay là phát ngôn bị chặn (POL-08) — phải trả kết luận + hành động, kèm câu thay thế an toàn. |
 | F8-03 | Câu này gửi khách được chưa: bên em tặng gói quà tặng nội thất 200 triệu | một trong: `kiem_tra_phat_ngon_f8` · phải có: `ĐƯỢC GỬI` · CẤM: `nội dung nội bộ` | Phát ngôn ĐÚNG chính sách: kết quả phải là được gửi/có điều kiện, không chặn oan làm Sale phải viết lại vô ích. |
 
@@ -160,7 +159,7 @@ Máy kiểm được hình thức và từ khoá; **văn phong và tính "gửi 
 
 | # | Câu hỏi kiểm | Đạt khi |
 |---|---|---|
-| 1 | **Số có đúng không?** | Mọi con số khớp dữ liệu engine (đối chiếu cột "phải có"); không có số nào tự suy ra |
+| 1 | **Số có đúng không?** | Mọi con số khớp dữ liệu engine; không có số nào tự suy ra |
 | 2 | **Có nguồn bấm được không?** | Con số quan trọng đều có mỏ neo `[n]`, bấm mở ra đúng điều khoản/căn |
 | 3 | **Sale gửi khách được ngay chưa?** | Không có chữ nội bộ (tên tool, mã F8, "ghi chú kiểm duyệt"); bấm "Copy cho khách" là ra văn bản dùng được |
 | 4 | **Có nói rõ phạm vi con số không?** | Số của toàn giỏ phải gắn nhãn "toàn giỏ"; số của phân khúc phải nói rõ phân khúc |
@@ -171,47 +170,76 @@ Máy kiểm được hình thức và từ khoá; **văn phong và tính "gửi 
 
 | Chỉ số | Kết quả |
 |---|---|
-| Câu tính điểm | **42 / 57** (8 câu lỗ hổng đã biết, 7 câu chỉ chạy ở chế độ LLM) |
+| Câu tính điểm | **46 / 51** (6 câu lỗ hổng đã biết, 7 câu chỉ chạy ở chế độ LLM) |
 | Gọi đúng tool | **100%** |
 | Citation đúng | **100%** |
 | Bịa số liệu | **0.0%** |
 | Cổng phân khúc (P3.2) | **ĐẠT** |
-| Cổng nội dung/hình thức | **ĐẠT** (0 vi phạm) |
-| p95 độ trễ | 7 ms |
+| Cổng nội dung/hình thức | **ĐẠT** (0 mục) |
+| p95 độ trễ | 6 ms |
 
-## 5. Việc cần xử lý — phát hiện từ chính bộ kịch bản này
+## 5. Việc cần xử lý
 
-Xếp theo mức nguy hiểm thực tế với Sale:
+### 5.1 Đã sửa trong đợt này
 
-1. **[Nghiêm trọng] Kết luận kiểm F8 bị bộ chặn rò rỉ nuốt mất.** Bộ chặn đầu ra thấy chính *câu đang
-   được kiểm tra* trong kết luận ("cam kết sinh lời 20%") nên thay toàn bộ câu trả lời bằng
-   "Em xin phép không hiển thị nội dung nội bộ đó". Hệ quả: **đúng ca quan trọng nhất — phát ngôn bị
-   cấm — Sale không nhận được kết luận F8**. Bộ vàng chỉ kiểm "có gọi tool" nên lỗi lọt qua (xem
-   `missing_terms` của F8-01). *Đề xuất:* khi đầu ra là kết luận kiểm duyệt, chỉ quét phần văn do model
-   viết, miễn phần trích dẫn câu bị kiểm; hoặc trả kết luận dạng trường riêng rồi mới render.
-2. **[Cao] Bản nháp gửi khách đang trộn nhãn nội bộ.** Thân tin có `Bản nháp (SUPPORTED)` và
-   `F8: ALLOW_SEND` ⇒ bấm "Copy cho khách" là **khách nhận luôn mã kiểm duyệt** (vi phạm chốt P2.4/K2).
-   *Đề xuất:* tách thân tin (`draft`) khỏi kết luận kiểm duyệt (`review`) trong kết quả tool.
-3. **[Trung bình] Một kỳ vọng trong bộ vàng không thể đạt.** `POL-04` đòi `V2.0`, nhưng dữ liệu canonical
-   chỉ có `CSBH-ZEN-2026-V3.1` (hiệu lực từ 01/08/2026) và Sapphire `V1.0` ⇒ ngày 15/07/2026 đúng nghiệp
-   vụ phải là "chưa có chính sách hiệu lực cho The Zen Park". Hiện chỉ báo `missing_terms`, không chặn CI.
-   *Cần chốt:* bổ sung dữ liệu bản V2.0 (để test time-travel thật) **hay** sửa kỳ vọng.
-4. **[Trung bình] `must_contain` chưa nằm trong cổng CI.** Vì (3) và (1), nếu bật cổng này ngay thì CI đỏ.
-   Cờ `--strict` đã có sẵn — bật sau khi xử lý xong hai việc trên.
-5. **[Thấp] Lớp tất định (khi LLM lỗi) chưa hiểu 7 kiểu câu tự nhiên.** Xem danh sách "chỉ LLM": bóc tên
-   dự án, hỏi thông tin theo mã căn, hỏi thời hạn ưu đãi, đại từ "căn này". Trong app bình thường (có LLM)
-   các câu này chạy tốt; chỉ khi Copilot rơi về chế độ tất định mới trả lời chung chung.
-   *Đề xuất:* mở rộng mẫu nhận diện — rẻ, và làm chế độ dự phòng hữu dụng hơn.
-6. **[Thấp] Chip "mở rộng sang 2PN+1" vẫn giữ trần giá cũ** ⇒ bấm xong lại ra kết quả rỗng lần nữa
-   (RONG-05). *Đề xuất:* bỏ phần ngân sách khỏi chip mở rộng phân khúc, hoặc đổi nhãn cho đúng ý.
-7. **[Thấp] Ghi chú "chưa đối chiếu dữ liệu chính sách/giỏ hàng" hiện cả trên kết luận F8 và bản nháp tin**
-   — đúng về mặt kỹ thuật nhưng gây nhiễu. *Đề xuất:* mở rộng định nghĩa `grounded` cho nhóm tool tất định
-   (kiểm duyệt, soạn tin).
-8. **[Đã báo từ trước] Tool tra giỏ thiếu tham số giá TỐI THIỂU** ⇒ câu "giá trên 3 tỷ" không lọc được;
+1. ~~**Kết luận kiểm F8 bị bộ chặn rò rỉ nuốt mất.**~~ **ĐÃ SỬA.** Kết luận kiểm duyệt buộc phải trích lại
+   câu bị chặn; bộ chặn rò rỉ đầu ra lại quét chính phần trích dẫn nên thay toàn bộ câu trả lời bằng câu
+   từ chối — Sale không nhận được cảnh báo ở đúng ca quan trọng nhất. Nay chỉ miễn **văn bản do engine
+   kiểm duyệt viết** (kết luận, lý do, mã luật — trùng nguyên văn) và **phần trích dẫn trong ngoặc kép**
+   khớp đúng nội dung đang kiểm. Câu model tự viết vẫn bị chặn như cũ (có test cho cả hai chiều).
+   Kèm theo: F8 khai báo đầu ra là dữ liệu hệ thống nên không còn ghi chú "chưa đối chiếu" gây nhiễu.
+2. ~~**Bản nháp gửi khách trộn nhãn kiểm duyệt nội bộ.**~~ **ĐÃ SỬA.** `summary` của tool soạn tin nay chỉ
+   còn **thân tin** (Sale bấm "Copy cho khách" là gửi được ngay); kết luận kiểm duyệt F8 đi đường riêng vào
+   **banner ghi chú nội bộ** dạng tiếng Việt. Cổng CI kiểm cả hai chiều: thân tin CẤM chứa mã nội bộ, và
+   banner nội bộ BẮT BUỘC có kết luận kiểm duyệt (`notes_contain`). Bản nháp còn biết bóc **chủ đề** Sale
+   yêu cầu ("về chiết khấu thanh toán sớm") thay vì soạn tin chung chung.
+
+### 5.2 Cần anh quyết — lỗi time-travel chính sách (mục #3 cũ, nay đã rõ nguyên nhân)
+
+3. **Chính sách "đúng ngày hiệu lực" đang trả lời SAI mà không báo gì.** Ba vấn đề tách biệt:
+
+   **(a) Dữ liệu thiếu.** Hệ thống chỉ có 2 văn bản: `CSBH-ZEN-2026-V3.1` (The Zen Park, hiệu lực
+   01/08/2026 → 31/12/2026) và `CSBH-SAPPHIRE-2026-V1.0` (Sapphire, 01/01/2026 → 31/12/2026). Ngày
+   15/07/2026 **không có bản nào** của The Zen Park hiệu lực — nên kỳ vọng `V2.0` trong bộ vàng không thể
+   đạt bằng dữ liệu hiện có (đó là lý do `POL-04` báo thiếu `V2.0`).
+
+   **(b) Code rơi về ứng viên đầu tiên (lỗi thật, nặng hơn cái kỳ vọng).** `grounding.resolve_active_policy`
+   khi không có chính sách nào phủ ngày tra cứu thì **vẫn trả về chính sách đầu tiên của dự án**, và câu
+   trả lời vẫn ghi "Chính sách canonical **đang hiệu lực** tại 15/07/2026". Chạy thật (CS-08):
+
+   > *Chính sách canonical đang hiệu lực tại 2026-07-15 (VLandFuture Sapphire):*
+   > *- [CSBH-ZEN-2026-V3.1 · Điều 4, Khoản 2b] Chiết khấu thanh toán sớm 95%[1]*
+   > *Trích dẫn: "...được hưởng chiết khấu 8.0%..."*
+
+   Nghĩa là: **tiêu đề ghi Sapphire, nội dung trích The Zen Park, ngày thì bản đó chưa có hiệu lực.** Sale
+   có thể trích sai văn bản cho một giao dịch tháng 7.
+
+   **(c) Tên dự án không được truyền xuống tool.** `planner._args_for(LOOKUP_POLICY)` chỉ truyền câu hỏi và
+   ngày — không bóc "The Zen Park" từ câu hỏi, nên tool tra trên toàn bộ chính sách rồi trộn hai dự án.
+
+   **Ba lựa chọn:**
+
+   | | Việc | Được gì | Mất gì / rủi ro |
+   |---|---|---|---|
+   | **A** | Chỉ sửa kỳ vọng `POL-04` thành "chưa có chính sách hiệu lực" | Nhanh, CI sạch | Không sửa (b)+(c): hệ thống vẫn nói sai ngày hiệu lực; bộ vàng mất phép thử time-travel chọn đúng phiên bản |
+   | **B** *(đề xuất làm trước)* | Sửa `resolve_active_policy` trả `None` khi không có bản nào phủ ngày; tool nói rõ "chưa có chính sách hiệu lực cho <dự án> tại <ngày>" + liệt kê các bản đang có kèm khoảng hiệu lực; bóc tên dự án ở planner | Hết trả lời sai; trích dẫn đúng dự án; `POL-04` thành phép thử **tính trung thực** thay vì thử dữ liệu không có | Không thể hiển thị "chọn đúng phiên bản trong nhiều phiên bản" vì mỗi dự án vẫn chỉ có 1 bản |
+   | **C** | B + thêm dữ liệu lịch sử: `CSBH-ZEN-2026-V2.0` (vd 01/05/2026 → 31/07/2026) và có thể V1.0 | Demo thể hiện đúng năng lực time-travel: hỏi 15/07 ra V2.0, hỏi 15/10 ra V3.1 | Phải tự soạn nội dung V2.0 (2–3 rule) và **xác nhận nguồn dữ liệu trên VM** (DB/RAG đang là nguồn ưu tiên; fixture chỉ là dự phòng) — nếu chỉ thêm vào fixture mà DB có dữ liệu khác thì VM vẫn có thể không thấy V2.0 |
+
+   Điểm cần lưu ý khi chọn: hiện `must_contain` **chưa nằm trong cổng CI** (đã có sẵn cờ `--strict`). Bật
+   `--strict` ngay bây giờ thì CI đỏ ở `POL-04` — nên bật **sau khi** chốt A/B/C.
+
+### 5.3 Còn lại (đã báo, chưa xử lý)
+
+4. **[Đã báo từ trước] Tool tra giỏ thiếu tham số giá TỐI THIỂU** ⇒ câu "giá trên 3 tỷ" không lọc được;
    bản LLM từng tự chế cách lọc rồi bịa ra căn không tồn tại (AT-05). *Đề xuất:* thêm `gia_tu_vnd`.
-9. **[Đã báo từ trước] Ba kiểu câu rơi vào trả lời mặc định chung chung:** phân khúc không tồn tại (4 ngủ),
+5. **[Đã báo từ trước] Ba kiểu câu rơi vào trả lời mặc định chung chung:** phân khúc không tồn tại (4 ngủ),
    nhờ tư vấn phát ngôn rủi ro, dự án ngoài dữ liệu (RONG-04, AT-03, AT-04). Chưa bịa — nhưng Sale không
    biết vì sao hệ thống không trả lời được.
+6. **7 câu cần LLM mới hiểu** (danh sách `chỉ LLM` trong báo cáo: bóc tên dự án, hỏi theo mã căn bằng
+   văn phong tự nhiên, hỏi thời hạn ưu đãi, đại từ "căn này"). Trong app bình thường (có LLM) các câu này
+   chạy tốt; chỉ khi rơi về chế độ dự phòng mới trả lời chung chung. *Đề xuất:* mở rộng mẫu nhận diện — rẻ.
+7. **Chip "mở rộng sang 2PN+1" giữ nguyên trần giá cũ** ⇒ bấm xong lại ra kết quả rỗng (RONG-05).
+   *Đề xuất:* bỏ ngân sách khỏi chip mở rộng phân khúc, hoặc đổi nhãn cho đúng ý.
 
 ## 6. Điều bộ kịch bản này CHƯA kiểm được (nói thẳng)
 

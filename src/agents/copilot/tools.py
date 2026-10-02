@@ -522,6 +522,15 @@ def kiem_tra_phat_ngon_f8(noi_dung: str) -> str:
             "required_action": response.required_action,
             "summary": _clip("\n".join(lines)),
             "citations": [],
+            #: Kết luận do engine kiểm duyệt tất định sinh ra ⇒ là dữ liệu hệ thống, không phải văn model
+            #: tự nghĩ. Khai báo để `_finalize` không gắn nhãn "chưa đối chiếu" oan cho lượt này.
+            "grounded": True,
+            #: Văn bản ĐÃ được kiểm duyệt + từng câu bị gắn cờ. Kết luận bắt buộc phải trích lại chúng
+            #: để Sale biết sai ở đâu; lớp chặn rò rỉ đầu ra dùng danh sách này để **miễn** phần trích dẫn
+            #: (chỉ phần nằm trong ngoặc kép và khớp đúng văn bản đã kiểm) — xem
+            #: `reply_format.mask_quoted_claims`.
+            "checked_content": noi_dung,
+            "flagged_claims": [claim.claim_text for claim in response.claims if claim.claim_text],
         }
     )
 
@@ -654,6 +663,32 @@ async def tra_cuu_ho_so_khach_hang(tu_khoa: str) -> str:
 # ---------------------------------------------------------------------------
 # Tool 6 — Soạn tin tư vấn + tự kiểm F8
 # ---------------------------------------------------------------------------
+#: Mã trạng thái/kết luận kiểm duyệt → câu tiếng Việt cho banner ghi chú nội bộ.
+_COMPLIANCE_STATUS_VI = {
+    "SUPPORTED": "ĐƯỢC GỬI",
+    "CONDITIONAL": "GỬI CÓ ĐIỀU KIỆN",
+    "UNSUPPORTED": "CHƯA ĐỦ CĂN CỨ",
+    "PROHIBITED": "BỊ CHẶN",
+}
+_COMPLIANCE_ACTION_VI = {
+    "ALLOW_SEND": "được phép gửi",
+    "WARN_CONDITIONAL": "gửi kèm điều kiện, cần đọc lại trước khi gửi",
+    "BLOCK_MESSAGE_COMPLIANCE_VIOLATION": "KHÔNG gửi bản nháp này, cần viết lại",
+}
+
+
+def _compliance_note(compliance: Any) -> str:
+    """Kết luận kiểm duyệt F8 của bản nháp, dạng câu cho banner ghi chú nội bộ."""
+    status = str(getattr(compliance, "overall_status", "") or "")
+    action = str(getattr(compliance, "required_action", "") or "")
+    status_vi = _COMPLIANCE_STATUS_VI.get(status, status or "chưa rõ")
+    action_vi = _COMPLIANCE_ACTION_VI.get(action, action or "chưa rõ")
+    note = f"Kiểm duyệt F8 bản nháp: {status_vi} — {action_vi}."
+    claims = [c for c in (getattr(compliance, "claims", None) or []) if getattr(c, "claim_text", "")]
+    if claims:
+        note += " Câu cần sửa: " + "; ".join(f"'{c.claim_text}' ({c.tier})" for c in claims[:3]) + "."
+    return note
+
 @tool
 async def soan_tin_tu_van(ma_can: str = "", ten_khach: str = "", noi_dung_chinh: str = "") -> str:
     """Soạn bản nháp tin nhắn tư vấn gửi khách và tự kiểm tra F8 trước khi trả về.
@@ -674,8 +709,12 @@ async def soan_tin_tu_van(ma_can: str = "", ten_khach: str = "", noi_dung_chinh:
             f"Căn {unit['unit_code']} có {unit.get('bedrooms')}PN, {unit.get('area_m2')}m², "
             f"giá niêm yết trước thuế {grounding.format_vnd(unit.get('listed_price_before_tax_vnd'))}."
         )
-    if noi_dung_chinh:
-        parts.append(f"{noi_dung_chinh.strip()}")
+    if noi_dung_chinh.strip():
+        # Chủ đề là một CỤM DANH TỪ ("chiết khấu thanh toán sớm"), không phải câu — phải đóng khung cho
+        # ra câu tiếng Việt tử tế, nếu không sẽ dán giữa hai câu và đọc rất kỳ.
+        topic = noi_dung_chinh.strip().rstrip(" .,;:")
+        topic = topic[0].upper() + topic[1:] if topic else topic
+        parts.append(f"Về {topic}, em gửi anh/chị thông tin để mình tham khảo ạ.")
     parts.append(
         "Chính sách ưu đãi áp dụng theo văn bản chính sách đang hiệu lực tại thời điểm giao dịch; "
         "em gửi anh/chị bảng tính chi tiết để mình xem qua nhé."
@@ -689,11 +728,17 @@ async def soan_tin_tu_van(ma_can: str = "", ten_khach: str = "", noi_dung_chinh:
             "draft_text": draft,
             "compliance_status": compliance.overall_status,
             "required_action": compliance.required_action,
-            "summary": (
-                f"Bản nháp ({compliance.overall_status}):\n{draft}\n"
-                f"F8: {compliance.overall_action if hasattr(compliance, 'overall_action') else compliance.required_action}"
-            ),
+            # `summary` chỉ chứa THÂN TIN đã soạn — đây là văn bản Sale copy gửi khách nguyên văn.
+            # Lỗi cũ: gộp cả nhãn kiểm duyệt ("Bản nháp (SUPPORTED)", "F8: ALLOW_SEND") vào summary ⇒
+            # bấm "Copy cho khách" là khách nhận luôn mã nội bộ (vi phạm chốt P2.4/K2).
+            "summary": draft,
+            # Kết luận kiểm duyệt đi đường RIÊNG: `_finalize` gom vào `internal_notes` để UI hiển thị ở
+            # banner nội bộ — Sale vẫn thấy, nhưng không bao giờ lọt vào bản gửi khách.
+            "internal_notes": _compliance_note(compliance),
             "citations": [],
+            #: Bản nháp dựng từ dữ liệu catalog + đã qua cổng kiểm duyệt ⇒ có căn cứ hệ thống **khi tìm
+            #: thấy căn**; nếu không có mã căn thì đây chỉ là tin mẫu, không được nhận là đã đối chiếu.
+            "grounded": unit is not None,
         }
     )
 
