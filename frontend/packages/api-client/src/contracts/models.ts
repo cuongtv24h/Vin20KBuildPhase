@@ -742,6 +742,10 @@ export interface RulesTestReport {
   conflict_findings: ConflictFinding[]
   regression: { passed: number; total: number }
   can_publish: boolean
+  /** Mã lần chạy kiểm thử công thức làm bằng chứng cho lần ban hành (API thật trả kèm). */
+  benchmark_run_id?: string
+  /** MATCH nếu văn bản khớp bộ ca vàng đang khoá, DRIFT nếu văn bản mới chưa có bộ ca riêng. */
+  policy_alignment?: 'MATCH' | 'DRIFT' | 'PINNED'
 }
 
 // ─── Evaluation ────────────────────────────────────────────────────────────
@@ -759,10 +763,14 @@ export interface BenchmarkCaseResult {
   name: string
   listed_price_before_tax_vnd: number
   discount_rates: number[]
-  expected: BenchmarkAmounts
-  actual: BenchmarkAmounts
+  /** null với ca bị chặn nghiệp vụ trước khi tính (EXCEPTION_HANDLED) — không có giá để đối soát. */
+  expected: BenchmarkAmounts | null
+  actual: BenchmarkAmounts | null
   delta_vnd: number
   passed: boolean
+  /** PASSED / EXCEPTION_HANDLED / FAILED (API thật trả kèm) */
+  status?: 'PASSED' | 'EXCEPTION_HANDLED' | 'FAILED'
+  execution_time_ms?: number
 }
 
 /** POST /evaluation/benchmark-runs. */
@@ -774,4 +782,9 @@ export interface BenchmarkRun {
   passed: number
   exact_match_rate: number
   cases: BenchmarkCaseResult[]
+  /** Văn bản chính sách mà lần chạy làm bằng chứng (API thật; mock có thể không trả). */
+  policy_id?: string
+  policy_version?: string
+  golden_policy_ref?: string
+  policy_alignment?: 'MATCH' | 'DRIFT' | 'PINNED'
 }

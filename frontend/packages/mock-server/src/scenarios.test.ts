@@ -491,5 +491,29 @@ describe('Policy Admin', () => {
     await loginAs(ADMIN)
     const run = await api.evaluation.runBenchmark()
     expect(run).toMatchObject({ total: 17, passed: 17, exact_match_rate: 1 })
+    // Lần chạy phải ghi rõ đang đối chiếu văn bản nào — bằng chứng cho cổng trước ban hành.
+    expect(run.policy_id).toBe('POL-2026-VLF-GEN')
+    expect(run.golden_policy_ref).toBe('POL-2026-VLF-GEN v2.6')
+    expect(run.policy_alignment).toBe('MATCH')
+    expect(run.cases.every((c) => c.status === 'PASSED')).toBe(true)
+  })
+
+  it('Cổng trước ban hành gắn bằng chứng kiểm thử và cảnh báo lệch bộ ca vàng', async () => {
+    await loginAs(ADMIN)
+    const draft = await api.policies.extractRules(
+      { project_id: 'THE_ZEN_PARK', title: 'CSBH The Zen Park — Đợt 6', policy_version: 'v6.0', effective_from: '2027-06-01', effective_to: '2027-08-31' },
+      new File(['%PDF-1.4 test'], 'CSBH_Zen_Dot6.pdf', { type: 'application/pdf' }),
+    )
+    const gate = await api.policies.testRules(draft.policy_id)
+    expect(gate.regression).toEqual({ passed: 17, total: 17 })
+    expect(gate.benchmark_run_id).toBeTruthy()
+    // Văn bản mới chưa có bộ ca vàng riêng → cảnh báo DRIFT để admin biết phải cập nhật fixture.
+    expect(gate.policy_alignment).toBe('DRIFT')
+    expect(gate.checks.some((c) => c.code === 'GOLDEN_ALIGNMENT' && c.status === 'WARN')).toBe(true)
+    expect(gate.can_publish).toBe(true)
+
+    await api.policies.publish(draft.policy_id)
+    const afterPublish = await api.policies.testRules(draft.policy_id)
+    expect(afterPublish.can_publish).toBe(false)
   })
 })

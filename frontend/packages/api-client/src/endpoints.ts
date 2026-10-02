@@ -86,8 +86,9 @@ export const ENDPOINTS = {
   policyRulesTest: def({ method: 'POST', path: '/policies/{policy_id}/rules/test', source: 'TD-4.4', auth: ['POLICY_ADMIN'] }),
   policyPublish: def({ method: 'POST', path: '/policies/{policy_id}/publish', source: 'TD-4.4', auth: ['POLICY_ADMIN'] }),
 
-  // Evaluation
-  benchmarkRun: def({ method: 'POST', path: '/evaluation/benchmark-runs', source: 'TD-4.4', auth: ['POLICY_ADMIN'] }),
+  // Evaluation — nav "Kiểm thử công thức" hiển thị cho cả ADMIN lẫn POLICY_ADMIN
+  // nên quyền endpoint phải khớp (trước đây ADMIN bấm vào bị 403 ở mock server).
+  benchmarkRun: def({ method: 'POST', path: '/evaluation/benchmark-runs', source: 'TD-4.4', auth: ['POLICY_ADMIN', 'ADMIN'] }),
 
   // Sales Copilot (SCR-S00) — ReAct agent + streaming tiến trình suy luận
   copilotChat: def({ method: 'POST', path: '/copilot/chat', source: 'PROPOSED', auth: 'staff' }),

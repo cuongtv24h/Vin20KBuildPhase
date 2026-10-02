@@ -2,9 +2,15 @@
 
 from fastapi.testclient import TestClient
 
+from src.api.deps import create_access_token
 from src.main import app
 
 client = TestClient(app)
+
+# Cổng kiểm thử/ban hành chính sách là nghiệp vụ POLICY_ADMIN (đồng bộ với mock server).
+POLICY_ADMIN_HEADERS = {
+    "Authorization": f"Bearer {create_access_token('minh.tuan@vlandfuture.vn', 'POLICY_ADMIN')}",
+}
 
 
 def test_compliance_check_message_supported():
@@ -88,7 +94,7 @@ def test_policy_rules_test_endpoint():
         "policy_id": "POL-01",
         "test_queries": ["Chiết khấu thanh toán sớm"],
     }
-    response = client.post("/api/v1/policies/rules/test", json=payload)
+    response = client.post("/api/v1/policies/rules/test", json=payload, headers=POLICY_ADMIN_HEADERS)
     assert response.status_code == 200
     data = response.json()
     assert data["passed"] is True
@@ -101,8 +107,44 @@ def test_policy_publish_endpoint():
         "version": "v1.2",
         "published_by": "tranchivi@vlandfuture.vn",
     }
-    response = client.post("/api/v1/policies/publish", json=payload)
+    response = client.post("/api/v1/policies/publish", json=payload, headers=POLICY_ADMIN_HEADERS)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "APPROVED_FOR_USE"
     assert data["snapshot_hash"].startswith("sha256:")
+
+
+def test_rules_test_runs_real_formula_regression_gate():
+    """Cổng kiểm thử phải chạy 17 ca golden thật và trả đủ contract của frontend."""
+    payload = {"policy_id": "POL-GATE-01", "version": "v1.0", "test_queries": ["Chiết khấu thanh toán sớm 8%"]}
+    response = client.post("/api/v1/policies/rules/test", json=payload, headers=POLICY_ADMIN_HEADERS)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Contract RulesTestReport mà PolicyDetailPage đọc
+    assert data["checked_at"]
+    assert data["regression"] == {"passed": 17, "total": 17}
+    assert data["can_publish"] is True
+    assert data["policy_alignment"] == "DRIFT"  # văn bản mới chưa có bộ ca vàng riêng
+    assert data["benchmark_run_id"].startswith("BENCH-RUN-")
+
+    codes = {c["code"]: c for c in data["checks"]}
+    assert codes["FORMULA_REGRESSION"]["status"] == "PASS"
+    assert "17/17" in codes["FORMULA_REGRESSION"]["detail"]
+    assert codes["GOLDEN_ALIGNMENT"]["status"] == "WARN"
+    assert data["conflicts_detected"] == []
+
+
+def test_publish_gate_blocks_unknown_policy_when_already_published():
+    """Ban hành lần hai cùng phiên bản bị cổng kiểm thử chặn (tránh ghi đè bản đang hiệu lực)."""
+    payload = {"policy_id": "POL-01", "version": "v1.2", "published_by": "tranchivi@vlandfuture.vn"}
+    response = client.post("/api/v1/policies/publish", json=payload, headers=POLICY_ADMIN_HEADERS)
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "POLICY_TEST_GATE_FAILED"
+    assert any("ALREADY_PUBLISHED" in c for c in response.json()["detail"]["conflicts"])
+
+
+def test_publish_requires_policy_admin_role():
+    payload = {"policy_id": "POL-ROLE-01", "version": "v1.0", "published_by": "someone@vlandfuture.vn"}
+    response = client.post("/api/v1/policies/publish", json=payload)
+    assert response.status_code == 403

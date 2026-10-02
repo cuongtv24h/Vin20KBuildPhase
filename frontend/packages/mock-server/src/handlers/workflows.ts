@@ -301,7 +301,7 @@ export const adminHandlers = [
   route('policyRulesTest', ({ db, params, now }) => {
     const policy = db.policies.find((p) => p.policy_id === params.policy_id)
     if (!policy) throw notFound(`chính sách ${params.policy_id}`)
-    return { body: testPolicyRules(policy, db.policies, iso(now)) }
+    return { body: testPolicyRules(policy, db.policies, iso(now), `BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`) }
   }),
 
   /** Ban hành nguyên tử: chạy lại gate, rule chuyển APPROVED_FOR_USE cùng lúc. */
@@ -310,7 +310,7 @@ export const adminHandlers = [
     const policy = db.policies.find((p) => p.policy_id === params.policy_id)
     if (!policy) throw notFound(`chính sách ${params.policy_id}`)
     if (policy.status !== 'DRAFT') throw transition('Chỉ ban hành được bản nháp.')
-    const report = testPolicyRules(policy, db.policies, iso(now))
+    const report = testPolicyRules(policy, db.policies, iso(now), `BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`)
     if (!report.can_publish) throw new MockError(422, 'INPUT_VALIDATION_ERROR', 'Văn bản chưa vượt qua kiểm tra trước ban hành.')
     policy.status = 'PUBLISHED'
     policy.published_at = iso(now)

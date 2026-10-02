@@ -173,14 +173,89 @@ và "Kiểm thử công thức", đúng chỗ cho người theo dõi chất lư�
 
 ---
 
-## 6. Còn lại (nói thẳng, không hứa quá)
+## 6. Đợt 4 (2026-10-02) — Khu đo lường chất lượng & cổng ban hành chính sách
+
+Yêu cầu: (a) đã có khu **benchmark/kiểm thử chất lượng** chưa; (b) khi **POLICY_ADMIN tải lên + duyệt một bộ tài liệu mới** thì đánh giá có **nhất quán** không;
+(c) mục **"Kiểm thử công thức" trong `/admin_cp` đang "chưa hoạt động"** — phải sửa cho chạy được, không chỉ giải thích.
+
+### 6.1 Khu đo lường chất lượng hiện có (trả lời (a): **có**, 4 tầng)
+
+| Tầng | Vị trí | Đo cái gì | Bằng chứng |
+| :--- | :--- | :--- | :--- |
+| Hồi quy công thức | `/admin/benchmark` (UI) · `POST /api/v1/evaluation/benchmark-runs` · `dataset/fixtures/golden_scenarios.json` (17 ca FCS v2.6) | Δ tuyệt đối = 0 VNĐ trên 5 trường tiền tệ, AC-FIN-01, p50/p95 | **17/17 · 100%** (chạy thật bên dưới) |
+| Chất lượng Copilot | `eval/copilot/golden_questions.json` (**32 câu**) + `scripts/run_copilot_eval.py` | tool-selection, citation precision, hallucination, p95 | tool **1.00** · citation **1.00** · bịa **0.00** · p95 **4 ms** |
+| Giám sát vận hành | `/admin/copilot-quality` + `GET /copilot/feedback/summary` / `/recent` | điểm hài lòng, xu hướng 14 ngày, tool hỏng nhiều, phản hồi tiêu cực (che PII) | 5 phản hồi: react 3 / offline_react 1 / guardrail 1 |
+| Cổng trước ban hành | `POST /api/v1/policies/rules/test` (+ nút "Kiểm tra trước ban hành" ở `PolicyDetailPage`) | 17 ca golden + trạng thái ban hành + đối chiếu bản golden đang khoá | gate 17/17 · `can_publish=true` |
+
+### 6.2 Ba lỗi làm "Chạy kiểm thử" **không hoạt động** (đã sửa, (c))
+
+1. **Lệch hợp đồng mock ↔ API thật** — nguyên nhân chính của màn hình trắng/lỗi khi chạy với backend thật:
+   frontend đọc `total / passed / exact_match_rate / cases[]` (shape của mock), còn `BenchmarkRunReport` thật trả
+   `total_cases / passed_cases / accuracy_rate / results[]` → `data.cases.map` nổ `undefined`, màn hình không render được.
+   *Sửa:* `src/services/pricing/evaluation.py` bổ sung **additive** đúng contract hiển thị (`started_at`, `finished_at`, `total`,
+   `passed`, `exact_match_rate`, `cases`; mỗi ca có `name`, `listed_price_before_tax_vnd`, `expected`, `actual`, `passed`,
+   `status`, `execution_time_ms`). Ca bị chặn nghiệp vụ (`EXCEPTION_HANDLED`) trả `expected/actual = null` — UI hiện "—",
+   không bịa số. Có test khoá lại: `tests/test_api/test_evaluation_router.py::test_benchmark_report_matches_frontend_contract`.
+2. **RBAC lệch giữa nav và endpoint** — nav "Kiểm thử công thức" hiện cho cả ADMIN lẫn POLICY_ADMIN, nhưng mock chặn `auth: ['POLICY_ADMIN']`
+   → tài khoản ADMIN tạo từ `/admin_cp` bấm vào ăn **403**; còn API thật lại **không gác quyền** (ai cũng gọi được).
+   *Sửa:* `endpoints.ts` → `auth: ['POLICY_ADMIN','ADMIN']`; endpoint thật thêm `Depends(get_current_principal)` + kiểm tra vai trò
+   (403 với SALE/không token — `test_benchmark_run_requires_quality_role`).
+3. **Cổng trước ban hành ở backend thật chỉ là stub** — `rules/test` trả 3 check hình thức, 0 xung đột, `closure_completeness=1.0`, **không hề chạy hồi quy**;
+   `publish` ban hành thẳng và không lưu bằng chứng nào. Mock-server thì làm đúng (chạy 17 ca) → hai bên kể hai câu chuyện khác nhau.
+   *Sửa:* `_run_publish_gate()` trong `src/api/endpoints/policies.py` chạy **engine thật**: 6 hạng mục (mã văn bản, bộ ca vàng, **hồi quy 17 ca**,
+   câu hỏi vàng, trạng thái ban hành, đối chiếu golden), trả đúng contract `RulesTestReport` (`checked_at`, `checks[]`, `conflict_findings[]`,
+   `regression`, `can_publish`) **và** giữ các field cũ để không phá API cũ. `publish` gọi lại cổng: chưa đạt → **422 `POLICY_TEST_GATE_FAILED`**;
+   đạt → trả kèm khối `benchmark` (run id, tỉ lệ, văn bản golden, mức khớp) và **đăng ký lần chạy vào cache** của `/evaluation/benchmark-runs/{run_id}`
+   để tra cứu lại được bằng chứng. Mock được nâng cho khớp: `runBenchmark` nhận ngữ cảnh văn bản, sinh `policy_alignment`.
+
+### 6.3 Nhất quán khi POLICY_ADMIN duyệt văn bản mới (trả lời (b))
+
+- **Đã nhất quán ở phần chạy được:** mỗi lần ban hành đều **chạy lại 17 ca golden trên engine thật**, có mã lần chạy làm bằng chứng,
+  và bản ghi ban hành gắn với kết quả đó → không còn cảnh "duyệt xong không biết công thức còn đúng không".
+- **Nói thẳng phần chưa tự động:** bộ golden fixture đang **khoá cứng theo `POL-2026-VLF-GEN v2.6`** (`DEFAULT_POLICY_REF`).
+  Văn bản mới sẽ được gắn nhãn `policy_alignment = DRIFT` + check `GOLDEN_ALIGNMENT` mức **WARN** ("chưa có bộ ca vàng riêng") —
+  hệ thống báo đúng sự thật chứ không giả vờ đã kiểm chứng văn bản mới. Muốn hết DRIFT thì phải **soạn bộ ca vàng cho văn bản đó**
+  (hiện là việc thủ công của Policy Admin + TechLead; chưa tự sinh từ văn bản).
+- **Giới hạn đã biết:** lịch sử lần chạy nằm **in-memory** (mất khi restart) ở cả backend thật lẫn mock.
+
+### 6.4 Kiểm chứng đợt 4 (chạy thật)
+
+| Lệnh / kịch bản | Kết quả |
+| :--- | :--- |
+| `.venv/bin/python -m pytest -q` | **503 passed** (trước 498; +5 test mới cho contract + cổng) |
+| `cd frontend && npm test` | **25/25 passed** (trước 24) |
+| `cd frontend && npx tsc -b apps/internal apps/customer` | **exit 0** |
+| `cd frontend && npx oxlint` | **0 error**, 124 warning (không tăng) |
+| `npm run build -w @pricepolicy/internal` | build thành công |
+| Smoke qua Vite proxy: `/admin/setup` tạo ADMIN → `POST /evaluation/benchmark-runs` | **201** · 17/17 · `MATCH` · case BENCH-01 kỳ vọng = thực tế = 4.739.840.000 |
+| Smoke qua Vite proxy: SALE gọi benchmark | **403** (giữ đúng quyền) |
+| Smoke qua Vite proxy: POLICY_ADMIN `POST /policies/{id}/rules/test` | 17/17 · `can_publish=true` · `GOLDEN_ALIGNMENT` WARN khi văn bản DRAFT lệch bản golden |
+| Smoke backend thật: publish → tra cứu bằng chứng | publish **200** kèm khối `benchmark`; `GET /evaluation/benchmark-runs/{run_id}` **200** |
+
+### 6.5 Đối chiếu lộ trình P0–P2 của yêu cầu này
+
+| Mốc | Trạng thái | Ghi chú |
+| :--- | :--- | :--- |
+| P0 · eval 30 câu vàng (tool/citation/hallucination/P95) | ✅ **vượt** | 17 ca công thức + **32 câu** Copilot; 4 chỉ số đã đo và có ngưỡng CI |
+| P0 · tra cứu hồ sơ khách hàng lọc ở SQL | ✅ | `tra_cuu_ho_so_khach_hang` lọc bằng `WHERE` + `LIMIT` trong DB (không kéo cả bảng rồi lọc bằng Python) |
+| P0 · retry tool lỗi + nén Observation | ✅ | vòng retry + `_trim_with_budget` (đợt 2, §2.1) |
+| P1 · planner nhẹ + memory slot + verifier | ✅ | `planner.py`, `memory.py`, `verifier.py` (đợt 2) |
+| P2 · critic vòng 2 + học từ phản hồi + cache/token | ✅ | `critic.py`, `feedback.py`, `/admin/copilot-quality`, cache theo phiên |
+| Bổ sung đợt 4 · benchmark chạy được với API thật + cổng ban hành có bằng chứng | ✅ | §6.2 |
+
+*Ghi chú kỹ thuật cho vòng sau:* `LIKE '%từ khoá%'` (có ký tự đại diện ở đầu) không dùng được B-tree index —
+muốn nhanh thật thì cần **FTS5** (SQLite) / **pg_trgm** (Postgres) chứ không phải thêm `index=True` hình thức.
+
+---
+
+## 7. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
    Trang `/admin/copilot-quality` đã trả lời được "chất lượng đang lên hay xuống, kém ở đâu".
    Còn thiếu: **phân loại tag tự động** (hiện Sale gửi tag thô) và **tiêu chí gỡ** một "điều cần tránh"
    khỏi prompt khi nó đã được sửa — cả hai cần thêm dữ liệu thật mới đáng làm.
 2. **Critic chưa gọi LLM sửa lời**: hiện critic *phát hiện + nhắc*, không tự viết lại. Đã có cờ `COPILOT_CRITIC=1` để bật một lượt sửa, nhưng **cố ý để mặc định TẮT** vì nhân đôi độ trễ mà chưa có dashboard chi phí.
-3. **Trôi hợp đồng mock vs backend (TD-4.1)** mới xử lý ở tầng type (`QuoteCreateOutcome`); triệt để thì mock-server nên đổi sang **201 đồng bộ** cho khớp backend thật.
+3. **Trôi hợp đồng mock vs backend (TD-4.1)** mới xử lý ở tầng type (`QuoteCreateOutcome`) và ở lớp benchmark/cổng ban hành (§6.2 — nay hai bên trả cùng shape); triệt để thì mock-server nên đổi sang **201 đồng bộ** cho khớp backend thật, và `POST /policies/publish` của backend thật nên trả `PolicyDocument` như type frontend đang khai.
 4. **125 cảnh báo oxlint** còn lại: 129 lượt `no-unused-vars` (đã bù bằng phần dọn trong trang bán hàng) ở `LeadInboxPage`, `PolicyListPage`… — dọn tiếp là việc cơ học, không rủi ro.
 5. **Cache tool hiện trong-một-lượt** (theo phiên chat). Cache xuyên lượt/TTL cần thêm khoá theo `transaction_date` + chính sách hiệu lực để không trả dữ liệu cũ — nên làm cùng lúc với dashboard chi phí.
 6. **Eval mới chạy offline tất định** (không cần API key). Muốn đo chất lượng LLM thật thì chạy `python scripts/run_copilot_eval.py --mode llm` khi có `OPENAI_API_KEY`; bộ ngưỡng CI hiện bám chế độ offline để phù hợp môi trường không có key.

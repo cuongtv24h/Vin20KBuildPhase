@@ -49,6 +49,19 @@ DEFAULT_POLICY_REF = StructuredPolicyReference(
 )
 
 
+class BenchmarkAmountsVnd(BaseModel):
+    """Bộ 5 trường tiền tệ được đối soát tuyệt đối (Δ = 0 VNĐ) trong mỗi ca.
+
+    Trùng khớp với contract `BenchmarkAmounts` của frontend (`@pricepolicy/api-client/contracts`),
+    để màn hình `/admin/benchmark` hiển thị được cả giá kỳ vọng lẫn giá thực tế.
+    """
+    discount_vnd: int = 0
+    net_price_before_tax_vnd: int = 0
+    vat_vnd: int = 0
+    kpbt_vnd: int = 0
+    total_contract_price_vnd: int = 0
+
+
 class CaseBenchmarkResult(BaseModel):
     """Result of an individual benchmark test case execution."""
     case_id: str
@@ -59,6 +72,15 @@ class CaseBenchmarkResult(BaseModel):
     execution_time_ms: float
     error_message: str | None = None
     checked_fields: list[str] = Field(default_factory=list)
+
+    # ─── Contract hiển thị của frontend (`BenchmarkCaseResult`) ───────────────
+    # Bổ sung để màn hình Kiểm thử công thức không còn lệch shape giữa mock và API thật.
+    name: str = Field(default="", description="Tên ca kiểm thử (alias của description)")
+    listed_price_before_tax_vnd: int = Field(default=0, description="Giá niêm yết trước thuế của ca")
+    discount_rates: list[float] = Field(default_factory=list, description="Các tỷ lệ ưu đãi áp dụng")
+    expected: BenchmarkAmountsVnd | None = Field(default=None, description="Số tiền kỳ vọng từ golden fixture")
+    actual: BenchmarkAmountsVnd | None = Field(default=None, description="Số tiền engine tính ra (None với ca chặn nghiệp vụ)")
+    passed: bool = Field(default=False, description="Ca đạt (PASSED/EXCEPTION_HANDLED)")
 
 
 class BenchmarkRunReport(BaseModel):
@@ -76,6 +98,23 @@ class BenchmarkRunReport(BaseModel):
     ac_fin_01_passed: bool
     summary: str
     results: list[CaseBenchmarkResult]
+
+    # ─── Contract hiển thị của frontend (`BenchmarkRun`) ─────────────────────
+    started_at: str = Field(default="", description="Thời điểm bắt đầu chạy (ISO-8601)")
+    finished_at: str = Field(default="", description="Thời điểm kết thúc chạy (ISO-8601)")
+    total: int = Field(default=0, description="Tổng số ca (alias của total_cases)")
+    passed: int = Field(default=0, description="Số ca đạt (alias của passed_cases)")
+    exact_match_rate: float = Field(default=0.0, description="Tỷ lệ khớp tuyệt đối 0..1")
+    cases: list[CaseBenchmarkResult] = Field(default_factory=list, description="Alias của results")
+
+    # ─── Truy vết chất lượng theo văn bản chính sách (Policy Admin) ───────────
+    policy_id: str = Field(default="", description="Văn bản chính sách mà lần chạy này gắn với")
+    policy_version: str = Field(default="", description="Phiên bản văn bản chính sách của lần chạy")
+    golden_policy_ref: str = Field(default="", description="Văn bản/phiên bản mà bộ golden fixture được khoá theo")
+    policy_alignment: str = Field(
+        default="PINNED",
+        description="MATCH nếu chạy đúng bản golden, DRIFT nếu văn bản mới khác bản golden đang khoá",
+    )
 
 
 def build_approved_benefits(case: dict[str, Any]) -> list[BenefitApplicationRule]:
@@ -138,6 +177,42 @@ def build_approved_benefits(case: dict[str, Any]) -> list[BenefitApplicationRule
     return rules
 
 
+def _expected_amounts(case: dict[str, Any]) -> BenchmarkAmountsVnd | None:
+    """Dựng bộ số tiền kỳ vọng từ golden fixture (None nếu ca bị chặn trước khi tính)."""
+    if case.get("net_price_before_tax_vnd") is None:
+        return None
+    contract = case.get("total_outflow_vnd") if str(case.get("case_id", "")).startswith("BENCH-") else case.get("contract_price_vnd")
+    if contract is None:
+        contract = case.get("total_outflow_vnd") or case.get("contract_price_vnd")
+    return BenchmarkAmountsVnd(
+        discount_vnd=int(case.get("discount_amount_vnd") or 0),
+        net_price_before_tax_vnd=int(case["net_price_before_tax_vnd"]),
+        vat_vnd=int(case.get("vat_vnd") or 0),
+        kpbt_vnd=int(case.get("maintenance_fee_vnd") or 0),
+        total_contract_price_vnd=int(contract or 0),
+    )
+
+
+def _actual_amounts(calc_result: Any) -> BenchmarkAmountsVnd:
+    """Dựng bộ số tiền engine thực tính cho một ca hợp lệ."""
+    return BenchmarkAmountsVnd(
+        discount_vnd=int(calc_result.fixed_discount_vnd + calc_result.percentage_discount_vnd),
+        net_price_before_tax_vnd=int(calc_result.net_price_before_vat),
+        vat_vnd=int(calc_result.vat_amount),
+        kpbt_vnd=int(calc_result.maintenance_fee_amount),
+        total_contract_price_vnd=int(calc_result.final_contract_price),
+    )
+
+
+def _discount_rates(case: dict[str, Any]) -> list[float]:
+    """Các tỷ lệ ưu đãi áp dụng của ca — phục vụ hiển thị contract frontend."""
+    rates: list[float] = []
+    pct = case.get("discount_pct")
+    if pct:
+        rates.append(float(pct))
+    return rates
+
+
 def load_golden_cases(fixture_path: Path | None = None) -> list[dict[str, Any]]:
     """Load golden test vectors from JSON fixture file."""
     path = fixture_path or FIXTURE_PATH
@@ -150,11 +225,17 @@ def load_golden_cases(fixture_path: Path | None = None) -> list[dict[str, Any]]:
 def run_benchmark_evaluation(
     case_ids: list[str] | None = None,
     fixture_path: Path | None = None,
+    policy_id: str | None = None,
+    policy_version: str | None = None,
 ) -> BenchmarkRunReport:
     """
     Execute full benchmark evaluation across golden test vectors.
     Measures latency, enforces Zero-Delta on accounting fields, and returns aggregated report.
+
+    `policy_id`/`policy_version`: văn bản chính sách mà lần chạy này làm bằng chứng (policy
+    release gate). Bỏ trống nghĩa là chạy đúng bản golden đang khoá (`DEFAULT_POLICY_REF`).
     """
+    started_at = datetime.now(UTC).isoformat()
     all_cases = load_golden_cases(fixture_path)
     if case_ids:
         target_cases = [c for c in all_cases if c["case_id"] in case_ids]
@@ -185,6 +266,12 @@ def run_benchmark_evaluation(
                     delta_vnd=0,
                     execution_time_ms=round(exec_time, 3),
                     checked_fields=["policy_decision", "workflow_status"],
+                    name=desc,
+                    listed_price_before_tax_vnd=int(case.get("listed_price_before_tax_vnd") or 0),
+                    discount_rates=_discount_rates(case),
+                    expected=None,
+                    actual=None,
+                    passed=True,
                 )
             )
             continue
@@ -272,6 +359,16 @@ def run_benchmark_evaluation(
                 "discount_amount_vnd",
             ]
 
+            expected_amounts = _expected_amounts(case)
+            actual_amounts = _actual_amounts(calc_result)
+            contract_fields = {
+                "name": desc,
+                "listed_price_before_tax_vnd": int(listed_price),
+                "discount_rates": _discount_rates(case),
+                "expected": expected_amounts,
+                "actual": actual_amounts,
+            }
+
             if max_delta == 0:
                 results.append(
                     CaseBenchmarkResult(
@@ -282,6 +379,8 @@ def run_benchmark_evaluation(
                         delta_vnd=0,
                         execution_time_ms=round(exec_time, 3),
                         checked_fields=checked_fields,
+                        passed=True,
+                        **contract_fields,
                     )
                 )
             else:
@@ -295,6 +394,8 @@ def run_benchmark_evaluation(
                         execution_time_ms=round(exec_time, 3),
                         error_message=f"Delta mismatch: max_delta={max_delta} VND",
                         checked_fields=checked_fields,
+                        passed=False,
+                        **contract_fields,
                     )
                 )
 
@@ -309,6 +410,10 @@ def run_benchmark_evaluation(
                     delta_vnd=-1,
                     execution_time_ms=round(exec_time, 3),
                     error_message=str(e),
+                    name=desc,
+                    listed_price_before_tax_vnd=int(case.get("listed_price_before_tax_vnd") or 0),
+                    discount_rates=_discount_rates(case),
+                    passed=False,
                 )
             )
 
@@ -336,10 +441,21 @@ def run_benchmark_evaluation(
         else f"Benchmark thất bại: {failed_count} cases không đạt chuẩn."
     )
 
+    finished_at = datetime.now(UTC).isoformat()
+    golden_ref = f"{DEFAULT_POLICY_REF.policy_id} {DEFAULT_POLICY_REF.policy_version}"
+    effective_policy_id = policy_id or DEFAULT_POLICY_REF.policy_id
+    effective_policy_version = policy_version or DEFAULT_POLICY_REF.policy_version
+    alignment = (
+        "MATCH"
+        if (effective_policy_id, effective_policy_version)
+        == (DEFAULT_POLICY_REF.policy_id, DEFAULT_POLICY_REF.policy_version)
+        else "DRIFT"
+    )
+
     return BenchmarkRunReport(
         run_id=run_id,
         benchmark_suite=f"golden_scenarios_{len(results)}",
-        executed_at=datetime.now(UTC).isoformat(),
+        executed_at=finished_at,
         total_cases=len(results),
         passed_cases=passed_count,
         failed_cases=failed_count,
@@ -350,4 +466,14 @@ def run_benchmark_evaluation(
         ac_fin_01_passed=ac_fin_01_ok,
         summary=summary,
         results=results,
+        started_at=started_at,
+        finished_at=finished_at,
+        total=len(results),
+        passed=passed_count,
+        exact_match_rate=round(accuracy / 100.0, 4),
+        cases=results,
+        policy_id=effective_policy_id,
+        policy_version=effective_policy_version,
+        golden_policy_ref=golden_ref,
+        policy_alignment=alignment,
     )

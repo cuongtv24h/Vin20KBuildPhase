@@ -31,7 +31,7 @@ export function scanPolicyConflicts(policy: PolicyDocument): ConflictFinding[] {
 }
 
 /** Pre-publish gate F9: chỉ ban hành khi không có FAIL (WARN cho phép, hiển thị để Admin cân nhắc). */
-export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], now: string): RulesTestReport {
+export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], now: string, runId = 'inline'): RulesTestReport {
   const checks: RulesTestCheck[] = []
   const add = (code: string, label: string, ok: boolean | 'warn', detail: string) =>
     checks.push({ code, label, status: ok === 'warn' ? 'WARN' : ok ? 'PASS' : 'FAIL', detail })
@@ -60,8 +60,16 @@ export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], n
   const ambiguous = policy.rules.filter((r) => r.is_ambiguous)
   add('AMBIGUOUS_CLAUSES', 'Điều khoản mơ hồ', ambiguous.length ? 'warn' : true, ambiguous.length ? ambiguous.map((r) => r.source.section).join(', ') : 'Không có')
 
-  const regression = runBenchmark('inline', now, now)
+  const regression = runBenchmark(runId, now, now, { policy_id: policy.policy_id, policy_version: policy.policy_version })
   add('FORMULA_REGRESSION', 'Kiểm thử hồi quy công thức', regression.passed === regression.total, `${regression.passed}/${regression.total} ca khớp tuyệt đối`)
+  add(
+    'GOLDEN_ALIGNMENT',
+    'Đối chiếu bản golden đang khoá',
+    regression.policy_alignment === 'MATCH' ? true : 'warn',
+    regression.policy_alignment === 'MATCH'
+      ? `${policy.policy_version} khớp ${regression.golden_policy_ref}`
+      : `${policy.policy_version} chưa có bộ ca vàng riêng — đang đối chiếu với ${regression.golden_policy_ref}`,
+  )
 
   return {
     policy_id: policy.policy_id,
@@ -70,5 +78,7 @@ export function testPolicyRules(policy: PolicyDocument, all: PolicyDocument[], n
     conflict_findings: scanPolicyConflicts(policy),
     regression: { passed: regression.passed, total: regression.total },
     can_publish: policy.status === 'DRAFT' && checks.every((c) => c.status !== 'FAIL'),
+    benchmark_run_id: regression.run_id,
+    policy_alignment: regression.policy_alignment ?? 'PINNED',
   }
 }
