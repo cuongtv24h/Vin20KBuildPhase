@@ -11,6 +11,7 @@ from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
 
 from src.config import get_settings
+from src.services.llm_http import build_headers, headers_mode
 from src.services.llm_providers import ProviderConfig, resolve_provider_configs
 from src.services.llm_usage_callback import UsageTrackingHandler
 
@@ -26,6 +27,9 @@ def _create_chat_model(config: ProviderConfig, *, max_retries: int = 1) -> ChatO
     }
     if config.base_url:
         kwargs["base_url"] = config.base_url
+    # Cùng bộ header với nút "Test kết nối" (xem `llm_http.py`) — nếu không, test xanh mà chat đỏ.
+    # `api_key=None` vì khoá do SDK tự gắn qua `api_key`.
+    kwargs["default_headers"] = build_headers(mode=headers_mode())
     return ChatOpenAI(**kwargs)
 
 

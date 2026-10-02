@@ -28,6 +28,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("llm_secret_key", "LLM_SECRET_KEY", "SECRET_KEY"),
     )
 
+    #: Chế độ header HTTP khi gọi nhà cung cấp LLM (xem `src/services/llm_http.py`):
+    #: `app` = khai báo tên ứng dụng; `browser` = thêm bộ header kiểu trình duyệt, dùng khi nhà cung
+    #: cấp đứng sau Cloudflare chặn challenge. Có thể đặt bằng biến môi trường `LLM_HTTP_HEADERS`.
+    llm_http_headers: Literal["app", "browser"] = "app"
+
     # Primary LLM
     openai_api_key: str = ""
     openai_base_url: str | None = None

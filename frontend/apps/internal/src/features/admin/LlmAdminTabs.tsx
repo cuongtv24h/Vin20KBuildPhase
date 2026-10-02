@@ -341,7 +341,8 @@ function ProviderFormDialog({
                     {testResult.ok ? 'Kết nối thành công' : 'Kết nối chưa dùng được'} · {testResult.status}
                     {testResult.latency_ms > 0 && ` · ${testResult.latency_ms} ms`}
                   </p>
-                  <p className="mt-0.5">{testResult.detail}</p>
+                  {/* Chẩn đoán có thể nhiều dòng (ví dụ ca Cloudflare) — giữ nguyên xuống dòng cho dễ đọc. */}
+                  <p className="mt-0.5 whitespace-pre-line">{testResult.detail}</p>
                 </div>
               </div>
             ) : (

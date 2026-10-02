@@ -90,7 +90,13 @@ class _ProviderHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 — tên do BaseHTTPRequestHandler quy định
         type(self).seen_user_agents.append(self.headers.get("User-Agent", ""))
         if self.path.endswith("/models"):
-            if self.scenario == "ok":
+            if self.scenario == "cloudflare-ua-only":
+                # Chỉ client gửi header kiểu trình duyệt mới qua — mô phỏng Cloudflare "chặn theo kiểu client".
+                if self.headers.get("User-Agent", "").startswith("Mozilla/5.0"):
+                    self._json(404, {"error": {"message": "not found"}})
+                else:
+                    self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
+            elif self.scenario == "ok":
                 self._json(200, {"data": [{"id": "gpt-4o-mini"}, {"id": "gpt-4o"}]})
             elif self.scenario in {"cloudflare-models-only", "cloudflare-both"}:
                 self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
@@ -116,8 +122,18 @@ class _ProviderHandler(BaseHTTPRequestHandler):
                 ],
                 "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
             }
-            if self.scenario in {"ok", "cloudflare-models-only"}:
+            if self.scenario == "cloudflare-ua-only":
+                if self.headers.get("User-Agent", "").startswith("Mozilla/5.0"):
+                    self._json(200, payload)
+                else:
+                    self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
+            elif self.scenario in {"ok", "cloudflare-models-only"}:
                 self._json(200, payload)
+            elif self.scenario == "homepage":
+                # Base URL trỏ vào trang web: mọi đường dẫn đều trả trang chủ (HTML), kèm 200.
+                self._send(200, b"<!DOCTYPE html><html><body>Trang chu</body></html>", "text/html")
+            elif self.scenario == "bad-key":
+                self._json(401, {"error": {"message": "Invalid API key"}})
             elif self.scenario == "missing-v1" and self.path.startswith("/v1/"):
                 self._json(200, payload)
             else:

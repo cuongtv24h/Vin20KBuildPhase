@@ -403,3 +403,33 @@ async def test_doi_khoa_ma_hoa_khong_lam_mat_nha_cung_cap_nhung_phai_nhap_lai_ke
         configs = await refresh_provider_cache(session)
     assert configs == []
     assert any("không giải mã được" in record.message.lower() for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_test_ket_noi_xanh_thi_chat_that_cung_chay_duoc(client: AsyncClient, provider_server, monkeypatch) -> None:
+    """Nút Test kết nối không được nói dối: khi nó báo OK thì Copilot gọi thật cũng phải qua.
+
+    Kịch bản: nhà cung cấp chỉ cho client giống trình duyệt. Bật `LLM_HTTP_HEADERS=browser` rồi:
+    1) bấm Test kết nối → OK; 2) gọi thật qua `get_llm()` → trả lời được. Cả hai dùng chung bộ header.
+    """
+    from src.services.llm import get_llm
+
+    base, seen = provider_server("cloudflare-ua-only")
+    monkeypatch.setenv("LLM_HTTP_HEADERS", "browser")
+    payload = _provider_payload("Sau Cloudflare", 10, "cloudflare-model", base_url=base)
+    created = await client.post("/api/v1/admin/llm/providers", json=payload, headers=ADMIN_HEADERS)
+    assert created.status_code == 201, created.text
+
+    tested = await client.post(
+        f"/api/v1/admin/llm/providers/{created.json()['provider_id']}/test", headers=ADMIN_HEADERS
+    )
+    assert tested.status_code == 200
+    body = tested.json()
+    assert body["ok"] is True, body["detail"]
+    assert body["status"] == "OK"
+
+    seen.clear()
+    answer = await get_llm().ainvoke("ping")
+    assert answer.content == "pong"
+    assert seen and seen[0].startswith("Mozilla/5.0"), seen[0]
+

@@ -102,3 +102,53 @@ async def test_chua_co_khoa_thi_bao_not_configured() -> None:
     assert result.ok is False
     assert result.status == "NOT_CONFIGURED"
     assert "API key" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_chan_theo_kieu_client_thi_bao_dung_cach_bat(provider_server, monkeypatch) -> None:
+    """Cloudflare chỉ chặn client khai báo kiểu ứng dụng → phải chỉ đúng công tắc cần bật.
+
+    Ca này sát thực tế: API vẫn chạy (trình duyệt/ứng dụng khác gọi được) nhưng máy chủ bị challenge.
+    Nếu chỉ nói "bị Cloudflare chặn" thì Admin không biết làm gì; câu trả lời phải là việc cụ thể.
+    """
+    base, _ = provider_server("cloudflare-ua-only")
+    monkeypatch.delenv("LLM_HTTP_HEADERS", raising=False)
+
+    result = await probe_llm_provider(base, "sk-test", "gpt-4o-mini")
+    assert result.ok is False
+    assert "Cloudflare" in result.detail
+    # Chỉ đúng cách sửa: bật chế độ header kiểu trình duyệt.
+    assert "LLM_HTTP_HEADERS=browser" in result.detail
+    # Và phải nói rõ hệ quả: Copilot cũng bị chặn, không chỉ nút Test.
+    assert "Copilot" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_bat_che_do_header_trinh_duyet_thi_test_xanh(provider_server, monkeypatch) -> None:
+    """Cùng nhà cung cấp đó: bật `LLM_HTTP_HEADERS=browser` là Test kết nối xanh — đúng cách sửa đã chỉ."""
+    base, _ = provider_server("cloudflare-ua-only")
+    monkeypatch.setenv("LLM_HTTP_HEADERS", "browser")
+
+    result = await probe_llm_provider(base, "sk-test", "gpt-4o-mini")
+    assert result.ok is True, result.detail
+    assert result.method == "POST /chat/completions"
+
+
+@pytest.mark.asyncio
+async def test_chan_ca_hai_kieu_client_thi_phai_noi_dung_viec_can_lam(provider_server, monkeypatch) -> None:
+    """Bị chặn cả hai kiểu header → đây là chặn phía hạ tầng/IP: phải nêu IP máy chủ và 3 cách xử lý."""
+    base, _ = provider_server("cloudflare-both")
+    monkeypatch.delenv("LLM_HTTP_HEADERS", raising=False)
+    monkeypatch.setenv("LLM_PUBLIC_IP", "203.0.113.9")
+
+    result = await probe_llm_provider(base, "sk-test", "gpt-4o-mini")
+    assert result.ok is False
+    # Đã thử cả hai kiểu → nói rõ không sửa được bằng header.
+    assert "cả hai kiểu header" in result.detail
+    # Có IP để gửi cho nhà cung cấp allowlist (không bắt Admin tự đi tra).
+    assert "203.0.113.9" in result.detail
+    assert "allowlist" in result.detail
+    assert "proxy" in result.detail
+    # Vẫn không được đổ HTML thô.
+    assert "<!DOCTYPE" not in result.detail
+    assert "<html" not in result.detail

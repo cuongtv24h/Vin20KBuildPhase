@@ -823,6 +823,44 @@ Sau đó vào **Quản trị → Nhà cung cấp LLM**, mở nhà cung cấp, **
   `calls` / `failed_calls`, và mỗi bản ghi usage có cờ `is_fallback` — nhà cung cấp lỗi hiện ra ngay ở đó.
 * Khi **cả chuỗi** đều lỗi: Copilot không trả HTTP 500 mà rơi về chế độ offline kèm `degraded_reason` (đường đã có từ trước).
 
+### 14.7 Hỏi tiếp (cùng đợt 10) — FallBack2 (`codecraftapi.com`) vẫn bị Cloudflare chặn: giờ làm gì?
+
+**Bằng chứng thu được (không phải suy đoán):**
+
+* Sandbox **không có Internet ra ngoài** (mọi `curl https://…` đều `http=000`, kể cả `example.com`) — nên không thể tự gọi nhà cung cấp để kiểm chứng.
+* Bằng đường khác (khác IP, client khác), `https://codecraftapi.com/v1/models` **trả JSON bình thường**:
+  `{"error":{"message":"Missing API key. Send it as a Bearer token or x-api-key header.","type":"authentication_error"}}`
+  ⇒ **API sống, không hỏng, không chặn tất cả**; Cloudflare chỉ đang chặn client/máy chủ của mình. Đây đúng là
+  chặn ở phía hạ tầng, không phải lỗi Base URL/API key của Admin.
+
+**Đã sửa gì để lần sau không phải đoán:**
+
+| Việc | Chi tiết |
+| :--- | :--- |
+| Header dùng chung cho probe **và** client thật | `src/services/llm_http.py`: hai chế độ `app` (mặc định, khai báo tên ứng dụng) và `browser` (thêm bộ header trình duyệt, vẫn giữ `X-Client-App` + đuôi `P096-VLandFuture`). `llm.py` truyền `default_headers` cho `ChatOpenAI` nên **test và chat đi cùng một kiểu header** — trước đây có thể lệch nhau (test xanh, chat đỏ) |
+| Công tắc cho Admin | `LLM_HTTP_HEADERS=app|browser` trong `.env` (mặc định `app`, không đổi hành vi cũ) |
+| Chẩn đoán khi bị Cloudflare | Probe **thử thêm chế độ header còn lại** và **tra IP công khai của máy chủ** (cache 10 phút, có thể điền sẵn `LLM_PUBLIC_IP`), rồi trả lời đúng câu hỏi: *đổi header là qua, hay bị chặn IP?* |
+| Câu trả lời cho Admin (3 dòng) | (1) Khẳng định không phải lỗi Base URL/API key + **nói rõ Copilot cũng bị chặn**, không chỉ nút Test. (2) Kết quả chẩn đoán: *"gửi header kiểu trình duyệt thì QUA được ⇒ thêm `LLM_HTTP_HEADERS=browser` rồi `git up --force`"* hoặc *"đã thử cả hai kiểu header đều bị chặn ⇒ chặn theo IP"*. (3) Ba cách xử lý: nhờ nhà cung cấp allowlist **IP công khai của máy chủ** (in kèm IP), hỏi hostname API không qua Cloudflare (`api.<tên miền>`), hoặc trỏ Base URL qua proxy/relay ở mạng khác |
+| Giao diện | Câu chẩn đoán nhiều dòng nên panel kết quả đổi sang `whitespace-pre-line` (trước đó dồn thành một khối, rất khó đọc) |
+
+**Kiểm chứng (chạy thật trong sandbox):** `pytest` **556 passed**; `ruff` sạch; `tsc -b apps/internal` exit 0;
+`npm run lint` 124 cảnh báo / 0 lỗi (không tăng); build OK, bundle có `whitespace-pre-line`; `npm test` **39/39**.
+Test mới khoá lại đúng các hành vi vừa thêm:
+
+* `test_client_that_gui_dung_bo_header_ma_test_ket_noi_bao_cao` — client thật gửi **đúng** UA theo chế độ (`app` → `P096-VLandFuture…`; `browser` → `Mozilla/5.0…`), bắt bằng server giả.
+* `test_test_ket_noi_xanh_thi_chat_that_cung_chay_duoc` — Test kết nối báo OK thì `get_llm().ainvoke()` thật cũng trả lời được (nút Test không nói dối).
+* `test_chan_theo_kieu_client_thi_bao_dung_cach_bat`, `test_bat_che_do_header_trinh_duyet_thi_test_xanh`,
+  `test_chan_ca_hai_kieu_client_thi_phai_noi_dung_viec_can_lam` — ba nhánh của câu chẩn đoán.
+* Server giả nay trả cùng một kiểu phản hồi cho mọi đường dẫn theo từng kịch bản (trước đây kịch bản "trang chủ"/"sai khoá" lại trả Cloudflare ở đường chat — không giống nhà cung cấp thật, và che mất chẩn đoán đúng).
+
+**Chưa kiểm chứng — và cách biết:** ca của `codecraftapi.com` rơi vào nhánh nào (chỉ chặn theo kiểu client, hay chặn theo IP)
+**chỉ máy chủ mới trả lời được**; sandbox không có Internet ra ngoài. Sau khi deploy, bấm **Test kết nối** một lần là
+biết: nếu câu chẩn đoán chỉ việc bật `LLM_HTTP_HEADERS=browser` thì làm theo (một dòng `.env` + `git up --force` +
+Test lại); nếu báo chặn cả hai kiểu thì phải nhờ nhà cung cấp allowlist IP (câu trả lời in kèm IP máy chủ).
+
+**Ảnh hưởng hiện tại với Copilot:** `codecraftapi.com` là **FallBack2** — Copilot vẫn chạy bình thường qua nhà cung
+cấp chính; nhà cung cấp này chỉ được gọi khi hai nhà cung cấp trước lỗi, nên không cần tắt vội.
+
 ---
 
 ## 10. Còn lại (nói thẳng, không hứa quá)

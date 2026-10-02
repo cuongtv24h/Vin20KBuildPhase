@@ -4,11 +4,16 @@ Vì sao tách khỏi endpoint: bản đầu gọi `GET {base_url}/models` bằng
 
 1. **Bị Cloudflare chặn**: httpx mặc định gửi `User-Agent: python-httpx/...`; nhà cung cấp nào đứng sau
    Cloudflare có bật chống bot sẽ trả `403` kèm trang `"Just a moment..."` (HTML) — dù API vẫn dùng bình
-   thường từ ứng dụng khác (trình duyệt hoặc client khác). Nay gửi `User-Agent`/`Accept` tường minh.
+   thường từ ứng dụng khác (trình duyệt hoặc client khác). Nay gửi header tường minh, dùng chung với client
+   thật (`src/services/llm_http.py`).
 2. **Chỉ thử `/models`**: nhiều gateway (proxy OpenAI-compatible) không mở `/models` nhưng vẫn chạy tốt
    `/chat/completions` — đúng endpoint mà ứng dụng thật dùng. Nay thử cả hai, và báo đã thử bằng đường nào.
 3. **Đổ HTML thô vào màn hình**: Admin nhận một đống `<!DOCTYPE html>...` vô nghĩa. Nay nhận dạng HTML/Cloudflare
    và nói rõ nguyên nhân + việc cần kiểm tra.
+
+Từ đợt 10 bổ sung phần "chặn thì phải biết chặn kiểu gì": khi gặp Cloudflare, probe **thử thêm một lần bằng
+chế độ header còn lại** (ứng dụng ↔ trình duyệt) và tra IP công khai của máy chủ, để câu trả lời trả lời được
+đúng câu hỏi: *đổi header là qua, hay nhà cung cấp chặn IP máy chủ này?* — hai nguyên nhân này cách sửa khác hẳn nhau.
 """
 
 from __future__ import annotations
@@ -20,13 +25,19 @@ from dataclasses import dataclass
 
 import httpx
 
+from src.services.llm_http import (
+    APP_USER_AGENT,
+    build_headers,
+    headers_mode,
+    other_mode,
+    public_ip,
+)
+
+#: Giữ tên cũ cho tương thích (test và tài liệu đang dùng).
+USER_AGENT = APP_USER_AGENT
+
 #: Base URL mặc định khi Admin để trống (giống nhà cung cấp OpenAI).
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
-
-#: Nhiều nhà cung cấp đứng sau Cloudflare chặn request thiếu User-Agent "trông giống thật".
-#: Đây không phải giả mạo trình duyệt — chỉ là tên ứng dụng rõ ràng kèm nơi liên hệ, đủ để qua bộ lọc
-#: "chặn client lạ không khai báo".
-USER_AGENT = "P096-VLandFuture-Healthcheck/1.0 (+https://demoday.work.gd)"
 
 #: Dấu hiệu trang challenge của Cloudflare (bot-protection) trong phần đầu nội dung trả về.
 CLOUDFLARE_MARKERS = ("just a moment", "cf-chl", "attention required", "cloudflare", "checking your browser")
@@ -76,16 +87,15 @@ def _short(text: str, limit: int = 200) -> str:
     return clean if len(clean) <= limit else clean[: limit - 1] + "…"
 
 
-def _diagnose(status_code: int, text: str, content_type: str, url: str) -> str:
+def _diagnose(status_code: int, text: str, content_type: str, url: str, mitigated: str = "") -> str:
     """Biến phản hồi lỗi thành câu tiếng Việt nói rõ nên kiểm tra gì — không bao giờ đổ HTML thô."""
     if _looks_like_html(text, content_type):
         if _is_cloudflare(text):
+            # Câu này còn được thay bằng bản đầy đủ hơn ở `_cloudflare_detail` khi có kết quả chẩn đoán.
+            kind = "challenge (bắt trình duyệt giải JavaScript)" if "just a moment" in text.lower() else "chặn"
             return (
-                f"Bị Cloudflare chặn (trang “Just a moment…” ở {url}). Nhà cung cấp đang bật chống bot với "
-                "request không phải trình duyệt. Cần kiểm tra: (1) Base URL phải là địa chỉ API — thường có "
-                "`/v1` ở cuối, không phải trang chủ; (2) nhà cung cấp có cho phép gọi API từ máy chủ không "
-                "(một số chặn IP datacenter/AWS); (3) nếu là dịch vụ của mình, thêm đường dẫn API vào allowlist "
-                "chống bot của Cloudflare."
+                f"Bị Cloudflare {kind} ở {url} (HTTP {status_code}). Đây là chặn ở phía hạ tầng nhà cung cấp, "
+                "không phải lỗi Base URL hay API key."
             )
         return (
             f"{url} trả về trang HTML thay vì JSON (HTTP {status_code}). Base URL nhiều khả năng đang trỏ vào "
@@ -102,6 +112,75 @@ def _diagnose(status_code: int, text: str, content_type: str, url: str) -> str:
     return f"Nhà cung cấp trả HTTP {status_code} tại {url}: {_short(text)}"
 
 
+def _cloudflare_detail(
+    url: str,
+    status_code: int,
+    *,
+    mode: str,
+    alt_mode_ok: bool | None,
+    ip: str,
+) -> str:
+    """Câu trả lời cho ca Cloudflare: máy chủ này bị chặn, và cần làm gì.
+
+    Phải nói rõ hệ quả quan trọng nhất: **Copilot gọi API từ chính máy chủ này**, nên nếu nhà cung cấp
+    chặn ở tầng IP/hạ tầng thì không có cách sửa nào ở phía ứng dụng — chỉ có allowlist IP, hostname khác,
+    hoặc proxy. Còn nếu chỉ chặn theo kiểu header thì nói ngay cách bật.
+    """
+    lines = [
+        f"Cloudflare đang chặn MÁY CHỦ NÀY bằng trang challenge “Just a moment…” ở {url} (HTTP {status_code}) "
+        "— không phải lỗi Base URL hay API key.",
+        "Copilot gọi API từ chính máy chủ này nên nhà cung cấp sẽ không dùng được cho tới khi thông mạng.",
+    ]
+    if alt_mode_ok is True:
+        other = other_mode(mode)
+        lines.append(
+            f"Chẩn đoán: gửi header kiểu {'trình duyệt' if other == 'browser' else 'ứng dụng'} thì QUA được ⇒ "
+            "nhà cung cấp chỉ chấp nhận kiểu client đó. Cách sửa: thêm "
+            f"`LLM_HTTP_HEADERS={other}` vào `.env` của máy chủ rồi chạy `git up --force`, sau đó bấm Test lại."
+        )
+    else:
+        diff = ""
+        if alt_mode_ok is False:
+            diff = (
+                "Chẩn đoán: đã thử cả hai kiểu header (ứng dụng và trình duyệt) đều bị chặn ⇒ nhiều khả năng "
+                "chặn theo IP/dải IP máy chủ, không sửa được bằng header. "
+            )
+        lines.append(
+            diff
+            + "Cách xử lý (chọn một): (1) nhờ nhà cung cấp allowlist IP công khai của máy chủ"
+            + (f" {ip}" if ip else " (xem IP trong khối này — bật `LLM_PUBLIC_IP` nếu chưa tự tra được)")
+            + "; (2) hỏi nhà cung cấp hostname API khác không qua Cloudflare (thường là `api.<tên miền>`); "
+            "(3) trỏ Base URL qua một proxy/relay ở mạng khác."
+        )
+    return "\n".join(lines)
+
+
+async def _try_chat(client: httpx.AsyncClient, chat_url: str, model: str, api_key: str, mode: str) -> tuple[bool, str]:
+    """Một lượt `POST /chat/completions`. Trả `(thành công, chẩn đoán nếu hỏng)`."""
+    headers = build_headers(api_key, mode=mode, json_body=True)
+    try:
+        resp = await client.post(
+            chat_url,
+            headers=headers,
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — lỗi mạng hiển thị cho Admin, không raise
+        return False, f"Không gọi được {chat_url}: {exc}"
+    ctype = resp.headers.get("content-type", "")
+    if 200 <= resp.status_code < 300 and not _looks_like_html(resp.text, ctype) and _looks_like_json(resp.text, ctype):
+        return True, ""
+    mitigated = resp.headers.get("cf-mitigated", "")
+    return False, _diagnose(resp.status_code, resp.text, ctype, chat_url, mitigated)
+
+
+def _is_cloudflare_failure(text: str) -> bool:
+    return "Cloudflare" in text and "challenge" in text
+
+
 async def probe_llm_provider(
     base_url: str | None,
     api_key: str | None,
@@ -111,26 +190,25 @@ async def probe_llm_provider(
 ) -> ProbeResult:
     """Gọi thử nhà cung cấp: ưu tiên `GET /models`, sau đó `POST /chat/completions` (endpoint app thật dùng).
 
+    Header lấy từ `src/services/llm_http.py` — **giống hệt** client thật, để test và chạy thật không lệch nhau.
     Trả về `ProbeResult` với `detail` luôn đọc được (không HTML thô), kèm đường đã thử để Admin đối chiếu.
     """
     base = (base_url or DEFAULT_BASE_URL).strip().rstrip("/")
     if not api_key:
         return ProbeResult(ok=False, status="NOT_CONFIGURED", detail="Chưa có API key.", latency_ms=0.0)
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-        "User-Agent": USER_AGENT,
-    }
+    mode = headers_mode()
+    model = (model_name or "").strip() or "gpt-4o-mini"
     attempts: list[str] = []
     started_all = time.perf_counter()
+    cloudflare_hit = False
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         # 1) GET /models — rẻ và cho biết luôn danh sách model.
         models_url = f"{base}/models"
         attempt_started = time.perf_counter()
         try:
-            resp = await client.get(models_url, headers=headers)
+            resp = await client.get(models_url, headers=build_headers(api_key, mode=mode))
             ctype = resp.headers.get("content-type", "")
             if resp.status_code == 200 and not _looks_like_html(resp.text, ctype) and _looks_like_json(resp.text, ctype):
                 try:
@@ -148,7 +226,9 @@ async def probe_llm_provider(
                     url=models_url,
                     http_status=200,
                 )
-            attempts.append(_diagnose(resp.status_code, resp.text, ctype, models_url))
+            detail = _diagnose(resp.status_code, resp.text, ctype, models_url, resp.headers.get("cf-mitigated", ""))
+            attempts.append(detail)
+            cloudflare_hit = cloudflare_hit or _is_cloudflare_failure(detail)
         except Exception as exc:  # noqa: BLE001 — lỗi mạng hiển thị cho Admin, không raise
             attempts.append(f"Không gọi được {models_url}: {exc}")
 
@@ -158,9 +238,9 @@ async def probe_llm_provider(
         try:
             resp = await client.post(
                 chat_url,
-                headers={**headers, "Content-Type": "application/json"},
+                headers=build_headers(api_key, mode=mode, json_body=True),
                 json={
-                    "model": (model_name or "").strip() or "gpt-4o-mini",
+                    "model": model,
                     "messages": [{"role": "user", "content": "ping"}],
                     "max_tokens": 1,
                 },
@@ -184,7 +264,9 @@ async def probe_llm_provider(
                     url=chat_url,
                     http_status=resp.status_code,
                 )
-            attempts.append(_diagnose(resp.status_code, resp.text, chat_ctype, chat_url))
+            detail = _diagnose(resp.status_code, resp.text, chat_ctype, chat_url, resp.headers.get("cf-mitigated", ""))
+            attempts.append(detail)
+            cloudflare_hit = cloudflare_hit or _is_cloudflare_failure(detail)
         except Exception as exc:  # noqa: BLE001 — lỗi mạng hiển thị cho Admin, không raise
             attempts.append(f"Không gọi được {chat_url}: {exc}")
 
@@ -196,9 +278,9 @@ async def probe_llm_provider(
             try:
                 resp = await client.post(
                     v1_chat_url,
-                    headers={**headers, "Content-Type": "application/json"},
+                    headers=build_headers(api_key, mode=mode, json_body=True),
                     json={
-                        "model": (model_name or "").strip() or "gpt-4o-mini",
+                        "model": model,
                         "messages": [{"role": "user", "content": "ping"}],
                         "max_tokens": 1,
                     },
@@ -225,11 +307,33 @@ async def probe_llm_provider(
             except Exception:  # noqa: BLE001 — bước dò thêm, hỏng thì bỏ qua và dùng chẩn đoán gốc
                 pass
 
+        # 4) Bị Cloudflare chặn: đây là ca cần chẩn đoán kỹ nhất (nguyên nhân có thể ở phía nhà cung cấp,
+        #    không phải cấu hình). Thử thêm chế độ header còn lại + tra IP công khai của máy chủ.
+        alt_mode_ok: bool | None = None
+        ip = ""
+        if cloudflare_hit:
+            alt_mode = other_mode(mode)
+            alt_ok, _ = await _try_chat(client, chat_url, model, api_key, alt_mode)
+            alt_mode_ok = alt_ok
+            if not alt_ok and not re.search(r"/v\d+$", base):
+                alt_ok, _ = await _try_chat(client, f"{base}/v1/chat/completions", model, api_key, alt_mode)
+                alt_mode_ok = alt_ok
+            ip = await public_ip()
+
     latency = (time.perf_counter() - started_all) * 1000.0
     unreachable = all("Không gọi được" in a for a in attempts)
     # Lỗi Cloudflare/HTML ở lần thử chat sát thực tế hơn → đưa lên trước để Admin đọc thấy ngay.
     primary = attempts[-1] if len(attempts) > 1 else attempts[0]
-    extra = f" (đã thử GET /models: {_short(attempts[0], 160)})" if len(attempts) > 1 and attempts[0] not in primary else ""
+    if cloudflare_hit:
+        primary = _cloudflare_detail(f"{base}/chat/completions", 403, mode=mode, alt_mode_ok=alt_mode_ok, ip=ip)
+    # Cả hai đường đều bị Cloudflare ⇒ câu chẩn đoán đã nói đủ, không lặp lại.
+    # Nhưng nếu `/models` cho câu trả lời khác (khoá sai, trang chủ…) thì phải giữ lại — đó mới là thông tin.
+    ca_hai_deu_cloudflare = cloudflare_hit and bool(attempts) and _is_cloudflare_failure(attempts[0])
+    extra = (
+        f" (đã thử GET /models: {_short(attempts[0], 160)})"
+        if len(attempts) > 1 and attempts[0] not in primary and not ca_hai_deu_cloudflare
+        else ""
+    )
     return ProbeResult(
         ok=False,
         status="UNREACHABLE" if unreachable else "ERROR",
