@@ -77,9 +77,15 @@ class _ProviderHandler(BaseHTTPRequestHandler):
     scenario = "ok"
     seen_user_agents: list[str] = []
 
-    def _send(self, status: int, body: bytes, content_type: str) -> None:
+    def version_string(self) -> str:
+        """Tên server trong header `Server` — giống nhà cung cấp thật đứng sau Cloudflare."""
+        return "cloudflare"
+
+    def _send(self, status: int, body: bytes, content_type: str, extra: dict | None = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
+        for key, value in (extra or {}).items():
+            self.send_header(key, value)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -95,11 +101,23 @@ class _ProviderHandler(BaseHTTPRequestHandler):
                 if self.headers.get("User-Agent", "").startswith("Mozilla/5.0"):
                     self._json(404, {"error": {"message": "not found"}})
                 else:
-                    self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
+                    self._send(
+                    403,
+                    CLOUDFLARE_HTML.encode(),
+                    "text/html; charset=UTF-8",
+                    # Header thật Cloudflare gửi kèm — Admin cần để gửi cho nhà cung cấp.
+                    {"cf-mitigated": "challenge", "cf-ray": "8f3c1a2b9d6e4f11-SIN"},
+                )
             elif self.scenario == "ok":
                 self._json(200, {"data": [{"id": "gpt-4o-mini"}, {"id": "gpt-4o"}]})
             elif self.scenario in {"cloudflare-models-only", "cloudflare-both"}:
-                self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
+                self._send(
+                    403,
+                    CLOUDFLARE_HTML.encode(),
+                    "text/html; charset=UTF-8",
+                    # Header thật Cloudflare gửi kèm — Admin cần để gửi cho nhà cung cấp.
+                    {"cf-mitigated": "challenge", "cf-ray": "8f3c1a2b9d6e4f11-SIN"},
+                )
             elif self.scenario == "homepage":
                 self._send(200, b"<!DOCTYPE html><html><body>Trang chu</body></html>", "text/html")
             elif self.scenario == "bad-key":
@@ -126,7 +144,13 @@ class _ProviderHandler(BaseHTTPRequestHandler):
                 if self.headers.get("User-Agent", "").startswith("Mozilla/5.0"):
                     self._json(200, payload)
                 else:
-                    self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
+                    self._send(
+                    403,
+                    CLOUDFLARE_HTML.encode(),
+                    "text/html; charset=UTF-8",
+                    # Header thật Cloudflare gửi kèm — Admin cần để gửi cho nhà cung cấp.
+                    {"cf-mitigated": "challenge", "cf-ray": "8f3c1a2b9d6e4f11-SIN"},
+                )
             elif self.scenario in {"ok", "cloudflare-models-only"}:
                 self._json(200, payload)
             elif self.scenario == "homepage":
@@ -137,7 +161,13 @@ class _ProviderHandler(BaseHTTPRequestHandler):
             elif self.scenario == "missing-v1" and self.path.startswith("/v1/"):
                 self._json(200, payload)
             else:
-                self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
+                self._send(
+                    403,
+                    CLOUDFLARE_HTML.encode(),
+                    "text/html; charset=UTF-8",
+                    # Header thật Cloudflare gửi kèm — Admin cần để gửi cho nhà cung cấp.
+                    {"cf-mitigated": "challenge", "cf-ray": "8f3c1a2b9d6e4f11-SIN"},
+                )
         else:
             self._json(404, {"error": {"message": "not found"}})
 

@@ -861,6 +861,41 @@ Test lại); nếu báo chặn cả hai kiểu thì phải nhờ nhà cung cấp
 **Ảnh hưởng hiện tại với Copilot:** `codecraftapi.com` là **FallBack2** — Copilot vẫn chạy bình thường qua nhà cung
 cấp chính; nhà cung cấp này chỉ được gọi khi hai nhà cung cấp trước lỗi, nên không cần tắt vội.
 
+### 14.8 Kết quả chẩn đoán trên VM (người dùng dán lại) — `codecraftapi.com` bị chặn ở tầng IP, không sửa được từ phía ứng dụng
+
+**Người dùng nhận được (nguyên văn, rút gọn):**
+
+> Cloudflare đang chặn MÁY CHỦ NÀY bằng trang challenge “Just a moment…” ở `https://codecraftapi.com/v1/chat/completions` (HTTP 403) — không phải lỗi Base URL hay API key. … **Chẩn đoán: đã thử cả hai kiểu header (ứng dụng và trình duyệt) đều bị chặn ⇒ nhiều khả năng chặn theo IP/dải IP máy chủ** … IP công khai của máy chủ **18.140.199.175** …
+
+**Kết luận: chẩn đoán đã đúng, và đây là giới hạn thật — không có cách sửa nào ở phía mã ứng dụng.**
+
+* Công tắc `LLM_HTTP_HEADERS=browser` **đã được thử tự động** ngay trong lượt test đó (đúng như thiết kế §14.7) và vẫn bị chặn ⇒ không phải chuyện header/UA.
+* Máy chủ là `18.140.199.175` — IP **AWS (Singapore)**, thuộc dải datacenter mà Cloudflare/Bot Fight Mode đánh giá rủi ro cao. Vì vậy `Mozilla/5.0…` cũng không qua được.
+* **Đã tự kiểm tra DNS (làm được từ sandbox, không cần Internet HTTP):** `codecraftapi.com` và `www.codecraftapi.com` đều phân giải về `104.21.15.95`, `172.67.162.24`, IPv6 `2606:4700:…` — **toàn bộ là IP Cloudflare**; các hostname khác (`api.`, `api2.`, `gateway.`, `gw.`, `v1.`, `llm.`, `openai.`, `relay.`, `direct.`, `origin.`, `edge.`, `proxy.`, `dash.`, `panel.`, `admin.`, `docs.`, `status.`, `cdn.`) **không tồn tại**; các tên miền khác (`codecraftapi.net/.io/.ai/.dev/.vn`) cũng không có bản ghi. ⇒ **Không có hostname thay thế nào để trỏ Base URL sang.**
+
+**Đã bổ sung (đợt này):** câu chẩn đoán Cloudflare nay kèm **một dòng bằng chứng để gửi thẳng cho nhà cung cấp** —
+`HTTP 403 · cf-mitigated=challenge · cf-ray=… · server=cloudflare · từ IP máy chủ … · lúc <ISO-8601>`. Bộ phận hỗ trợ
+của nhà cung cấp luôn hỏi `cf-ray`; trước đây Admin phải tự đi tìm. `cf-ray`/`cf-mitigated`/`server` được lấy từ chính
+phản hồi 403 bị chặn (không phải suy đoán), có test chốt lại.
+
+**Việc cần làm (theo thứ tự thực tế):**
+
+1. **Gửi nhà cung cấp** nội dung: máy chủ `18.140.199.175` (AWS Singapore) bị Cloudflare challenge khi gọi
+   `POST /v1/chat/completions` với Bearer token; kèm dòng bằng chứng (cf-ray) trong câu chẩn đoán; đề nghị **allowlist IP**
+   hoặc cấp **hostname/endpoint không qua Cloudflare**. Nếu họ dùng Cloudflare Access/Bot Management, họ có thể tạo rule
+   cho phép theo IP — đây là việc **chỉ họ làm được**.
+2. **Trong lúc chờ:** `codecraftapi.com` là FallBack2 nên **không ảnh hưởng Copilot** — hệ thống vẫn trả lời qua nhà cung cấp
+   chính. Muốn sạch log thì tắt `is_active` của bản ghi đó (nút trong màn hình Nhà cung cấp LLM). Chi phí để giữ nguyên cũng
+   rất thấp: Cloudflare trả 403 trong ~60 ms và **không tiêu token**, nên mỗi lượt phải chuyển tiếp chỉ chậm thêm ~0,06 giây.
+3. **Nếu cần một tầng dự phòng thật:** thêm một nhà cung cấp **khác** chạy được từ máy chủ này (đo bằng chính nút Test kết nối)
+   làm FallBack2, thay vì chờ nhà cung cấp cũ sửa.
+4. **Không nên** trỏ Base URL qua proxy/relay công cộng để "lách" Cloudflare: khoá API sẽ đi qua bên thứ ba. Chỉ dùng relay
+   khi **nhà cung cấp đồng ý** (ví dụ họ cấp endpoint riêng), hoặc relay do chính mình kiểm soát.
+
+**Muốn hết hẳn phụ thuộc một IP:** dài hạn nên thêm tính năng "header bổ sung cho từng nhà cung cấp" (ví dụ service token
+`CF-Access-Client-Id/Secret` nếu nhà cung cấp phát) — hiện **chưa làm được** vì cần thêm cột vào bảng `llm_providers` mà dự án
+chưa có cơ chế migration cho DB đang chạy (ghi ở §10 mục 2). Đây là việc của một đợt sau, không phải bây giờ.
+
 ---
 
 ## 10. Còn lại (nói thẳng, không hứa quá)
