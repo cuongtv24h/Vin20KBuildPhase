@@ -164,7 +164,8 @@ def _cloudflare_detail(
             + "Cách xử lý (chọn một): (1) nhờ nhà cung cấp allowlist IP công khai của máy chủ"
             + (f" {ip}" if ip else " (xem IP trong khối này — bật `LLM_PUBLIC_IP` nếu chưa tự tra được)")
             + "; (2) hỏi nhà cung cấp hostname API khác không qua Cloudflare (thường là `api.<tên miền>`); "
-            "(3) trỏ Base URL qua một proxy/relay ở mạng khác."
+            "(3) trỏ Base URL qua relay do chính bạn kiểm soát ở mạng không bị chặn — nếu ứng dụng cùng nhà "
+            "cung cấp đang chạy được trên Vercel thì dùng mẫu `deploy/vercel-relay/README.md` trong repo."
         )
     if evidence:
         lines.append(

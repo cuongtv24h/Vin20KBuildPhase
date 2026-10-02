@@ -896,6 +896,51 @@ phản hồi 403 bị chặn (không phải suy đoán), có test chốt lại.
 `CF-Access-Client-Id/Secret` nếu nhà cung cấp phát) — hiện **chưa làm được** vì cần thêm cột vào bảng `llm_providers` mà dự án
 chưa có cơ chế migration cho DB đang chạy (ghi ở §10 mục 2). Đây là việc của một đợt sau, không phải bây giờ.
 
+### 14.9 Hỏi tiếp — "ứng dụng trên Vercel dùng cùng nhà cung cấp thì KHÔNG bị chặn, vì sao?"
+
+Câu này quan trọng vì nó **thu hẹp nguyên nhân**: cùng một nhà cung cấp, cùng API — vậy khác biệt nằm ở
+**đường đi của request**, không phải ở tài khoản/khoá.
+
+**Bốn khác biệt có thể có (xếp theo khả năng, kèm cách biết chắc):**
+
+| # | Khác biệt | Vì sao nó làm Vercel qua được | Cách phân biệt |
+| :--- | :--- | :--- | :--- |
+| 1 | **Vercel gọi từ trình duyệt** (client-side, IP của người dùng) | IP dân dụng không nằm trong danh sách "datacenter" mà Bot Fight Mode chặn; trình duyệt thật **giải được** challenge JS và giữ cookie `cf_clearance` cho các lần sau | DevTools → tab Network của ứng dụng Vercel: nếu thấy request tới `codecraftapi.com` thì là gọi từ trình duyệt; nếu chỉ thấy tên miền của chính app thì là gọi từ server |
+| 2 | **Khác dải IP ra Internet** | EC2 của mình là `18.140.199.175` (AWS **Singapore**); Vercel serverless thường ở AWS **us-east-1**/iad1 — cùng nhà cung cấp cloud nhưng khác dải, điểm rủi ro khác nhau | Chạy `curl` (bên dưới) **trên VM**: nếu bị 403 + HTML ⇒ chặn theo IP; chạy cùng lệnh đó ở một nơi khác để đối chiếu |
+| 3 | **"Dấu vân tay" client** (TLS JA3/JA4 + HTTP/2) | Cloudflare chấm điểm cả *cách* client bắt tay TLS, không chỉ User-Agent. `httpx` (Python/OpenSSL) là vân tay bị gắn cờ rất phổ biến; SDK Node/undici của Vercel khác hẳn | Cùng phép thử `curl` ở trên: nếu `curl` (vân tay khác Python) **qua được** còn nút Test vẫn bị chặn ⇒ nguyên nhân là vân tay client, sửa được ở phía mã |
+| 4 | **Endpoint/cách xác thực khác** | Ví dụ phía Vercel dùng `x-api-key` thay vì `Authorization: Bearer`; nếu nhà cung cấp có rule WAF theo header/path thì kết quả khác nhau | So DevTools/fetch code của ứng dụng Vercel xem gọi URL nào, header nào |
+
+**Phép thử 1 phút, chạy trên máy chủ (không cần API key thật — 401 cũng đã chứng minh Cloudflare cho qua):**
+
+```bash
+curl -sS -o /tmp/cf.txt -w 'HTTP %{http_code}\n' -X POST https://codecraftapi.com/v1/chat/completions \
+  -H 'Authorization: Bearer test-key' -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"ping"}],"max_tokens":1}'
+head -c 200 /tmp/cf.txt; echo
+```
+
+* `HTTP 401` + JSON ⇒ Cloudflare **cho qua**; nguyên nhân là **dấu vân tay client (#3)** ⇒ sửa được ở phía mã
+  (dùng client mang vân tay khác, ví dụ lớp impersonate kiểu trình duyệt) — cần một đợt riêng vì phải thêm phụ thuộc.
+* `HTTP 403` + HTML `Just a moment` ⇒ **chặn theo IP (#2)** ⇒ đường sửa nằm ở hạ tầng (allowlist/relay).
+
+**Đã chuẩn bị sẵn: relay trên chính Vercel của bạn** — `deploy/vercel-relay/README.md` + file
+`app/api/llm-relay/[...path]/route.ts`. Vì ứng dụng Vercel của bạn đã chứng minh là gọi được, relay dùng chính
+hạ tầng đó làm đường đi cho máy chủ PricePolicy:
+
+* Base URL trong màn hình quản trị = `https://<app>.vercel.app/api/llm-relay/<TOKEN>/v1` (token nằm trong URL vì
+  backend chưa hỗ trợ header riêng cho từng nhà cung cấp — xem mục 2 ở §10).
+* Host đích **ghim cứng** bằng `LLM_RELAY_UPSTREAM` (không thành proxy mở), có token chặn lạm dụng, **không lưu khoá API**.
+* Giới hạn phải biết: chỉ có tác dụng nếu Vercel gọi nhà cung cấp **từ server** (nếu app đang gọi từ trình duyệt thì
+  relay serverless có thể vẫn bị chặn); thêm ~50–200 ms mỗi lượt; hàm Vercel Hobby bị cắt sau ~10 giây.
+* Trong README có sẵn lệnh `curl` để kiểm tra relay trước khi khai báo vào hệ thống, và tiêu chí để bỏ relay khi
+  nhà cung cấp allowlist IP xong (đổi lại Base URL, không cần deploy).
+
+**Cảnh báo bảo mật (nên kiểm tra ngay):** nếu ứng dụng Vercel đang gọi nhà cung cấp **từ trình duyệt**, khoá API
+nằm trong mã phía client ⇒ **bất kỳ ai mở DevTools cũng lấy được khoá**, dùng hết hạn mức của bạn. Việc cần làm:
+kiểm tra như ở bảng trên; nếu đúng thì **đổi khoá mới** và chuyển lời gọi về phía server (route/serverless của Vercel).
+
+**Câu chẩn đoán trong ứng dụng đã cập nhật** để nêu đúng phương án này khi bị chặn theo IP, kèm đường dẫn tới mẫu relay.
+
 ---
 
 ## 10. Còn lại (nói thẳng, không hứa quá)
