@@ -412,6 +412,27 @@ describe('Sales Copilot (ReAct)', () => {
     const final = events.at(-1)
     expect(final?.type === 'final' && final.reply).toBeTruthy()
   })
+
+  it('Phản hồi của Sale được ghi nhận và tổng hợp (P2 — học từ phản hồi)', async () => {
+    await loginAs(SALE)
+
+    const res = await api.copilot.feedback({
+      message: 'Chiết khấu thanh toán sớm là bao nhiêu?',
+      reply: '8.0% [CSBH-ZEN-2026-V3.1]',
+      rating: -1,
+      comment: 'thiếu điều kiện áp dụng',
+      tags: ['thieu_dieu_kien'],
+      mode: 'react',
+    })
+    expect(res.ok).toBe(true)
+
+    const summary = await api.copilot.feedbackSummary()
+    expect(summary.total).toBeGreaterThanOrEqual(1)
+    expect(summary.down).toBeGreaterThanOrEqual(1)
+    expect(summary.top_negative_tags.some(([tag]) => tag === 'thieu_dieu_kien')).toBe(true)
+
+    await expectApiError(api.copilot.feedback({ message: '', rating: 1 }), 422, 'HTTP_ERROR')
+  })
 })
 
 describe('Policy Admin', () => {

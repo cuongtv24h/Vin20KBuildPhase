@@ -658,8 +658,11 @@ export interface LeadDossier {
 export interface ComplianceCheckRequest {
   message_text: string
   mode: ComplianceCheckMode
-  quote_id: string
-  quote_version: number
+  /** Backend thật (`src/api/endpoints/compliance.py`) nhận các field này là tuỳ chọn. */
+  quote_id?: string
+  quote_version?: number
+  policy_version_refs?: string[]
+  claimed_evidence_ids?: string[]
 }
 
 export interface ComplianceClaim {

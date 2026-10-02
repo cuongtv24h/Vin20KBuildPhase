@@ -16,6 +16,8 @@ import {
   RotateCcw,
   CheckCircle2,
   AlertTriangle,
+  ThumbsDown,
+  ThumbsUp,
   Copy,
   Clock,
   ShieldCheck,
@@ -117,6 +119,51 @@ interface ComplianceCheckState {
   statusText: string
   checks: [string, string][]
   suggest?: string
+}
+
+/** Tier backend (`TIER_4_BLACK`) hoặc mock (`BLACK`) → nhãn UI. */
+function normalizeTier(raw: string | undefined | null): ComplianceCheckState['tier'] {
+  const value = String(raw || '').toUpperCase()
+  if (value.includes('BLACK')) return 'BLACK'
+  if (value.includes('RED')) return 'RED'
+  if (value.includes('YELLOW') || value.includes('AMBER')) return 'AMBER'
+  if (value.includes('GREEN')) return 'GREEN'
+  return 'AMBER'
+}
+
+const TIER_STATUS_TEXT: Record<ComplianceCheckState['tier'], string> = {
+  GREEN: 'XANH — Phát ngôn đạt chuẩn (POL-08)',
+  AMBER: 'VÀNG — Cần bổ sung khuyến cáo bắt buộc',
+  RED: 'ĐỎ — Thiếu chứng cứ / Vượt khung chính sách',
+  BLACK: 'ĐEN — Cấm phát ngôn (POL-08 Điều 1)',
+}
+
+/**
+ * Chuyển kết quả `/compliance/check-message` (thật hoặc mock) thành state UI.
+ * Tầng này cố tình chịu được cả hai shape đang tồn tại: backend trả `compliance_tier` +
+ * `claims[{claim_text, tier, reason}]`, mock trả `overall_status` + `claims[{claim_type,...}]`.
+ */
+function mapComplianceResponse(res: any): ComplianceCheckState {
+  const tier = normalizeTier(res?.compliance_tier ?? res?.tier ?? res?.overall_status)
+  const claims: any[] = Array.isArray(res?.claims) ? res.claims : []
+  const checks: [string, string][] = claims.length
+    ? claims.map((c) => [
+        c?.status && /BLOCK|NEEDS_APPROVAL|PROHIBITED|UNSUPPORTED/i.test(String(c.status)) ? 'bad' : 'ok',
+        [c?.claim_text || c?.claim_type || 'Nội dung kiểm tra', c?.reason || c?.rule_id].filter(Boolean).join(' — '),
+      ])
+    : [['ok', 'Không phát hiện phát ngôn rủi ro trong bản nháp']]
+
+  return {
+    tier,
+    statusText: TIER_STATUS_TEXT[tier],
+    checks,
+    suggest:
+      res?.required_action && res.required_action !== 'NONE'
+        ? `Hành động cần làm: ${res.required_action}`
+        : tier === 'BLACK' || tier === 'RED'
+        ? 'Sửa lại câu chữ trước khi gửi: bỏ cam kết vượt thẩm quyền và bổ sung mỏ neo chứng cứ [n].'
+        : undefined,
+  }
 }
 
 function runLocalComplianceCheck(text: string): ComplianceCheckState {
@@ -787,6 +834,8 @@ export function SalesWorkspacePage() {
   const [complianceResult, setComplianceResult] = useState<ComplianceCheckState>(runLocalComplianceCheck(draftContent))
   const [isCheckingCompliance, setIsCheckingCompliance] = useState(false)
   const complianceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const complianceAbortRef = useRef<AbortController | null>(null)
+  const [complianceOffline, setComplianceOffline] = useState(false)
 
   // Copilot Action Modals
   const [copyAuditModalOpen, setCopyAuditModalOpen] = useState(false)
@@ -830,14 +879,37 @@ export function SalesWorkspacePage() {
     return () => clearTimeout(timer)
   }, [undoActive, undoSeconds])
 
-  // Copilot Live-Check Debounce (500ms)
+  /**
+   * Live-check F8 thật: gọi `POST /compliance/check-message` (debounce 500 ms như UI hứa).
+   * - Huỷ request đang bay khi Sale gõ tiếp (AbortController) để kết quả cũ không ghi đè kết quả mới.
+   * - API lỗi → rơi về kiểm tra cục bộ và nói rõ là đang ở chế độ dự phòng, không im lặng.
+   */
   const handleDraftTextChange = (text: string) => {
     setDraftContent(text)
     setIsCheckingCompliance(true)
     if (complianceDebounceRef.current) clearTimeout(complianceDebounceRef.current)
     complianceDebounceRef.current = setTimeout(() => {
-      setComplianceResult(runLocalComplianceCheck(text))
-      setIsCheckingCompliance(false)
+      complianceAbortRef.current?.abort()
+      const controller = new AbortController()
+      complianceAbortRef.current = controller
+      void api.compliance
+        .check(
+          { message_text: text, mode: 'ON_DRAFT' },
+          controller.signal,
+        )
+        .then((res) => {
+          setComplianceResult(mapComplianceResponse(res))
+          setComplianceOffline(false)
+        })
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          setComplianceResult(runLocalComplianceCheck(text))
+          setComplianceOffline(true)
+          void err
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsCheckingCompliance(false)
+        })
     }, 500)
   }
 
@@ -915,7 +987,12 @@ export function SalesWorkspacePage() {
         time,
         text: final.reply,
         suggested_actions: final.suggested_actions,
-        data: { citations: final.citations ?? [], grounded: final.grounded, mode: final.mode },
+        data: {
+          citations: final.citations ?? [],
+          grounded: final.grounded,
+          mode: final.mode,
+          critique: final.critique ?? null,
+        },
       })
       if (final.action_type) {
         list.push({
@@ -1000,6 +1077,32 @@ export function SalesWorkspacePage() {
     return () => clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leads])
+
+  /**
+   * Gửi phản hồi (thumbs) về một lượt trả lời → backend log lại và dùng làm "điều cần tránh"
+   * cho các lượt sau (P2 — học từ phản hồi). Ghi nhận lạc hậu không được chặn UI.
+   */
+  const handleCopilotFeedback = async (message: StreamItem, rating: 1 | -1) => {
+    // Câu hỏi gần nhất trước lượt trả lời này (để đối chiếu khi đọc log phản hồi).
+    const index = messages.findIndex((mm) => mm.id === message.id)
+    const previous = index > 0 ? messages.slice(0, index).reverse().find((mm) => mm.type === 'user') : undefined
+    setMessages((prev) => prev.map((mm) => (mm.id === message.id ? { ...mm, data: { ...mm.data, feedbackGiven: rating } } : mm)))
+    try {
+      await api.copilot.feedback({
+        message: previous?.text || '(không rõ câu hỏi)',
+        reply: message.text || '',
+        rating,
+        mode: (message.data?.mode as string) || null,
+        tags: rating === -1 ? ['sale_danh_gia_chua_dat'] : [],
+        tools_used: [],
+        turn_id: message.id,
+      })
+      showToast(rating === 1 ? 'Cảm ơn anh/chị đã đánh giá hữu ích' : 'Đã ghi nhận — em sẽ tránh cách trả lời này')
+    } catch {
+      setMessages((prev) => prev.map((mm) => (mm.id === message.id ? { ...mm, data: { ...mm.data, feedbackGiven: undefined } } : mm)))
+      showToast('Chưa gửi được đánh giá — anh/chị thử lại sau nhé')
+    }
+  }
 
   // Action: Create customer lead and inject into Copilot context
   const executeCustomerCreation = async (payload: LeadCreatePayload) => {
@@ -1601,7 +1704,54 @@ export function SalesWorkspacePage() {
                         ))}
                       </div>
                     )}
-                    <span className="text-[10px] text-muted-foreground ml-1">Trợ lý AI · {m.time}</span>
+                    {/* Critic vòng 2: cảnh báo khi phát ngôn cần chỉnh (P2) */}
+                    {m.data?.critique && m.data.critique.ok === false && (
+                      <div
+                        role="status"
+                        className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[11px] text-foreground"
+                      >
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
+                        <span>
+                          Kiểm duyệt nội bộ: {m.data.critique.hints?.[0] || 'câu trả lời cần chỉnh lại trước khi gửi khách'}
+                        </span>
+                      </div>
+                    )}
+                    <div className="ml-1 flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">Trợ lý AI · {m.time}</span>
+                      {m.type === 'agent' && !m.id.startsWith('agent-critic') && (
+                        <>
+                          <button
+                            type="button"
+                            title="Câu trả lời hữu ích"
+                            aria-label="Đánh giá hữu ích"
+                            disabled={Boolean(m.data?.feedbackGiven)}
+                            onClick={() => handleCopilotFeedback(m, 1)}
+                            className={cn(
+                              'rounded p-0.5 transition-colors hover:text-success',
+                              m.data?.feedbackGiven === 1 ? 'text-success' : 'text-muted-foreground',
+                            )}
+                          >
+                            <ThumbsUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Câu trả lời chưa đạt"
+                            aria-label="Đánh giá chưa đạt"
+                            disabled={Boolean(m.data?.feedbackGiven)}
+                            onClick={() => handleCopilotFeedback(m, -1)}
+                            className={cn(
+                              'rounded p-0.5 transition-colors hover:text-destructive',
+                              m.data?.feedbackGiven === -1 ? 'text-destructive' : 'text-muted-foreground',
+                            )}
+                          >
+                            <ThumbsDown className="h-3 w-3" />
+                          </button>
+                          {m.data?.feedbackGiven && (
+                            <span className="text-[10px] text-muted-foreground">đã ghi nhận cảm ơn anh/chị</span>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 )
               }
@@ -2831,7 +2981,7 @@ export function SalesWorkspacePage() {
                     Trình soạn tin nhắn Copilot
                   </span>
                   <Badge variant="outline" className="text-[10.5px]">
-                    Live-check F8 (500ms)
+                    {isCheckingCompliance ? 'F8 đang kiểm…' : complianceOffline ? 'F8 · chế độ dự phòng' : 'Live-check F8 (500ms)'}
                   </Badge>
                 </div>
 
@@ -2865,6 +3015,13 @@ export function SalesWorkspacePage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {complianceOffline && (
+                  <div role="alert" className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[11px] text-foreground">
+                    <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
+                    Chưa gọi được máy chủ kiểm duyệt — đang dùng bộ luật dự phòng tại máy. Kết quả có thể thiếu.
+                  </div>
+                )}
 
                 {/* Compliance Result Card */}
                 <div

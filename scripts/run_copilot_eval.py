@@ -78,6 +78,12 @@ async def run_question(question: dict[str, Any], *, mode: str) -> dict[str, Any]
         "mode": final.get("mode"),
         "reply": str(final.get("reply") or ""),
         "latency_ms": round(elapsed_ms, 1),
+        # Chi phí/chất lượng bổ sung (P2): đọc thẳng từ payload cuối, không tính lại.
+        "critique_ok": bool((final.get("critique") or {}).get("ok", True)),
+        "critique_issues": [i.get("code") for i in ((final.get("critique") or {}).get("issues") or [])],
+        "observation_chars": int((final.get("context_budget") or {}).get("observation_chars") or 0),
+        "cached_tool_results": int((final.get("context_budget") or {}).get("cached_tool_results") or 0),
+        "plan_steps": len(final.get("plan") or []),
     }
 
 
@@ -85,7 +91,7 @@ def _offline_llm_factory() -> Any:
     """Ép Copilot rơi vào nhánh offline ReAct (tất định) mà không cần chờ timeout mạng."""
 
     class _OfflineLLM:
-        def bind_tools(self, _tools: list[Any]) -> "_OfflineLLM":  # pragma: no cover - luôn lỗi khi gọi
+        def bind_tools(self, _tools: list[Any]) -> _OfflineLLM:  # pragma: no cover - luôn lỗi khi gọi
             return self
 
         async def ainvoke(self, _messages: list[Any]) -> Any:
@@ -161,6 +167,13 @@ def summarize(results: list[dict[str, Any]], scored: list[dict[str, Any]]) -> di
         "mean_latency_ms": round(statistics.fmean(latencies), 1) if latencies else 0.0,
         "missing_terms": {r["id"]: s["missing_terms"] for r, s in zip(results, scored, strict=True) if s["missing_terms"]},
         "per_group": per_group,
+        "quality": {
+            "critique_flags": sum(1 for r in results if not r.get("critique_ok", True)),
+            "critique_issue_codes": sorted({c for r in results for c in r.get("critique_issues") or []}),
+            "multi_step_answers": sum(1 for r in results if (r.get("plan_steps") or 0) > 1),
+            "estimated_observation_chars": sum(int(r.get("observation_chars") or 0) for r in results),
+            "cached_tool_results": sum(int(r.get("cached_tool_results") or 0) for r in results),
+        },
     }
 
 
@@ -192,6 +205,13 @@ def print_report(results: list[dict[str, Any]], scored: list[dict[str, Any]], re
     print(f"  citation_precision      : {report['citation_precision']:.1%}")
     print(f"  hallucination_rate      : {report['hallucination_rate']:.1%}")
     print(f"  p95_latency_ms          : {report['p95_latency_ms']:.0f} ms (trung bình {report['mean_latency_ms']:.0f} ms)")
+    quality = report.get("quality") or {}
+    if quality:
+        print("\n--- Chi phí & kiểm duyệt (P2) ---")
+        print(f"  câu bị critic gắn cờ : {quality.get('critique_flags', 0)} {quality.get('critique_issue_codes') or ''}")
+        print(f"  câu nhiều bước       : {quality.get('multi_step_answers', 0)}")
+        print(f"  ký tự Observation    : {quality.get('estimated_observation_chars', 0):,} (cache dùng lại: {quality.get('cached_tool_results', 0)})")
+
     print("\n--- Theo nhóm ---")
     for group, bucket in sorted(report["per_group"].items()):
         print(

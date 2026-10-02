@@ -73,6 +73,8 @@ class CopilotChatResponse(BaseModel):
     verification: dict[str, Any] = Field(default_factory=dict, description="Chi tiết kết quả kiểm chứng")
     plan: list[dict[str, Any]] = Field(default_factory=list, description="Kế hoạch nhiều bước của planner")
     slots: dict[str, Any] = Field(default_factory=dict, description="Ngữ cảnh phiên đã chốt (căn/hồ sơ/ngày)")
+    critique: dict[str, Any] = Field(default_factory=dict, description="Critic vòng 2: {ok, issues[], hints[]}")
+    context_budget: dict[str, Any] = Field(default_factory=dict, description="Chi phí ngữ cảnh của lượt (P2)")
     reasoning: list[dict[str, Any]] = Field(default_factory=list, description="Trace đầy đủ các bước ReAct")
 
 
@@ -129,3 +131,65 @@ async def copilot_chat_stream(req: CopilotChatRequest) -> EventSourceResponse:
             }
 
     return EventSourceResponse(event_generator(), ping=15)
+
+class CopilotFeedbackRequest(BaseModel):
+    """Phản hồi của Sale về một lượt trả lời (P2 — học từ phản hồi)."""
+
+    message: str = Field(min_length=1, description="Câu hỏi của Sale ở lượt đó")
+    reply: str | None = Field(default=None, description="Câu trả lời của Copilot (để đối chiếu)")
+    rating: int = Field(description="1 = hữu ích, -1 = chưa đạt, 0 = trung tính", ge=-1, le=1)
+    comment: str | None = Field(default=None, description="Lý do (tuỳ chọn)")
+    tags: list[str] = Field(default_factory=list, description="Nhãn lỗi: sai_số, thieu_can_cu, kho_hieu…")
+    mode: str | None = Field(default=None, description="react | offline_react | guardrail")
+    tools_used: list[str] = Field(default_factory=list)
+    turn_id: str | None = None
+
+
+class CopilotFeedbackSummary(BaseModel):
+    total: int
+    up: int
+    down: int
+    neutral: int
+    satisfaction_rate: float | None = None
+    top_negative_tags: list[list[Any]] = Field(default_factory=list)
+
+
+class CopilotFeedbackResponse(BaseModel):
+    ok: bool
+    recorded_at: str
+    summary: CopilotFeedbackSummary
+
+@router.post("/feedback", response_model=CopilotFeedbackResponse)
+async def copilot_feedback(req: CopilotFeedbackRequest) -> CopilotFeedbackResponse:
+    """Ghi nhận đánh giá của Sale và trả về thống kê tích luỹ.
+
+    Không có DB migration: log append-only JSONL (`COPILOT_FEEDBACK_PATH`). Những câu bị chê
+    được dùng làm "điều cần tránh" trong system prompt của các lượt sau.
+    """
+    from src.agents.copilot import feedback as feedback_module
+
+    entry = feedback_module.record_feedback(
+        message=req.message,
+        reply=req.reply or "",
+        rating=req.rating,
+        comment=req.comment or "",
+        tags=req.tags,
+        mode=req.mode,
+        tools_used=req.tools_used,
+        turn_id=req.turn_id,
+    )
+    summary = feedback_module.summarize_feedback()
+    return CopilotFeedbackResponse(
+        ok=True,
+        recorded_at=str(entry["recorded_at"]),
+        summary=CopilotFeedbackSummary(**summary),
+    )
+
+
+@router.get("/feedback/summary", response_model=CopilotFeedbackSummary)
+async def copilot_feedback_summary() -> CopilotFeedbackSummary:
+    """Thống kê phản hồi tích luỹ (dùng cho dashboard chất lượng)."""
+    from src.agents.copilot import feedback as feedback_module
+
+    return CopilotFeedbackSummary(**feedback_module.summarize_feedback())
+

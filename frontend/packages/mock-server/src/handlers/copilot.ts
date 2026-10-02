@@ -272,6 +272,37 @@ async function buildScenariosTurn(
   return { ...final, reasoning }
 }
 
+interface FeedbackEntry {
+  recorded_at: string
+  rating: number
+  message: string
+  reply: string
+  comment: string
+  tags: string[]
+  mode: string | null
+}
+
+const feedbackLog: FeedbackEntry[] = []
+
+function feedbackSummary() {
+  const up = feedbackLog.filter((e) => e.rating === 1).length
+  const down = feedbackLog.filter((e) => e.rating === -1).length
+  const neutral = feedbackLog.filter((e) => e.rating === 0).length
+  const tagCounts = new Map<string, number>()
+  for (const entry of feedbackLog) {
+    if (entry.rating >= 0) continue
+    for (const tag of entry.tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
+  }
+  return {
+    total: feedbackLog.length,
+    up,
+    down,
+    neutral,
+    satisfaction_rate: up + down > 0 ? Number((up / (up + down)).toFixed(4)) : null,
+    top_negative_tags: [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
+  }
+}
+
 async function readMessage(request: Request): Promise<string> {
   try {
     const body = (await request.json()) as { message?: string }
@@ -288,6 +319,36 @@ export const copilotHandlers = [
     const turn = await buildTurn(message)
     return HttpResponse.json(turn)
   }),
+
+  // Phản hồi của Sale (P2 — học từ phản hồi): mock lưu trong bộ nhớ phiên, đủ để demo + test UI.
+  http.post(toMswPath(ENDPOINTS.copilotFeedback.path), async ({ request }) => {
+    const body = (await request.json()) as {
+      message?: string
+      reply?: string
+      rating?: number
+      comment?: string
+      tags?: string[]
+      mode?: string | null
+    }
+    if (!body?.message || ![ -1, 0, 1 ].includes(Number(body.rating))) {
+      return HttpResponse.json({ detail: 'Thiếu câu hỏi hoặc điểm đánh giá không hợp lệ.' }, { status: 422 })
+    }
+    const entry = {
+      recorded_at: new Date().toISOString(),
+      rating: Number(body.rating),
+      message: body.message,
+      reply: body.reply ?? '',
+      comment: body.comment ?? '',
+      tags: body.tags ?? [],
+      mode: body.mode ?? null,
+    }
+    feedbackLog.push(entry)
+    return HttpResponse.json({ ok: true, recorded_at: entry.recorded_at, summary: feedbackSummary() })
+  }),
+
+  http.get(toMswPath(ENDPOINTS.copilotFeedbackSummary.path), () =>
+    HttpResponse.json(feedbackSummary()),
+  ),
 
   http.post(toMswPath(ENDPOINTS.copilotChatStream.path), async ({ request }) => {
     const message = await readMessage(request)

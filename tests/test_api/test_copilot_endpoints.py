@@ -111,3 +111,49 @@ async def test_react_loop_wires_into_endpoint_payload_shape():
     payload = await CopilotService(llm_factory=_LLM).run(CopilotRequest(message="xin chào"))
     for key in ("reply", "action_type", "action_data", "suggested_actions", "citations", "grounded", "iterations", "mode"):
         assert key in payload
+
+
+# ─── Phản hồi của Sale (P2 — học từ phản hồi) ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_feedback_endpoint_records_and_returns_summary(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_FEEDBACK_PATH", str(tmp_path / "feedback.jsonl"))
+    resp = await client.post(
+        "/api/v1/copilot/feedback",
+        json={
+            "message": "Chiết khấu thanh toán sớm là bao nhiêu?",
+            "reply": "8.0% [CSBH-ZEN-2026-V3.1]",
+            "rating": -1,
+            "comment": "thiếu điều kiện áp dụng",
+            "tags": ["thieu_dieu_kien"],
+            "mode": "react",
+            "tools_used": ["tra_cuu_chinh_sach"],
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["summary"]["total"] == 1
+    assert body["summary"]["down"] == 1
+
+    summary = await client.get("/api/v1/copilot/feedback/summary")
+    assert summary.status_code == 200
+    assert summary.json()["total"] == 1
+    assert summary.json()["top_negative_tags"] == [["thieu_dieu_kien", 1]]
+
+
+@pytest.mark.asyncio
+async def test_feedback_endpoint_rejects_out_of_range_rating(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_FEEDBACK_PATH", str(tmp_path / "feedback.jsonl"))
+    resp = await client.post("/api/v1/copilot/feedback", json={"message": "x", "rating": 5})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_feedback_endpoint_is_empty_safe_before_any_vote(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_FEEDBACK_PATH", str(tmp_path / "chua-ton-tai.jsonl"))
+    resp = await client.get("/api/v1/copilot/feedback/summary")
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+    assert resp.json()["satisfaction_rate"] is None

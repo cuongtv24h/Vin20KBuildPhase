@@ -1,5 +1,9 @@
 # Thư mục `upgrade/` — Nhật ký & kế hoạch nâng cấp
 
+> ⚠️ **Bản ghi chính thức đã chuyển sang [`docs/team_report/upgrade_new.md`](../docs/team_report/upgrade_new.md)**
+> theo yêu cầu mới. Các file dưới đây giữ nguyên làm lịch sử soạn thảo; khi có khác biệt,
+> `docs/team_report/upgrade_new.md` là bản đúng.
+
 Thư mục này là **nơi lưu toàn bộ thay đổi của đợt nâng cấp** theo yêu cầu: mọi việc đã làm,
 đang làm, còn lại, kèm bằng chứng chạy thật. Code vẫn nằm ở đúng vị trí chuẩn của repo
 (`src/`, `frontend/`, `tests/`, `eval/`…); thư mục này là **bản đồ + biên bản** để không thất lạc.

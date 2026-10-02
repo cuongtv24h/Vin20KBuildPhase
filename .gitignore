@@ -143,6 +143,9 @@ trace_*.jsonl
 profile/
 eval/results/rag_eval_report_*.md
 !eval/results/report.md
+# Log phản hồi của Sale sinh ra lúc chạy (runtime data, không commit)
+eval/results/copilot_feedback.jsonl
+eval/results/*.jsonl
 
 # ------------------------------------------------------------------------------
 # LAYER 7: Operating System & IDE Configs

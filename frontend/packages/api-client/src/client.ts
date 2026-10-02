@@ -1,4 +1,7 @@
 import type {
+  CopilotFeedbackRequest,
+  CopilotFeedbackResponse,
+  CopilotFeedbackSummary,
   AdminSetupStatus,
   CopilotChatRequest,
   CopilotChatResponse,
@@ -198,5 +201,10 @@ export const api = {
      */
     stream: (body: CopilotChatRequest, handlers: Parameters<typeof streamCopilotChat>[1], signal?: AbortSignal) =>
       streamCopilotChat(body, handlers, signal),
+    /** Gửi đánh giá của Sale về một lượt trả lời (P2 — học từ phản hồi). */
+    feedback: (body: CopilotFeedbackRequest, o: CommandOptions = {}) =>
+      call<CopilotFeedbackResponse>('copilotFeedback', {}, { json: body, ...o }),
+    /** Thống kê phản hồi tích luỹ (dashboard chất lượng). */
+    feedbackSummary: (signal?: AbortSignal) => call<CopilotFeedbackSummary>('copilotFeedbackSummary', {}, { signal }),
   },
 }

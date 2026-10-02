@@ -67,6 +67,15 @@ export interface CopilotFinalPayload {
   tools_used?: string[]
   iterations?: number
   mode?: 'react' | 'offline_react' | 'guardrail' | 'error'
+  /** Critic vòng 2: soi lập luận/phát ngôn ngoài việc đối chiếu số liệu. */
+  critique?: { ok: boolean; issues: { code: string; detail: string }[]; hints: string[] } | null
+  /** Chi phí ngữ cảnh của lượt: số ký tự Observation, số lần dùng lại cache tool. */
+  context_budget?: {
+    observation_chars: number
+    limit_chars: number
+    cached_tool_results: number
+    trimmed: boolean
+  } | null
 }
 
 export interface CopilotChatResponse extends CopilotFinalPayload {
@@ -86,3 +95,31 @@ export type CopilotStreamEvent =
   | ({ type: 'guardrail' } & CopilotReasoningStep)
   | ({ type: 'final' } & CopilotFinalPayload)
   | { type: 'error'; message: string }
+
+/** POST /copilot/feedback — phản hồi của Sale về một lượt trả lời (P2). */
+export interface CopilotFeedbackRequest {
+  message: string
+  reply?: string
+  /** 1 = hữu ích, -1 = chưa đạt, 0 = trung tính. */
+  rating: -1 | 0 | 1
+  comment?: string
+  tags?: string[]
+  mode?: string | null
+  tools_used?: string[]
+  turn_id?: string | null
+}
+
+export interface CopilotFeedbackSummary {
+  total: number
+  up: number
+  down: number
+  neutral: number
+  satisfaction_rate: number | null
+  top_negative_tags: [string, number][]
+}
+
+export interface CopilotFeedbackResponse {
+  ok: boolean
+  recorded_at: string
+  summary: CopilotFeedbackSummary
+}

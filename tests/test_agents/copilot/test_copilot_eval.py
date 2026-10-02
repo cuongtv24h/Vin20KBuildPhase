@@ -74,6 +74,12 @@ async def test_offline_copilot_meets_quality_thresholds():
     ]
     assert report["p95_latency_ms"] < 2_000
 
+    # Critic vòng 2 (P2): bộ câu vàng không được có câu nào còn bị gắn cờ phát ngôn.
+    # Nếu cổng này đỏ → critic đang báo động giả (mất niềm tin) hoặc câu trả lời mất mỏ neo thật.
+    quality = report.get("quality") or {}
+    assert quality.get("critique_flags", 0) <= 3, quality
+    assert quality.get("multi_step_answers", 0) >= 1, "Câu nhiều ý phải được planner tách bước"
+
 
 @pytest.mark.asyncio
 async def test_refusal_questions_never_reach_tools():

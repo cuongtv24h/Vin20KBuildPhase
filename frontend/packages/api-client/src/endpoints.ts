@@ -92,6 +92,8 @@ export const ENDPOINTS = {
   // Sales Copilot (SCR-S00) — ReAct agent + streaming tiến trình suy luận
   copilotChat: def({ method: 'POST', path: '/copilot/chat', source: 'PROPOSED', auth: 'staff' }),
   copilotChatStream: def({ method: 'POST', path: '/copilot/chat/stream', source: 'PROPOSED', auth: 'staff' }),
+  copilotFeedback: def({ method: 'POST', path: '/copilot/feedback', source: 'PROPOSED', auth: 'staff' }),
+  copilotFeedbackSummary: def({ method: 'GET', path: '/copilot/feedback/summary', source: 'PROPOSED', auth: 'staff' }),
 } as const
 
 export type EndpointName = keyof typeof ENDPOINTS

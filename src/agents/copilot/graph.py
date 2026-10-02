@@ -24,7 +24,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from src.agents.copilot import grounding, intents, memory, planner, verifier
+from src.agents.copilot import critic, feedback, grounding, intents, memory, planner, verifier
 from src.agents.copilot.prompts import build_system_prompt
 from src.agents.copilot.tools import COPILOT_TOOLS, TOOLS_BY_NAME
 from src.agents.tools.guardrails import scan_output_leakage, scan_prompt_injection
@@ -257,6 +257,14 @@ def _finalize(
     if not grounded and intent.intent not in (intents.INTENT_SMALL_TALK,):
         text += "\n\n_Lưu ý: câu trả lời này chưa đối chiếu được với dữ liệu chính sách/giỏ hàng — anh/chị kiểm tra lại giúp em._"
 
+    # Critic vòng 2 (P2): chỉ soi lượt quan trọng — câu có số tiền/ưu đãi hoặc câu soạn tin, tuân thủ.
+    review = critic.Critique()
+    if critic.is_high_stakes(text, intent.intent):
+        review = critic.critique_reply(text, intent=intent.intent, observations=observations)
+        note = critic.revision_note(review)
+        if note:
+            text += note
+
     return {
         "reply": text,
         "action_type": action_type,
@@ -267,6 +275,7 @@ def _finalize(
         "tools_used": tool_calls,
         "verified": check.verified,
         "verification": check.as_dict(),
+        "critique": review.as_dict(),
         "plan": [{"intent": s.intent, "tool": s.tool, "reason": s.reason} for s in (plan or [])],
         "slots": (slots or memory.SessionSlots()).as_dict(),
     }
@@ -448,6 +457,8 @@ async def stream_copilot(
             "project_id": request.project_id,
             "plan": [{"intent": s.intent, "tool": s.tool} for s in plan],
             "history_summary": memory.summarize_history(request.history),
+            # Học từ phản hồi (P2): các lượt từng bị chê, nhắc để không lặp lại cách trả lời đó.
+            "avoid_examples": feedback.few_shot_hints(),
         }
     )
     messages: list[Any] = [SystemMessage(content=system_prompt)]
@@ -596,6 +607,12 @@ async def stream_copilot(
     final["iterations"] = 1
     final["mode"] = "offline_react"
     final["degraded_reason"] = offline_reason
+    final["context_budget"] = {
+        "observation_chars": sum(len(str(o.get("summary", ""))) for o in observations),
+        "limit_chars": MAX_TOTAL_OBSERVATION_CHARS,
+        "cached_tool_results": 0,
+        "trimmed": False,
+    }
     yield CopilotEvent("final", final)
 
 

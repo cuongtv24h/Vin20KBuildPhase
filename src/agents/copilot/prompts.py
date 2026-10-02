@@ -102,6 +102,13 @@ def build_system_prompt(context: dict[str, Any] | None = None) -> str:
         lines.append("")
         lines.append(history_summary)
 
+    avoid = context.get("avoid_examples") or []
+    if avoid:
+        lines.append("")
+        lines.append("# ĐIỀU CẦN TRÁNH (tổng hợp từ phản hồi chưa hài lòng của Sale)")
+        lines.extend(f"- {item}" for item in avoid)
+        lines.append("Hãy tránh lặp lại cách trả lời đó: bám sát Observation và nêu rõ nguồn.")
+
     plan = context.get("plan") or []
     if plan:
         lines.append("")
