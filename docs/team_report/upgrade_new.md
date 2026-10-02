@@ -1109,6 +1109,37 @@ biến mất; test khẳng định thêm hàm **idempotent** (áp lại không �
 đã đúng định dạng thì **không bị sửa**. Một ca tích hợp chạy qua `_finalize` thật để chắc hai lớp này
 nằm đúng chỗ trong đường đi của câu trả lời.
 
+### 16.5c Bộ kịch bản Sale hỏi Copilot (deliverable theo yêu cầu người dùng)
+
+Người dùng yêu cầu: *"Generate cho tôi bộ câu hỏi kịch bản thông dụng để sale hỏi copilot nhằm test luồng
+hoạt động của Copilot tuân theo khả năng và thiết kế ban đầu hợp lệ, cũng để test nội dung trả ra có ổn
+không."*
+
+| Hạng mục | Nội dung |
+|---|---|
+| `eval/copilot/sale_scenarios.json` | **57 kịch bản / 12 nhóm việc của Sale**: tra cứu giỏ hàng, lọc rỗng & điều hướng, vốn tự có, phương án thanh toán & báo giá, chính sách (kèm hiệu lực theo ngày), soạn tin, kiểm F8, hồ sơ khách, nhiều ý một lượt, ngữ cảnh hội thoại, an toàn & không bịa, xã giao. Phủ đủ 7 tool. Mỗi câu có kỳ vọng máy kiểm được + ghi chú "kiểm điều gì" |
+| Bộ chấm mở rộng | `run_copilot_eval.py` nay chấm thêm `must_not_contain`, `expect_table` (P1.5), `max_questions` (P1.7), và **vệ sinh hình thức** áp cho MỌI câu: không lộ `snake_case` nội bộ (P2.5), bảng không dính câu văn (P1.5b), không emoji mũi tên |
+| Cổng mới | Cổng **nội dung/hình thức** chặn CI mặc định (vi phạm là exit 1); cờ `--strict` siết thêm `must_contain`; cờ `--questions` chạy bộ khác bộ vàng |
+| Hai trạng thái mới | `known_gap` (lỗ hổng đã biết: vẫn chạy, vẫn báo cáo, không tính vào mẫu số) và `offline: skip` (câu cần LLM: bỏ qua khi chạy offline và **được liệt kê riêng** để không ai tưởng đã kiểm) |
+| Cổng tự động trong CI | 4 test mới trong `tests/test_agents/copilot/test_copilot_eval.py`: phủ đủ nhóm/tool, chạy đạt cổng, báo cáo lỗ hổng + câu chỉ-LLM, và kiểm chính bộ chấm |
+| Tài liệu cho Sale/QA | `docs/team_report/copilot_sale_scenarios.md`: cách chạy (offline · LLM trên VM · kiểm bằng mắt), bảng kịch bản theo nhóm, **phiếu chấm 6 điểm** cho người đọc, kết quả chạy thật, và danh sách việc cần xử lý |
+| Báo cáo | `eval/results/sale_scenarios_report.json` |
+
+**Kết quả chạy thật (offline):** 42/57 câu tính điểm (8 lỗ hổng đã biết, 7 câu chỉ-LLM) — gọi đúng tool
+**100%**, citation **100%**, bịa **0.0%**, cổng phân khúc **ĐẠT**, cổng nội dung/hình thức **ĐẠT**.
+
+**Lỗi thật phát hiện được nhờ bộ kịch bản này** (chi tiết + đề xuất ở §5 tài liệu kèm):
+
+1. **[Nghiêm trọng]** Bộ chặn rò rỉ đầu ra nuốt mất kết luận kiểm F8 khi chính câu đang kiểm tra là phát
+   ngôn bị cấm ("cam kết sinh lời 20%") — Sale không nhận được kết luận ở đúng ca quan trọng nhất. Bộ vàng
+   chỉ kiểm "có gọi tool" nên lỗi lọt qua dưới dạng `missing_terms`.
+2. **[Cao]** Thân bản nháp gửi khách trộn nhãn nội bộ (`Bản nháp (SUPPORTED)`, `F8: ALLOW_SEND`) ⇒ "Copy cho
+   khách" mang mã kiểm duyệt tới khách — vi phạm chốt P2.4/K2.
+3. **[Trung bình]** `POL-04` trong bộ vàng kỳ vọng phiên bản chính sách `V2.0` không tồn tại trong dữ liệu
+   canonical ⇒ kỳ vọng không thể đạt, và `must_contain` hiện chưa nằm trong cổng CI (cờ `--strict` đã sẵn).
+4. **[Thấp]** Lớp tất định chỉ hiểu 50/57 câu (7 câu cần LLM: bóc tên dự án, hỏi theo mã căn, thời hạn ưu
+   đãi, đại từ "căn này"); chip "mở rộng phân khúc" giữ nguyên trần giá cũ nên lại ra kết quả rỗng.
+
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
 - `pytest -q` → **615 passed** (572 → 615; thêm 4 file test: `test_copilot_anchors.py` 12 ca,
