@@ -116,7 +116,8 @@ def test_critic_direct_call_default_keeps_strict_rule() -> None:
 # ─── P0.4: tối đa MỘT khối ghi chú, và không nhét ghi chú kiểm duyệt vào nội dung ──
 
 
-def test_finalize_appends_at_most_one_note_block() -> None:
+def test_finalize_keeps_reply_clean_and_packs_notes_into_one_field() -> None:
+    """Chốt P2.4: `reply` sạch (Sale copy gửi khách được), mọi cảnh báo dồn vào `internal_notes`."""
     # Tool soạn tin: không thuộc nhóm tra cứu chính sách/giỏ hàng ⇒ chưa grounded;
     # cộng thêm số "9,9 tỷ" không có nguồn ⇒ cả hai điều kiện cảnh báo cùng đúng.
     observations = [{"tool": "soan_tin_tu_van", "summary": "Bản thảo tin nhắn", "citations": []}]
@@ -129,18 +130,19 @@ def test_finalize_appends_at_most_one_note_block() -> None:
         question=QUESTION,
     )
     reply = final["reply"]
-    # Cả hai điều kiện đều đúng (số bịa + chưa grounded) nhưng chỉ được có MỘT khối ghi chú.
-    assert reply.count("Ghi chú nội bộ") == 1
-    assert reply.count("_Lưu ý") == 0
-    assert "có số liệu chưa đối chiếu được" in reply
-    assert "chưa đối chiếu với dữ liệu chính sách/giỏ hàng" in reply
+    notes = final["internal_notes"]
+    assert reply == "Căn này khoảng 9,9 tỷ và chưa đối chiếu.", "Nội dung trả lời phải sạch"
+    assert "Ghi chú nội bộ" not in reply and "_Lưu ý" not in reply
+    # Hai cảnh báo khác nhau gộp trong CÙNG một trường, không rải thành nhiều dòng trong câu trả lời.
+    assert "có số liệu chưa đối chiếu được" in notes
+    assert "chưa đối chiếu với dữ liệu chính sách/giỏ hàng" in notes
 
 
 def test_critic_note_not_written_into_reply_body() -> None:
-    """Ghi chú kiểm duyệt là dữ liệu có cấu trúc (`critique`), không phải câu trong nội dung gửi khách."""
+    """Ghi chú kiểm duyệt là dữ liệu có cấu trúc (`critique`/`internal_notes`), không nằm trong nội dung."""
     observations = [{"tool": "tra_cuu_gio_hang", "citations": [{"policy_id": "CATALOG-UNITS"}]}]
     final = _finalize(
-        "Căn ZEN-A-1205 giá 4,2 tỷ, anh yên tâm.",
+        "Anh yên tâm, em cam kết ngân hàng sẽ duyệt vay cho căn này.",
         observations,
         None,
         [],
@@ -150,6 +152,9 @@ def test_critic_note_not_written_into_reply_body() -> None:
     assert "Kiểm duyệt nội bộ" not in final["reply"]
     assert final["critique"]["ok"] is False, "Vẫn phải giữ cảnh báo ở trường có cấu trúc cho UI"
     assert final["critique"]["issues"]
+    # Lời nhắc của critic nằm ở trường `critique` (UI gộp hiển thị cùng internal_notes trong MỘT
+    # banner) — không nhân đôi vào `internal_notes` để tránh hiện hai lần.
+    assert final["critique"]["hints"]
 
 
 def test_clean_answer_has_no_note_at_all() -> None:
@@ -162,6 +167,7 @@ def test_clean_answer_has_no_note_at_all() -> None:
         question="cho anh thông tin căn ZEN-A-1205",
     )
     assert "Ghi chú nội bộ" not in final["reply"]
+    assert final["internal_notes"] == ""
     assert final["verified"] is True
     assert final["grounded"] is True
 
@@ -223,3 +229,56 @@ def test_policy_id_from_context_is_not_flagged() -> None:
     )
     assert result.verified is True
     assert "CSBH-ZEN-2026-V3.1" in result.from_context
+
+
+# ─── P2.1 · P2.3 · P1.6: mỏ neo máy chèn, ghi chú tách riêng, mốc thời gian ─────────
+
+
+def test_finalize_attaches_machine_inserted_anchors() -> None:
+    observations = [
+        {
+            "tool": "tra_cuu_gio_hang",
+            "summary": "Không có căn nào khớp. Căn 3PN mềm nhất là ZEN-B-1502 giá 6.100.000.000 ₫.",
+            "citations": [
+                {
+                    "policy_id": "CATALOG-UNITS",
+                    "section": "Căn ZEN-B-1502",
+                    "quote": "3PN · 98.2m² · 6.100.000.000 ₫ · AVAILABLE",
+                }
+            ],
+            "data_as_of": "2026-10-02T13:29:19+00:00",
+        }
+    ]
+    final = _finalize(
+        "Với ngân sách 2 tỷ[9], căn 3 ngủ mềm nhất là 6,1 tỷ.",
+        observations,
+        None,
+        [],
+        _intent(),
+        question=QUESTION,
+    )
+    # LLM gõ [9] sai → máy gỡ và đánh lại.
+    assert "[9]" not in final["reply"]
+    assert final["reply"].startswith("Với ngân sách **2 tỷ** (ngân sách anh/chị nhập),")
+    assert "6,1 tỷ[1]" in final["reply"]
+    assert final["anchors"] == [
+        {"index": 1, "value": "6,1 tỷ", "citation_index": 0, "label": "CATALOG-UNITS · Căn ZEN-B-1502"}
+    ]
+    assert final["labeled_inputs"] == ["2 tỷ"]
+    assert final["data_as_of"] == "2026-10-02T13:29:19+00:00"
+    assert final["internal_notes"] == "", "Mọi con số đều có nguồn → không còn ghi chú rỗng"
+
+
+def test_finalize_notes_survive_outside_reply() -> None:
+    observations = [{"tool": "tra_cuu_gio_hang", "summary": "Không có căn nào khớp.", "citations": []}]
+    final = _finalize(
+        "Căn này khoảng 9,9 tỷ.",
+        observations,
+        None,
+        [],
+        _intent(),
+        question=QUESTION,
+    )
+    assert "9,9 tỷ" in final["reply"], "Nội dung vẫn giữ nguyên"
+    assert "_Ghi chú" not in final["reply"] and "Lưu ý" not in final["reply"]
+    assert "9,9 tỷ" in final["internal_notes"], "Cảnh báo nêu đích danh con số, ở trường riêng"

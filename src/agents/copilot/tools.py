@@ -14,12 +14,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from langchain_core.tools import tool
 
-from src.agents.copilot import grounding
+from src.agents.copilot import grounding, inventory_funnel
 from src.contracts.enums import OptimizationObjective
 from src.services.compliance.gate import ComplianceCheckRequest, ComplianceGate
 
@@ -30,6 +30,11 @@ MAX_OBSERVATION_CHARS = 1_800
 
 def _dump(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _now_iso() -> str:
+    """Mốc thời gian đọc dữ liệu (P1.6) — dùng cho watermark ở UI, không đưa vào câu trả lời."""
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _clip(text: str, limit: int = MAX_OBSERVATION_CHARS) -> str:
@@ -176,6 +181,7 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
                     "tool": "tra_cuu_gio_hang",
                     "summary": f"Không có căn '{ma_can}' trong giỏ hàng canonical.",
                     "citations": [],
+                    "data_as_of": _now_iso(),
                 }
             )
         summary = (
@@ -206,17 +212,52 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
     ]
 
     if not entries:
-        summary = "Không còn căn nào phù hợp tiêu chí trong giỏ hàng đang mở bán."
-    else:
-        lines = [f"{len(entries)} căn phù hợp (giá niêm yết trước thuế, đã gồm VAT? không — trước thuế):"]
-        for u in entries:
-            lines.append(
-                f"- {u['unit_code']} · {u.get('bedrooms')}PN · {u.get('area_m2')}m² · "
-                f"{grounding.format_vnd(u.get('listed_price_before_tax_vnd'))} · {u.get('status')}"
+        # Lọc rỗng **không** phải ngõ cụt: trả về phễu dữ liệu (phân khúc, căn mềm nhất, chênh lệch,
+        # hai hướng đi tiếp) để câu trả lời có số liệu thật thay vì một câu "không có" trống rỗng.
+        summary = _clip(
+            inventory_funnel.render_empty_funnel(
+                bedrooms=int(so_phong_ngu or 0),
+                budget_vnd=int(gia_toi_da_vnd or 0) or None,
+                project_id=du_an.strip() or None,
+                ma_can=ma_can,
             )
-        summary = _clip("\n".join(lines))
+        )
+    else:
+        scope_label = f"riêng phân khúc {int(so_phong_ngu)}PN" if so_phong_ngu else "toàn giỏ đang mở bán"
+        header = (
+            f"{len(entries)} căn phù hợp tiêu chí trong {scope_label} (giá niêm yết trước thuế, chưa gồm VAT):"
+        )
+        summary = _clip("\n".join([header, inventory_funnel.render_matches(entries)]))
 
-    return _dump({"tool": "tra_cuu_gio_hang", "summary": summary, "citations": citations})
+    return _dump(
+        {
+            "tool": "tra_cuu_gio_hang",
+            "summary": summary,
+            "citations": citations,
+            # Mốc thời gian của **dữ liệu** — UI hiển thị dạng watermark, KHÔNG đưa vào văn phong
+            # câu trả lời để Sale copy gửi khách được nguyên văn (chốt P1.6).
+            "data_as_of": _now_iso(),
+            # Nguồn chính danh cho mọi câu "giỏ có N căn XPN" — chống lỗi ghép nhãn phân khúc (P3.2).
+            "bedroom_histogram": {str(k): v for k, v in inventory_funnel.bedroom_histogram(du_an.strip() or None).items()},
+            # Máy đọc được: phễu này khớp được bao nhiêu căn và đang lọc theo tiêu chí nào.
+            "match_count": len(entries),
+            # Cổng CI (chốt P3.2): lọc 3PN thì MỌI căn trả về phải là 3PN. Trộn phân khúc trong bán
+            # bất động sản là lỗi cấm — kiểm bằng máy ngay tại nguồn, không đọc bằng mắt.
+            "segment_check": {
+                "requested_bedrooms": int(so_phong_ngu or 0) or None,
+                "returned_bedrooms": sorted({int(u.get("bedrooms") or 0) for u in entries}),
+                "ok": (
+                    not so_phong_ngu
+                    or all(int(u.get("bedrooms") or 0) == int(so_phong_ngu) for u in entries)
+                ),
+            },
+            "scope": {
+                "bedrooms": int(so_phong_ngu or 0) or None,
+                "budget_vnd": int(gia_toi_da_vnd or 0) or None,
+                "project_id": du_an.strip() or None,
+            },
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +357,137 @@ async def tinh_phuong_an_thanh_toan(
             "recommended": str(result.recommended_scenario_code),
             "sanity_passed": bool(result.sanity_passed),
             "citations": citations,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool 3b — Đánh giá vốn tự có (chỉ MỐC TỔNG QUAN, không bảng dòng tiền — chốt P1.2)
+# ---------------------------------------------------------------------------
+@tool
+async def danh_gia_von_tu_co(
+    von_tu_co_vnd: int,
+    so_phong_ngu: int = 0,
+    ma_can: str = "",
+    ngay_giao_dich: str = "",
+) -> str:
+    """Đánh giá nhanh: số vốn tự có của khách đủ hay thiếu bao nhiêu cho một căn.
+
+    Chỉ trả **mốc tổng quan** (tỷ lệ vốn tự có, mức tối thiểu theo phương án vay, thiếu/thừa bao nhiêu)
+    — KHÔNG trả bảng dòng tiền chi tiết. Lý do (chốt thiết kế P1.2): khi chưa rõ khách vay ngân hàng nào,
+    tiến độ giải ngân và ân hạn nợ gốc, con số chi tiết dễ làm loãng câu trả lời và dễ sai nếu chính sách
+    giải ngân thay đổi. Sale muốn chi tiết thì bấm "Xem bảng tính vay" → gọi tool `tinh_phuong_an_thanh_toan`.
+
+    Args:
+        von_tu_co_vnd: Vốn tự có của khách (VNĐ).
+        so_phong_ngu: Số phòng ngủ cần xét (0 = bỏ qua) — dùng khi Sale chưa chốt mã căn.
+        ma_can: Mã căn cụ thể (để trống thì lấy căn mềm nhất của phân khúc `so_phong_ngu`).
+        ngay_giao_dich: Ngày giao dịch YYYY-MM-DD (mặc định hôm nay).
+    """
+    from src.contracts.pricing import PricingInput
+    from src.services.pricing.client import PricingClient
+
+    unit = grounding.find_unit(ma_can) if ma_can.strip() else None
+    if unit is None and so_phong_ngu:
+        segment = inventory_funnel.segment_stats(int(so_phong_ngu))
+        unit = segment.softest_unit
+    if unit is None:
+        return _dump(
+            {
+                "tool": "danh_gia_von_tu_co",
+                "error": "Chưa xác định được căn để đánh giá vốn tự có.",
+                "summary": "Cần mã căn (hoặc số phòng ngủ) để đánh giá vốn tự có.",
+                "citations": [],
+            }
+        )
+
+    tx_date = ngay_giao_dich.strip() or date.today().isoformat()
+    pricing_input = PricingInput(
+        project_id=str(unit.get("project_id")),
+        unit_code=str(unit.get("unit_code")),
+        listed_price_before_tax_vnd=int(unit.get("listed_price_before_tax_vnd", 0)),
+        transaction_date=tx_date,
+        own_funds_vnd=int(von_tu_co_vnd or 0),
+        monthly_capacity_vnd=0,
+        objective=OptimizationObjective.MIN_INITIAL_CASH,
+        execution_context="SALES_COPILOT",
+    )
+    force_mock = os.environ.get("COPILOT_PRICING_VIA_SIDECAR", "false").lower() not in ("true", "1")
+    client = PricingClient(force_mock=force_mock)
+    result = await client.calculate(pricing_input)
+
+    from src.contracts.pricing import ScenarioCode
+
+    detail = result.scenarios.get(ScenarioCode.PA_VAY) or next(iter(result.scenarios.values()), None)
+    if detail is None:  # pragma: no cover - engine luôn trả ít nhất 1 phương án
+        return _dump(
+            {
+                "tool": "danh_gia_von_tu_co",
+                "error": "Engine không trả về phương án nào.",
+                "summary": "Chưa đánh giá được vốn tự có cho căn này.",
+                "citations": [],
+            }
+        )
+
+    total_contract = int(detail.total_contract_price_vnd or 0)
+    # Vốn tự có tối thiểu theo phương án vay = tổng HĐMB − phần ngân hàng giải ngân (dòng 70%).
+    bank_leg = next(
+        (item for item in detail.payment_schedule if float(getattr(item, "percentage", 0) or 0) >= 70.0),
+        None,
+    )
+    required_own = total_contract - int(getattr(bank_leg, "amount_vnd", 0) or 0) if bank_leg else int(
+        detail.initial_cash_outflow_vnd or 0
+    )
+    own = int(von_tu_co_vnd or 0)
+    ratio = (own / total_contract) if total_contract else 0.0
+    required_ratio = (required_own / total_contract) if total_contract else 0.0
+    gap = required_own - own
+
+    if gap <= 0:
+        verdict = (
+            f"vốn tự có {grounding.format_vnd(own)} tương đương {ratio:.1%} giá trị HĐMB — "
+            f"**đủ** mức tối thiểu theo phương án vay ({required_ratio:.1%} ≈ {grounding.format_vnd(required_own)})"
+        )
+    else:
+        verdict = (
+            f"vốn tự có {grounding.format_vnd(own)} tương đương {ratio:.1%} giá trị HĐMB — "
+            f"**thiếu** {grounding.format_vnd(gap)} so với mức tối thiểu theo phương án vay "
+            f"({required_ratio:.1%} ≈ {grounding.format_vnd(required_own)})"
+        )
+
+    summary = (
+        f"Đánh giá tổng quan (không phải bảng dòng tiền chi tiết) cho căn {unit['unit_code']} "
+        f"({unit.get('bedrooms')}PN, {grounding.project_name(unit.get('project_id'))}): {verdict}.\n"
+        f"Tổng giá trị HĐMB tham chiếu: {grounding.format_vnd(total_contract)} (đã gồm VAT và phí bảo trì).\n"
+        "Muốn xem bảng dòng tiền từng đợt thì em lập phương án thanh toán chi tiết — "
+        "chỉ nên làm khi anh/chị xác nhận khách muốn đi tiếp."
+    )
+
+    citations = [
+        {
+            "policy_id": "FCS-v2.6",
+            "section": f"Phương án vay cho {unit['unit_code']}",
+            "quote": (
+                f"Tổng giá trị HĐMB {grounding.format_vnd(total_contract)} · "
+                f"vốn tự có tối thiểu {required_ratio:.1%} ({grounding.format_vnd(required_own)}) · "
+                f"khách có {grounding.format_vnd(own)}"
+            ),
+            "source": "DETERMINISTIC_ENGINE",
+        }
+    ]
+
+    return _dump(
+        {
+            "tool": "danh_gia_von_tu_co",
+            "summary": _clip(summary),
+            "own_funds_vnd": own,
+            "own_funds_ratio": round(ratio, 4),
+            "required_own_funds_vnd": required_own,
+            "required_own_funds_ratio": round(required_ratio, 4),
+            "gap_vnd": max(0, gap),
+            "unit_code": str(unit.get("unit_code")),
+            "citations": citations,
+            "data_as_of": _now_iso(),
         }
     )
 
@@ -532,6 +704,7 @@ COPILOT_TOOLS = [
     tra_cuu_chinh_sach,
     tra_cuu_gio_hang,
     tinh_phuong_an_thanh_toan,
+    danh_gia_von_tu_co,
     kiem_tra_phat_ngon_f8,
     tra_cuu_ho_so_khach_hang,
     soan_tin_tu_van,

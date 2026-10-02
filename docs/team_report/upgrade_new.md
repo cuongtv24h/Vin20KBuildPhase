@@ -1027,6 +1027,97 @@ Kịch bản bấm tay, nên chạy sau khi deploy (Ctrl+Shift+R để bỏ bund
 * Bản này **chỉ một chiều: nói → chữ**. Chiều ngược lại (Agent đọc câu trả lời) đã có ở đợt 6 (TTS, có đường tự đọc khi được bật).
 * Muốn chất lượng cao hơn nữa (thuật ngữ bảo hiểm, tên riêng, tự sửa câu) thì cần dịch vụ STT trả phí phía server — để **thảo luận**, chưa triển khai.
 
+---
+
+## 16. Đợt 14 (2026-10-02) — Tối ưu câu trả lời Agent: độ rõ ràng, văn phong, mỏ neo `[n]`, ghi chú nội bộ, cổng chất lượng
+
+### 16.1 Người dùng yêu cầu gì
+
+Đưa ví dụ thật để so sánh **câu trả lời hiện tại** (3 dòng "Lưu ý" xếp chồng) với **câu trả lời mong muốn**
+(mỏ neo `[1]…[5]`, câu hỏi làm rõ đánh số, ghi chú kiểm duyệt gọn). Chốt phạm vi: *"tôi muốn nói về độ rõ
+ràng và văn phong hợp lý khi trả lời, làm P0 đi"*, sau đó chốt toàn bộ thiết kế P1/P2/P3 và yêu cầu triển khai.
+
+Phân tích đầy đủ (số liệu đo thật, trước/sau): `docs/team_report/agent_answer_optimization.md`.
+
+### 16.2 P0 — dọn nhiễu & sửa văn phong (commit `2dd544f`)
+
+| # | Sửa gì | Vì sao |
+|---|---|---|
+| 1 | `grounded` = có citation **hoặc** tool tra cứu chính sách/giỏ hàng chạy thành công | Câu "0 căn khớp" là **dữ liệu**, không phải "chưa đối chiếu" — trước đây bị dán nhãn sai |
+| 2 | Verifier tha **số Sale tự nêu** trong câu hỏi (`echoed_claims`) | "2 tỷ" do Sale nhập, câu trả lời nhắc lại không phải bịa |
+| 3 | Verifier tha **số/mã trong bối cảnh canonical** (`context_claims`) | "2,5 → 6,1 tỷ" là dải giá thật của giỏ, chỉ đến từ bối cảnh thay vì Observation |
+| 4 | Critic chỉ nhắc "gắn mỏ neo" khi **có** citation để trỏ tới | Lượt lọc rỗng không có nguồn nào ⇒ lời nhắc không hành động được |
+| 5 | Gộp mọi cảnh báo vào **một** trường; thêm luật văn phong cho LLM | Hết 3 dòng xếp chồng làm câu trả lời trông hỏng |
+
+Đo trên đúng ví dụ: **3 dòng cảnh báo → 0**; `grounded` False→True; `verified` False→True; `critique.ok` False→True.
+
+### 16.3 P1 — nội dung & nghiệp vụ (theo chốt của người dùng)
+
+| Mã | Chốt | Cách làm |
+|---|---|---|
+| P1.1 | Lọc rỗng ⇒ gợi ý bước 1 (bỏ trần giá, **giữ số phòng ngủ**) + câu hỏi điều hướng; **không tự hạ phòng ngủ** | `inventory_funnel.render_empty_funnel()` trả phễu đầy đủ vào Observation: khoảng giá phân khúc, căn mềm nhất, chênh lệch, **hai hướng đi tiếp** |
+| P1.2 | **Không** tính chi tiết ngay, chỉ đưa mốc tổng quan | Tool mới `danh_gia_von_tu_co`: tỷ lệ vốn tự có / giá trị HĐMB, mức tối thiểu theo phương án vay, thiếu/thừa bao nhiêu. KHÔNG trả bảng dòng tiền |
+| P1.3 | Báo căn **mềm nhất** + mức thiếu hụt, không dội căn đắt nhất | `softest_unit_line()` — nêu mã căn, diện tích, dự án, giá, chênh so với ngân sách |
+| P1.4 | Mặc định hiểu là **tổng giá**, luôn hỏi lại giả định vốn tự có | Luật trong prompt + `INTENT_ASSESS_FUNDS` cho câu hỏi về vốn tự có |
+| P1.5 | <3 căn liệt kê dòng; ≥3 căn chuyển **bảng rút gọn** (Căn · Dự án · Số PN · Diện tích · Giá) | `inventory_funnel.render_matches()` sinh bảng markdown; `FormattedAiMessage` render bảng từ trước |
+| P1.6 | Mốc thời gian dạng **watermark**, không đưa vào văn phong | `data_as_of` trong Observation → `final.payload.data_as_of` → UI hiển thị "Dữ liệu cập nhật: DD/MM/YYYY HH:mm" |
+| P1.7 | Ưu tiên **Rõ ràng → Ngắn gọn → Đầy đủ**; phần chính 4–6 câu | Luật prompt (đổi thứ tự so với đề xuất ban đầu của tôi) |
+
+### 16.4 P2 — mỏ neo `[n]` & hiển thị
+
+| Mã | Chốt | Cách làm |
+|---|---|---|
+| P2.1 | `[n]` **bấm mở được** nguồn (Trust Engine) | `anchors[]` trong payload → `FormattedAiMessage` render `[n]` thành chip bấm → mở modal căn cứ |
+| P2.2 | **Không** gắn `[n]` cho số của Sale | Số có trong câu hỏi được in đậm + nhãn "(ngân sách anh/chị nhập)"; cùng một số chỉ gắn nhãn một lần |
+| P2.3 | **Máy** tự chèn ở hậu xử lý, LLM không tự viết | Module mới `src/agents/copilot/anchors.py`: quét số → đối chiếu citation theo **giá trị số học** → chèn `[n]`; gỡ mỏ neo LLM tự gõ rồi đánh lại |
+| P2.4 | Tách trường `internal_notes` khỏi nội dung | `reply` sạch (copy gửi khách nguyên văn); `internal_notes` + `anchors` + `data_as_of` lưu **cùng lượt** trong lịch sử |
+
+### 16.5 P3 — kiểm soát chất lượng
+
+| Mã | Chốt | Cách làm |
+|---|---|---|
+| P3.1 | Prompt giữ **metadata** giỏ hàng + nhãn cảnh báo + ép gọi tool khi cần số cụ thể | Bối cảnh ghi rõ "metadata của TOÀN GIỎ" và "MỌI con số chi tiết BẮT BUỘC từ kết quả tool" |
+| P3.2 | **Cổng CI**: lọc 3PN thì mọi căn trả về phải là 3PN (lỗi cấm) | `segment_check` sinh ngay trong tool; `run_copilot_eval.py` in cổng và **exit 1** nếu vi phạm, bất kể `--fail-under` |
+| P3.3 | Hallucination = 0%; không còn ghi chú rỗng/lạc hậu; thêm 2 kịch bản vàng | Thêm `expect_no_internal_notes`, chặn CI khi `hallucination_rate > 0`; thêm `EMPTY-01` (lọc rỗng) và `FUND-01` (tổng giá → đòn bẩy vốn tự có) → bộ vàng **34 câu** |
+
+**K4 (nút hành động nhanh)** — `_default_suggestions` nay sinh chip theo ngữ cảnh, mang theo dữ liệu để
+bấm là chạy ngay: *"Xem bảng tính vay chi tiết cho căn 3 ngủ (ngân sách 2 tỷ)"*, *"Gửi danh sách căn 3 ngủ
+đang mở bán"*, *"Mở rộng sang căn 2PN+1 (ngân sách 2 tỷ)"*. Đã bổ sung từ khoá nhận diện để câu từ chip
+được hiểu đúng (kèm chốt bảo vệ: câu có "dòng tiền / bảng tính vay / báo giá" vẫn đi đường tính chi tiết).
+
+### 16.6 Bằng chứng chạy thật (sandbox)
+
+- `pytest -q` → **600 passed** (572 → 600; thêm 3 file test: `test_copilot_anchors.py` 12 ca,
+  `test_copilot_inventory_funnel.py` 14 ca, +2 ca trong `test_copilot_answer_clarity.py`).
+- `ruff check src/ tests/ scripts/` → sạch. `npm run lint` → **126 cảnh báo, 0 lỗi**.
+- Frontend: `npm test` → api-client **14**, ui **6**, mock-server **39** (59 tổng); `tsc -b apps/internal` 0 lỗi;
+  build nội bộ OK.
+- `scripts/run_copilot_eval.py` (34 câu vàng): tool **100%** · citation **100%** · **bịa 0.0%** ·
+  **cổng phân khúc ĐẠT**.
+- Ví dụ chạy thật: câu "2 tỷ là vốn tự có thì có mua được căn 3 ngủ không?" → 3 mỏ neo
+  (`31.8%`, `2.171.600.000 ₫`, `6.832.000.000 ₫`), nhãn ngân sách đúng, **không** còn ghi chú nội bộ.
+
+### 16.7 Số liệu quan trọng (đo từ dữ liệu canonical, không suy đoán)
+
+Giỏ đang mở bán có **4 căn**: ZEN-A-0803 (1PN, 2,5 tỷ) · ZEN-A-1205 (2PN, 4,2 tỷ) · SAP-01-2204 (2PN, 5,8 tỷ)
+· ZEN-B-1502 (3PN, 6,1 tỷ). Phân khúc 3PN: **1 căn**; lọc 3PN ≤ 2 tỷ: **0 căn**.
+
+Với **2 tỷ vốn tự có** cho ZEN-B-1502 (HĐMB 6,832 tỷ): tỷ lệ **29,3%**, mức tối thiểu theo phương án vay
+**31,8% ≈ 2,1716 tỷ** ⇒ **thiếu 171,6 triệu**. Lưu ý: bản "câu trả lời mong muốn" trong ví dụ của người dùng
+viết *"hoàn toàn khả thi"*, nhưng số liệu engine cho thấy **còn thiếu 171,6 triệu** — báo đúng số thiếu có
+giá trị tư vấn cao hơn một câu khẳng định chung.
+
+### 16.8 Còn lại (nói thẳng)
+
+1. **Phần văn phong do LLM viết chưa đo được trong sandbox** (không có API key/egress): luật prompt P0.5/P1.7/K2
+   mới chỉ kiểm được ở chế độ offline (ghép Observation). Cần một vòng chạy `--mode llm` hoặc bấm tay trên VM.
+2. **UI chưa kiểm bằng trình duyệt** (sandbox không có Chromium): mỏ neo bấm được, nút "Copy cho khách",
+   watermark thời gian, chip hành động — mới xác nhận ở mức mã nguồn + typecheck + build.
+3. **Một số con số chưa có mỏ neo** dù đã có nguồn: mỏ neo trỏ tới **citation**; con số chỉ nằm trong
+   Observation (không nằm trong citation) sẽ không được gắn `[n]` dù verifier coi là hợp lệ. Muốn phủ 100%
+   thì cần sinh thêm citation cho từng dòng số liệu — nên làm cùng lúc với việc mở rộng `anchors`.
+4. **Ghi chú nội bộ giờ sống cùng hội thoại** (đã lưu `internal_notes` trong bản ghi lượt), nhưng **mock server
+   và backend đều đã đổi hợp đồng** — nếu VM còn chạy bundle cũ thì nên deploy cùng lượt để tránh lệch.
 ## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.

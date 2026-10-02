@@ -1,6 +1,8 @@
 # Tối ưu câu trả lời của Agent — phân tích sâu & kế hoạch
 
-**Trạng thái: P0 đã triển khai xong (2026-10-02). P1/P2/P3 đang chờ anh chốt (danh sách câu hỏi ở §8).**
+**Trạng thái: P0 · P1 · P2 · P3 đã triển khai xong (2026-10-02 theo chốt thiết kế của người dùng).**
+Bản ghi chuẩn của đợt này: `docs/team_report/upgrade_new.md` §16. Danh sách câu hỏi ở §8 đã được trả lời
+và chuyển thành quyết định thiết kế — xem §16.3–§16.5 để biết từng điểm đã làm gì.
 
 Người dùng chốt phạm vi: *"tôi muốn nói về độ rõ ràng và văn phong hợp lý khi trả lời, làm P0 đi"*.
 P0 = dọn các cảnh báo xếp chồng và sửa văn phong trả lời — **không** đổi nội dung nghiệp vụ (phần đó là P1/P2/P3).

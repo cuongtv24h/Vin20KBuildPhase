@@ -20,6 +20,9 @@ INTENT_CREATE_CUSTOMER = "smart_customer_create"
 INTENT_CREATE_QUOTE = "smart_quote_create"
 INTENT_COMPARE_SCENARIOS = "smart_scenario_compare"
 INTENT_BROWSE_UNITS = "smart_units_browse"
+#: Hỏi/đánh giá **vốn tự có** (đòn bẩy tài chính) — chốt P1.4: khác với "tính phương án"
+#: (bảng dòng tiền chi tiết). Chỉ trả mốc tổng quan (P1.2).
+INTENT_ASSESS_FUNDS = "assess_own_funds"
 INTENT_COMPOSE_MESSAGE = "smart_compose_message"
 INTENT_LOOKUP_POLICY = "lookup_policy"
 INTENT_LOOKUP_CUSTOMER = "lookup_customer"
@@ -124,6 +127,34 @@ def detect_intent(text: str) -> IntentResult:
         entities["customer_phone"] = phone.group(0) if phone else ""
         return IntentResult(INTENT_CREATE_CUSTOMER, 0.9, entities, kw)
 
+    kw = _has(
+        lower,
+        "vốn tự có",
+        "von tu co",
+        "vốn ban đầu",
+        "von ban dau",
+        "đòn bẩy",
+        "don bay",
+        "tỷ lệ vay",
+        "mua được không",
+        "mua duoc khong",
+    )
+    # Chốt bảo vệ: nếu Sale nói rõ muốn **bảng dòng tiền / tính phương án / báo giá** thì đó vẫn là
+    # yêu cầu tính chi tiết — đừng kéo về đánh giá tổng quan vốn tự có (P1.2 chỉ áp cho câu hỏi khái quát).
+    wants_detail = _has(
+        lower,
+        "dòng tiền",
+        "tính phương án",
+        "các phương án",
+        "so sánh",
+        "bảng tính vay",
+        "bảng dòng tiền",
+        "báo giá",
+        "lịch thanh toán",
+    )
+    if kw and not wants_detail:
+        return IntentResult(INTENT_ASSESS_FUNDS, 0.8, entities, kw)
+
     kw = _has(lower, "tạo báo giá", "lập báo giá", "ra báo giá", "tính giá", "báo giá")
     if kw:
         if any(w in lower for w in ("so sánh", "đối chiếu")):
@@ -140,6 +171,11 @@ def detect_intent(text: str) -> IntentResult:
         "dòng tiền",
         "tính dòng tiền",
         "lịch thanh toán",
+        # Chip hành động nhanh (K4) — Sale bấm là gửi đúng câu này vào khung chat.
+        "bảng tính vay",
+        "phương án vay",
+        "bảng dòng tiền",
+        "xem bảng tính",
     )
     if kw:
         return IntentResult(INTENT_COMPARE_SCENARIOS, 0.8, entities, kw)
@@ -164,6 +200,9 @@ def detect_intent(text: str) -> IntentResult:
         "các căn",
         "đang mở bán",
         "liệt kê căn",
+        "gửi danh sách",
+        "mở rộng sang",
+        "lọc sang",
     )
     if kw:
         return IntentResult(INTENT_BROWSE_UNITS, 0.8, entities, kw)
@@ -221,6 +260,15 @@ def build_action_card(text: str, result: IntentResult, context: dict[str, Any] |
         return {"action_type": INTENT_CREATE_QUOTE, "action_data": {"unit_code": unit, "scenario": scenario}}
     if result.intent == INTENT_COMPARE_SCENARIOS:
         return {"action_type": INTENT_COMPARE_SCENARIOS, "action_data": {"unit_code": unit}}
+    if result.intent == INTENT_ASSESS_FUNDS:
+        return {
+            "action_type": INTENT_ASSESS_FUNDS,
+            "action_data": {
+                "unit_code": unit,
+                "own_funds_vnd": result.entities.get("amount_vnd") or 0,
+                "bedrooms": result.entities.get("bedrooms"),
+            },
+        }
     if result.intent == INTENT_BROWSE_UNITS:
         return {
             "action_type": INTENT_BROWSE_UNITS,

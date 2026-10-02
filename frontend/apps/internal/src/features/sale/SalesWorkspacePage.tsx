@@ -61,6 +61,7 @@ import type {
   LeadDossier,
   LeadCreatePayload,
   CopilotCitation,
+  CopilotAnchor,
   CopilotConversationMessage,
   CopilotFinalPayload,
   CopilotReasoningStep,
@@ -92,6 +93,7 @@ import {
   useCopilotChatConversationId,
   useCopilotChatMessages,
 } from '@pricepolicy/api-client/copilotChatState'
+import { customerReadyText } from '@pricepolicy/api-client/copilotHistory'
 import {
   SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE,
   createSpeechToText,
@@ -326,6 +328,19 @@ const clockOf = (iso?: string | null) => {
 }
 
 /**
+ * Nhãn mốc thời gian dữ liệu `[Dữ liệu cập nhật: DD/MM/YYYY HH:mm]` (chốt P1.6).
+ *
+ * Hiển thị ở chrome của giao diện (không nằm trong câu trả lời) nên Sale copy nội dung gửi khách
+ * không bị dính mốc kỹ thuật.
+ */
+const dataAsOfLabel = (iso: string): string => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/**
  * Dựng lại khung chat từ hội thoại đã lưu. Chỉ tái hiện phần "văn bản" (câu hỏi + câu trả lời kèm
  * trích dẫn) — các thẻ tương tác một lần (confirm/stepper/receipt) không lưu vào lịch sử nên không
  * dựng lại, tránh nút bấm trỏ tới trạng thái đã chết sau khi tải lại trang.
@@ -338,7 +353,16 @@ const chatItemsFromConversation = (items: CopilotConversationMessage[]): StreamI
     time: clockOf(m.at),
     data:
       m.role === 'assistant'
-        ? { citations: m.citations ?? [], grounded: (m.citations ?? []).length > 0, mode: 'react' }
+        ? {
+            citations: m.citations ?? [],
+            grounded: (m.citations ?? []).length > 0,
+            mode: 'react',
+            // Ba trường dưới đây phải được lưu cùng lượt, nếu không mở lại lịch sử là mất:
+            // mỏ neo bấm mở căn cứ, cảnh báo kiểm duyệt, và mốc thời gian dữ liệu.
+            anchors: m.anchors ?? [],
+            internal_notes: m.internal_notes ?? '',
+            data_as_of: m.data_as_of ?? null,
+          }
         : undefined,
   }))
 
@@ -1337,6 +1361,9 @@ export function SalesWorkspacePage() {
           grounded: final.grounded,
           mode: final.mode,
           critique: final.critique ?? null,
+          anchors: final.anchors ?? [],
+          internal_notes: final.internal_notes ?? '',
+          data_as_of: final.data_as_of ?? null,
         },
       })
       if (final.action_type) {
@@ -2155,12 +2182,33 @@ export function SalesWorkspacePage() {
                 return (
                   <div key={m.id} className="flex flex-col items-start gap-1.5 w-full">
                     <div className="max-w-[92%] rounded-2xl rounded-bl-xs border border-border/80 bg-card/95 px-4 py-3 text-xs text-foreground shadow-sm">
-                      <FormattedAiMessage content={m.text || ''} onCommandClick={(cmd) => triggerSmartAction(cmd)} />
+                      <FormattedAiMessage
+                        content={m.text || ''}
+                        onCommandClick={(cmd) => triggerSmartAction(cmd)}
+                        anchors={(m.data?.anchors as CopilotAnchor[] | undefined) ?? []}
+                        onAnchorClick={(anchor) => {
+                          // Chốt P2.1: bấm [n] mở đúng căn cứ — nguồn là citation thứ `citation_index`.
+                          const meta = (m.data?.anchors as CopilotAnchor[] | undefined)?.find(
+                            (a) => a.index === anchor.index,
+                          )
+                          const citations = (m.data?.citations as CopilotCitation[] | undefined) ?? []
+                          const citation = meta ? citations[meta.citation_index] : undefined
+                          if (citation) setEvidenceDetail(citationToEvidence(citation))
+                          else showToast('Chưa tìm thấy căn cứ cho mỏ neo này.')
+                        }}
+                      />
                       {Array.isArray(m.data?.citations) && m.data.citations.length > 0 && (
                         <CitationChips
                           citations={m.data.citations as CopilotCitation[]}
                           onOpen={(citation) => setEvidenceDetail(citationToEvidence(citation))}
                         />
+                      )}
+                      {/* Mốc thời gian dữ liệu (chốt P1.6): hiển thị ở chrome giao diện, KHÔNG nằm trong
+                          văn phong câu trả lời để Sale copy gửi khách được nguyên văn. */}
+                      {m.data?.data_as_of && (
+                        <div className="mt-1 text-[10px] text-muted-foreground/80 select-none">
+                          Dữ liệu cập nhật: {dataAsOfLabel(m.data.data_as_of as string)}
+                        </div>
                       )}
                       <div className="mt-1.5 flex items-center gap-2 border-t border-border/60 pt-1.5">
                         <Button
@@ -2183,11 +2231,56 @@ export function SalesWorkspacePage() {
                             </>
                           )}
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                          title="Sao chép bản sạch để gửi khách (bỏ mỏ neo và ghi chú nội bộ)"
+                          onClick={() => {
+                            // Chốt P2.4/K2: nội dung gửi khách phải sạch — bỏ mỏ neo [n], nhãn
+                            // "(ngân sách anh/chị nhập)" và ký hiệu markdown.
+                            void navigator.clipboard
+                              ?.writeText(customerReadyText(m.text || ''))
+                              .then(() => showToast('Đã sao chép bản gửi khách (đã bỏ mỏ neo nội bộ).'))
+                              .catch(() => showToast('Trình duyệt chặn sao chép — anh/chị chọn và copy thủ công.'))
+                          }}
+                        >
+                          <Copy className="h-3 w-3" /> Copy cho khách
+                        </Button>
                         <span className="text-[10px] text-muted-foreground">
                           {ttsEffective?.auto_speak ? 'Đang tự đọc câu trả lời mới' : 'Enter để gửi · Ctrl+Enter để xuống dòng'}
                         </span>
                       </div>
                     </div>
+                    {/* Ghi chú kiểm duyệt nội bộ (chốt P2.4): tách khỏi nội dung trả lời, hiện ở
+                        banner riêng — Sale copy nội dung gửi khách không dính câu quy trình. */}
+                    {(() => {
+                      // MỘT khối ghi chú nội bộ duy nhất: cảnh báo số liệu (internal_notes) + lời nhắc
+                      // phát ngôn của critic. Trước đây là 2–3 dòng rải rác làm câu trả lời trông hỏng.
+                      const notes = String(m.data?.internal_notes || '').trim()
+                      const hints: string[] =
+                        m.data?.critique && m.data.critique.ok === false
+                          ? (m.data.critique.hints as string[] | undefined)?.length
+                            ? (m.data.critique.hints as string[])
+                            : ['câu trả lời cần chỉnh lại trước khi gửi khách']
+                          : []
+                      if (!notes && hints.length === 0) return null
+                      return (
+                        <div
+                          role="status"
+                          className="max-w-[92%] flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-foreground"
+                        >
+                          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" />
+                          <div className="space-y-0.5">
+                            <span className="font-semibold">Ghi chú nội bộ (không gửi khách):</span>
+                            {notes && <p>{notes}</p>}
+                            {hints.map((hint, hIdx) => (
+                              <p key={hIdx}>• {hint}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
                     {/* Suggested actions pills */}
                     {m.suggested_actions && m.suggested_actions.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 pt-1 pl-1">
@@ -2204,18 +2297,8 @@ export function SalesWorkspacePage() {
                         ))}
                       </div>
                     )}
-                    {/* Critic vòng 2: cảnh báo khi phát ngôn cần chỉnh (P2) */}
-                    {m.data?.critique && m.data.critique.ok === false && (
-                      <div
-                        role="status"
-                        className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[11px] text-foreground"
-                      >
-                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
-                        <span>
-                          Kiểm duyệt nội bộ: {m.data.critique.hints?.[0] || 'câu trả lời cần chỉnh lại trước khi gửi khách'}
-                        </span>
-                      </div>
-                    )}
+                    {/* Critic vòng 2: lời nhắc đã được gộp vào banner "Ghi chú nội bộ" phía trên —
+                        hiển thị lần nữa ở đây sẽ thành hai khối cảnh báo trùng nhau. */}
                     <div className="ml-1 flex items-center gap-2">
                       <span className="text-[10px] text-muted-foreground">Trợ lý AI · {m.time}</span>
                       {m.type === 'agent' && !m.id.startsWith('agent-critic') && (

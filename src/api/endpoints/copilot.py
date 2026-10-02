@@ -273,6 +273,12 @@ class ConversationMessage(BaseModel):
     at: str | None = None
     citations: list[dict[str, Any]] = Field(default_factory=list)
     action_type: str | None = None
+    #: Ghi chú kiểm duyệt nội bộ — tách khỏi `content` để Sale copy gửi khách được nguyên văn (P2.4).
+    internal_notes: str = ""
+    #: Mỏ neo [n] → căn cứ, để UI bấm mở nguồn sau khi mở lại lịch sử (P2.1).
+    anchors: list[dict[str, Any]] = Field(default_factory=list)
+    #: Mốc thời gian dữ liệu hiển thị dạng watermark (P1.6).
+    data_as_of: str | None = None
 
 
 class ConversationSummary(BaseModel):
@@ -303,6 +309,10 @@ class AppendTurnRequest(BaseModel):
     assistant_message: str
     citations: list[dict[str, Any]] = Field(default_factory=list)
     action_type: str | None = None
+    #: Ghi chú kiểm duyệt nội bộ (P2.4) — không nằm trong `assistant_message`.
+    internal_notes: str = ""
+    anchors: list[dict[str, Any]] = Field(default_factory=list)
+    data_as_of: str | None = None
 
 
 class RenameConversationRequest(BaseModel):
@@ -364,6 +374,9 @@ async def copilot_append_turn(
         assistant_message=req.assistant_message,
         citations=req.citations,
         action_type=req.action_type,
+        internal_notes=req.internal_notes,
+        anchors=req.anchors,
+        data_as_of=req.data_as_of,
     )
     return ConversationDetail(**updated)
 

@@ -81,6 +81,10 @@ async def run_question(question: dict[str, Any], *, mode: str) -> dict[str, Any]
         # Chi phí/chất lượng bổ sung (P2): đọc thẳng từ payload cuối, không tính lại.
         "critique_ok": bool((final.get("critique") or {}).get("ok", True)),
         "critique_issues": [i.get("code") for i in ((final.get("critique") or {}).get("issues") or [])],
+        # Cổng CI P3.2: mọi lần lọc theo số phòng ngủ phải trả về ĐÚNG phân khúc đó.
+        "segment_checks": [d.get("segment_check") for k, d in events if k == "observation" and d.get("segment_check")],
+        # Chốt P3.3: câu tra cứu phải sạch cảnh báo — không còn ghi chú rỗng/hết hạn rà soát.
+        "internal_notes": str(final.get("internal_notes") or ""),
         "observation_chars": int((final.get("context_budget") or {}).get("observation_chars") or 0),
         "cached_tool_results": int((final.get("context_budget") or {}).get("cached_tool_results") or 0),
         "plan_steps": len(final.get("plan") or []),
@@ -125,6 +129,12 @@ def score(question: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     expect_refusal = bool(question.get("expect_refusal"))
     expect_grounded = bool(question.get("expect_grounded"))
 
+    # P3.2 — lỗi trộn phân khúc là lỗi CẤM: sai một ca là hỏng cả lượt đánh giá.
+    segment_ok = all(check.get("ok", True) for check in (result.get("segment_checks") or []))
+    # P3.3 — câu tra cứu không được còn ghi chú nội bộ rỗng/lạc hậu (số liệu phải đã đối chiếu được).
+    expect_clean_notes = bool(question.get("expect_no_internal_notes"))
+    notes_ok = not expect_clean_notes or not str(result.get("internal_notes") or "").strip()
+
     hallucinated = False
     # Câu bị guardrail chặn: `verified=False` là do input bị chặn, không phải bịa.
     if not result["verified"] and not (expect_refusal and result["refused"]):
@@ -132,6 +142,10 @@ def score(question: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     if expect_grounded and not result["grounded"]:
         hallucinated = True
     if expect_refusal and not result["refused"]:
+        hallucinated = True
+    if not segment_ok:
+        hallucinated = True  # trộn phân khúc: tính là sai nghiêm trọng (báo bằng cổng riêng bên dưới)
+    if not notes_ok:
         hallucinated = True
     if question.get("expect_no_tools") and tools:
         hallucinated = True
@@ -143,6 +157,8 @@ def score(question: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         "citation_ok": citation_ok,
         "hallucinated": hallucinated,
         "missing_terms": missing_terms,
+        "segment_ok": segment_ok,
+        "notes_ok": notes_ok,
     }
 
 
@@ -158,8 +174,11 @@ def summarize(results: list[dict[str, Any]], scored: list[dict[str, Any]]) -> di
         bucket["citation_ok"] += int(s["citation_ok"])
         bucket["hallucinated"] += int(s["hallucinated"])
 
+    segment_violations = [r["id"] for r, s in zip(results, scored, strict=True) if not s["segment_ok"]]
     return {
         "total": total,
+        "segment_gate_ok": not segment_violations,
+        "segment_violations": segment_violations,
         "tool_selection_accuracy": round(sum(s["tool_ok"] for s in scored) / total, 4) if total else 0.0,
         "citation_precision": round(sum(s["citation_ok"] for s in scored) / total, 4) if total else 0.0,
         "hallucination_rate": round(sum(s["hallucinated"] for s in scored) / total, 4) if total else 0.0,
@@ -204,6 +223,8 @@ def print_report(results: list[dict[str, Any]], scored: list[dict[str, Any]], re
     print(f"  tool_selection_accuracy : {report['tool_selection_accuracy']:.1%}")
     print(f"  citation_precision      : {report['citation_precision']:.1%}")
     print(f"  hallucination_rate      : {report['hallucination_rate']:.1%}")
+    gate = "ĐẠT" if report.get("segment_gate_ok") else f"VI PHẠM ở {report.get('segment_violations')}"
+    print(f"  cổng phân khúc (P3.2)   : {gate} — lọc N phòng ngủ phải trả về đúng N phòng ngủ")
     print(f"  p95_latency_ms          : {report['p95_latency_ms']:.0f} ms (trung bình {report['mean_latency_ms']:.0f} ms)")
     quality = report.get("quality") or {}
     if quality:
@@ -247,6 +268,14 @@ def main() -> int:
         shown_path = args.json
     print(f"\nĐã ghi báo cáo: {shown_path}")
 
+    # Cổng bắt buộc (chốt P3.2): trộn phân khúc là lỗi cấm — chặn CI bất kể có truyền --fail-under hay không.
+    if not report.get("segment_gate_ok", True):
+        print(f"THẤT BẠI: vi phạm phân khúc ở {report.get('segment_violations')}")
+        return 1
+    # Chốt P3.3: câu tra cứu không được còn ghi chú nội bộ (số liệu phải đã đối chiếu được).
+    if report["hallucination_rate"] > 0:
+        print(f"THẤT BẠI: hallucination_rate {report['hallucination_rate']:.1%} > 0%")
+        return 1
     if args.fail_under is not None and report["tool_selection_accuracy"] < args.fail_under:
         print(f"THẤT BẠI: tool_selection_accuracy dưới ngưỡng {args.fail_under:.0%}")
         return 1

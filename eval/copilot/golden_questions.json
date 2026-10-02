@@ -13,28 +13,44 @@
       "id": "POL-01",
       "group": "policy",
       "message": "Chính sách chiết khấu thanh toán sớm 95% đang áp dụng thế nào?",
-      "context": { "transaction_date": "2026-09-26" },
-      "any_tools": ["tra_cuu_chinh_sach"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "any_tools": [
+        "tra_cuu_chinh_sach"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["8"]
+      "must_contain": [
+        "8"
+      ]
     },
     {
       "id": "POL-02",
       "group": "policy",
       "message": "Văn bản chính sách nào đang có hiệu lực cho dự án The Zen Park?",
-      "context": { "transaction_date": "2026-09-26" },
-      "any_tools": ["tra_cuu_chinh_sach"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "any_tools": [
+        "tra_cuu_chinh_sach"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["CSBH-ZEN"]
+      "must_contain": [
+        "CSBH-ZEN"
+      ]
     },
     {
       "id": "POL-03",
       "group": "policy",
       "message": "Điều kiện áp dụng chiết khấu cư dân là gì?",
-      "context": { "transaction_date": "2026-09-26" },
-      "any_tools": ["tra_cuu_chinh_sach"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "any_tools": [
+        "tra_cuu_chinh_sach"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -43,28 +59,40 @@
       "group": "policy",
       "message": "Ngày 15/07/2026 thì chính sách nào có hiệu lực cho The Zen Park?",
       "context": {},
-      "any_tools": ["tra_cuu_chinh_sach"],
+      "any_tools": [
+        "tra_cuu_chinh_sach"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["V2.0"],
+      "must_contain": [
+        "V2.0"
+      ],
       "notes": "Time-travel: ngày 15/07/2026 phải rơi vào chính sách V2.0 (hiệu lực đến 31/07/2026)."
     },
     {
       "id": "POL-05",
       "group": "policy",
       "message": "Chính sách hỗ trợ lãi suất vay ngân hàng 0% kéo dài bao lâu?",
-      "context": { "transaction_date": "2026-09-26" },
-      "any_tools": ["tra_cuu_chinh_sach"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "any_tools": [
+        "tra_cuu_chinh_sach"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["24"]
+      "must_contain": [
+        "24"
+      ]
     },
     {
       "id": "UNI-01",
       "group": "units",
       "message": "Giỏ hàng còn căn 2 ngủ nào?",
       "context": {},
-      "any_tools": ["tra_cuu_gio_hang"],
+      "any_tools": [
+        "tra_cuu_gio_hang"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -73,7 +101,9 @@
       "group": "units",
       "message": "Còn căn nào dưới 3 tỷ không em?",
       "context": {},
-      "any_tools": ["tra_cuu_gio_hang"],
+      "any_tools": [
+        "tra_cuu_gio_hang"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -82,17 +112,23 @@
       "group": "units",
       "message": "Cho anh thông tin căn ZEN-A-1205",
       "context": {},
-      "any_tools": ["tra_cuu_gio_hang"],
+      "any_tools": [
+        "tra_cuu_gio_hang"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["ZEN-A-1205"]
+      "must_contain": [
+        "ZEN-A-1205"
+      ]
     },
     {
       "id": "UNI-04",
       "group": "units",
       "message": "Liệt kê các căn đang mở bán của dự án",
       "context": {},
-      "any_tools": ["tra_cuu_gio_hang"],
+      "any_tools": [
+        "tra_cuu_gio_hang"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -100,28 +136,44 @@
       "id": "SCE-01",
       "group": "scenarios",
       "message": "Tính phương án thanh toán cho căn ZEN-A-1205",
-      "context": { "transaction_date": "2026-09-26" },
-      "any_tools": ["tinh_phuong_an_thanh_toan"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "any_tools": [
+        "tinh_phuong_an_thanh_toan"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["PA-"]
+      "must_contain": [
+        "PA-"
+      ]
     },
     {
       "id": "SCE-02",
       "group": "scenarios",
       "message": "So sánh 3 phương án cho căn ZEN-A-1205, tối ưu giá net",
-      "context": { "transaction_date": "2026-09-26" },
-      "any_tools": ["tinh_phuong_an_thanh_toan"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "any_tools": [
+        "tinh_phuong_an_thanh_toan"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["PA-"]
+      "must_contain": [
+        "PA-"
+      ]
     },
     {
       "id": "SCE-03",
       "group": "scenarios",
       "message": "Tính dòng tiền căn ZEN-A-0803 với vốn tự có 1,5 tỷ",
-      "context": { "transaction_date": "2026-09-26" },
-      "any_tools": ["tinh_phuong_an_thanh_toan"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "any_tools": [
+        "tinh_phuong_an_thanh_toan"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -129,8 +181,13 @@
       "id": "SCE-04",
       "group": "scenarios",
       "message": "Lập báo giá cho căn ZEN-A-1810",
-      "context": { "transaction_date": "2026-09-26", "current_unit": "ZEN-A-1810" },
-      "any_tools": ["tinh_phuong_an_thanh_toan"],
+      "context": {
+        "transaction_date": "2026-09-26",
+        "current_unit": "ZEN-A-1810"
+      },
+      "any_tools": [
+        "tinh_phuong_an_thanh_toan"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -138,8 +195,13 @@
       "id": "SCE-05",
       "group": "scenarios",
       "message": "Phương án nào phải nộp đợt 1 ít nhất?",
-      "context": { "transaction_date": "2026-09-26", "current_unit": "ZEN-A-1205" },
-      "any_tools": ["tinh_phuong_an_thanh_toan"],
+      "context": {
+        "transaction_date": "2026-09-26",
+        "current_unit": "ZEN-A-1205"
+      },
+      "any_tools": [
+        "tinh_phuong_an_thanh_toan"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -148,17 +210,23 @@
       "group": "compose",
       "message": "Soạn tin tư vấn cho khách đang quan tâm căn ZEN-A-1205",
       "context": {},
-      "any_tools": ["soan_tin_tu_van"],
+      "any_tools": [
+        "soan_tin_tu_van"
+      ],
       "expect_citation": false,
       "expect_grounded": false,
-      "must_contain": ["ZEN-A-1205"]
+      "must_contain": [
+        "ZEN-A-1205"
+      ]
     },
     {
       "id": "CMP-02",
       "group": "compose",
       "message": "Viết tin nhắn Zalo gửi khách về ưu đãi thanh toán sớm",
       "context": {},
-      "any_tools": ["soan_tin_tu_van"],
+      "any_tools": [
+        "soan_tin_tu_van"
+      ],
       "expect_citation": false,
       "expect_grounded": false
     },
@@ -167,17 +235,23 @@
       "group": "compliance",
       "message": "Kiểm tra phát ngôn này có vi phạm không: cam kết sinh lời 20% mỗi năm",
       "context": {},
-      "any_tools": ["kiem_tra_phat_ngon_f8"],
+      "any_tools": [
+        "kiem_tra_phat_ngon_f8"
+      ],
       "expect_citation": false,
       "expect_grounded": false,
-      "must_contain": ["PROHIBITED"]
+      "must_contain": [
+        "PROHIBITED"
+      ]
     },
     {
       "id": "F8-02",
       "group": "compliance",
       "message": "Câu này gửi khách được chưa: 'Anh yên tâm, em bao duyệt vay 100%'",
       "context": {},
-      "any_tools": ["kiem_tra_phat_ngon_f8"],
+      "any_tools": [
+        "kiem_tra_phat_ngon_f8"
+      ],
       "expect_citation": false,
       "expect_grounded": false
     },
@@ -186,7 +260,9 @@
       "group": "customer",
       "message": "Tìm hồ sơ khách Nguyễn Văn An giúp em",
       "context": {},
-      "any_tools": ["tra_cuu_ho_so_khach_hang"],
+      "any_tools": [
+        "tra_cuu_ho_so_khach_hang"
+      ],
       "expect_citation": false,
       "expect_grounded": false
     },
@@ -195,7 +271,9 @@
       "group": "customer",
       "message": "Tra hồ sơ mã DOS-000123",
       "context": {},
-      "any_tools": ["tra_cuu_ho_so_khach_hang"],
+      "any_tools": [
+        "tra_cuu_ho_so_khach_hang"
+      ],
       "expect_citation": false,
       "expect_grounded": false
     },
@@ -282,8 +360,13 @@
       "id": "MUL-01",
       "group": "multi_intent",
       "message": "Tra chính sách chiết khấu rồi tính phương án cho căn ZEN-A-1205",
-      "context": { "transaction_date": "2026-09-26" },
-      "required_tools": ["tra_cuu_chinh_sach", "tinh_phuong_an_thanh_toan"],
+      "context": {
+        "transaction_date": "2026-09-26"
+      },
+      "required_tools": [
+        "tra_cuu_chinh_sach",
+        "tinh_phuong_an_thanh_toan"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -291,8 +374,14 @@
       "id": "MUL-02",
       "group": "multi_intent",
       "message": "Tính phương án cho căn ZEN-A-1205 rồi soạn tin tư vấn cho khách",
-      "context": { "transaction_date": "2026-09-26", "current_unit": "ZEN-A-1205" },
-      "required_tools": ["tinh_phuong_an_thanh_toan", "soan_tin_tu_van"],
+      "context": {
+        "transaction_date": "2026-09-26",
+        "current_unit": "ZEN-A-1205"
+      },
+      "required_tools": [
+        "tinh_phuong_an_thanh_toan",
+        "soan_tin_tu_van"
+      ],
       "expect_citation": true,
       "expect_grounded": true
     },
@@ -302,23 +391,69 @@
       "message": "Tính phương án cho căn đó đi em",
       "context": {},
       "history": [
-        { "role": "user", "content": "Cho em xem căn ZEN-A-1810" },
-        { "role": "assistant", "content": "Dạ căn ZEN-A-1810 còn trống, giá 5,5 tỷ ạ." }
+        {
+          "role": "user",
+          "content": "Cho em xem căn ZEN-A-1810"
+        },
+        {
+          "role": "assistant",
+          "content": "Dạ căn ZEN-A-1810 còn trống, giá 5,5 tỷ ạ."
+        }
       ],
-      "any_tools": ["tinh_phuong_an_thanh_toan"],
+      "any_tools": [
+        "tinh_phuong_an_thanh_toan"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["ZEN-A-1810"],
+      "must_contain": [
+        "ZEN-A-1810"
+      ],
       "notes": "Slot memory: câu này không nêu mã căn, phải lấy từ lịch sử."
     },
     {
       "id": "MEM-02",
       "group": "memory",
       "message": "Soạn tin cho khách về căn này nhé",
-      "context": { "current_unit": "ZEN-A-0803" },
-      "any_tools": ["soan_tin_tu_van"],
+      "context": {
+        "current_unit": "ZEN-A-0803"
+      },
+      "any_tools": [
+        "soan_tin_tu_van"
+      ],
       "expect_citation": false,
       "expect_grounded": false
+    },
+    {
+      "id": "EMPTY-01",
+      "group": "units",
+      "message": "Khách hàng có 2 tỷ, cần mua căn 3 ngủ",
+      "context": {},
+      "required_tools": [
+        "tra_cuu_gio_hang",
+        "danh_gia_von_tu_co"
+      ],
+      "expect_citation": true,
+      "expect_grounded": true,
+      "expect_no_internal_notes": true,
+      "must_contain": [
+        "3PN"
+      ],
+      "notes": "Kịch bản 'lọc rỗng' (chốt P1.1/P1.2/P3.3): phải trả số liệu phân khúc 3PN + căn mềm nhất + chênh lệch + mốc tổng quan vốn tự có, luôn nêu phạm vi phân khúc. Bắt buộc đi tiếp bước đánh giá vốn tự có vì Sale có nêu ngân sách. Mọi con số đều có nguồn (canonical/Observation) nên KHÔNG được còn ghi chú nội bộ."
+    },
+    {
+      "id": "FUND-01",
+      "group": "units",
+      "message": "2 tỷ là vốn tự có thì có mua được căn 3 ngủ không em?",
+      "context": {},
+      "any_tools": [
+        "danh_gia_von_tu_co"
+      ],
+      "expect_citation": true,
+      "expect_grounded": true,
+      "must_contain": [
+        "vốn tự có"
+      ],
+      "notes": "Kịch bản 'tổng giá → đòn bẩy vốn tự có' (chốt P1.4/P3.3): Sale nói rõ là vốn tự có nên phải đánh giá tỷ lệ vốn tự có / giá trị HĐMB và còn thiếu bao nhiêu, KHÔNG đưa bảng dòng tiền chi tiết (P1.2)."
     }
   ]
 }

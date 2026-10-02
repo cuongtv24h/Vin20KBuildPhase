@@ -33,6 +33,7 @@ _WORKFLOW_ORDER = {
     intents.INTENT_LOOKUP_POLICY: 10,
     intents.INTENT_LOOKUP_CUSTOMER: 15,
     intents.INTENT_BROWSE_UNITS: 20,
+    intents.INTENT_ASSESS_FUNDS: 25,
     intents.INTENT_COMPARE_SCENARIOS: 30,
     intents.INTENT_CREATE_QUOTE: 35,
     intents.INTENT_COMPOSE_MESSAGE: 40,
@@ -67,6 +68,10 @@ def _tool_for(intent: str, args: dict) -> str | None:
         return "tra_cuu_chinh_sach"
     if intent == intents.INTENT_BROWSE_UNITS:
         return "tra_cuu_gio_hang"
+    if intent == intents.INTENT_ASSESS_FUNDS:
+        # Đánh giá vốn tự có = mốc TỔNG QUAN (chốt P1.2); muốn bảng dòng tiền chi tiết thì dùng
+        # `tinh_phuong_an_thanh_toan` (Sale bấm "Xem bảng tính vay chi tiết").
+        return "danh_gia_von_tu_co"
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
         return "tinh_phuong_an_thanh_toan"
     if intent == intents.INTENT_COMPOSE_MESSAGE:
@@ -90,6 +95,13 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
             "so_phong_ngu": entity.get("bedrooms") or 0,
             "gia_toi_da_vnd": entity.get("amount_vnd") or 0,
             "ma_can": entity.get("unit_code") or "",
+        }
+    if intent == intents.INTENT_ASSESS_FUNDS:
+        return {
+            "von_tu_co_vnd": entity.get("amount_vnd") or 0,
+            "so_phong_ngu": entity.get("bedrooms") or 0,
+            "ma_can": entity.get("unit_code") or "",
+            "ngay_giao_dich": tx_date,
         }
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
         return {
@@ -145,6 +157,7 @@ def plan_summary(steps: list[PlanStep]) -> str:
     labels = {
         intents.INTENT_LOOKUP_POLICY: "tra chính sách hiệu lực",
         intents.INTENT_BROWSE_UNITS: "lọc giỏ hàng",
+        intents.INTENT_ASSESS_FUNDS: "đánh giá vốn tự có",
         intents.INTENT_COMPARE_SCENARIOS: "tính & so sánh phương án",
         intents.INTENT_CREATE_QUOTE: "lập báo giá",
         intents.INTENT_COMPOSE_MESSAGE: "soạn tin & tự kiểm F8",
