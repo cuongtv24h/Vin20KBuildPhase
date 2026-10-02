@@ -15,6 +15,7 @@ from src.api.endpoints import (
     copilot,
     evaluation,
     leads,
+    llm_admin,
     policies,
     pre_sales,
     quote_events,
@@ -62,6 +63,7 @@ router.include_router(quotes.router)
 router.include_router(quote_events.router)
 router.include_router(compliance.router)
 router.include_router(evaluation.router)
+router.include_router(llm_admin.router, prefix="/api/v1")
 router.include_router(copilot.router, prefix="/api/v1")
 router.include_router(policies.router, prefix="/api/v1")
 

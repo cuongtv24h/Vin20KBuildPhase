@@ -27,17 +27,33 @@ import {
   X,
   Search,
   ChevronRight,
+  History,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Trash2,
 } from 'lucide-react'
 
 // Hooks & Store
 import { useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '@/auth/sessionStore'
 import { api } from '@pricepolicy/api-client/client'
-import { useLeads, useCreateLead, useQuotes, usePolicies, useProjectOverviews, useCopilotTurn } from '@pricepolicy/api-client/hooks'
+import {
+  useLeads,
+  useCreateLead,
+  useQuotes,
+  usePolicies,
+  useProjectOverviews,
+  useCopilotTurn,
+  useCopilotConversations,
+  useCopilotConversation,
+  useAppendCopilotTurnSync,
+  useDeleteCopilotConversation,
+} from '@pricepolicy/api-client/hooks'
 import type {
   LeadDossier,
   LeadCreatePayload,
   CopilotCitation,
+  CopilotConversationMessage,
   CopilotFinalPayload,
   CopilotReasoningStep,
 } from '@pricepolicy/api-client/contracts'
@@ -263,6 +279,50 @@ type StreamItemType =
   | 'smart_units_browse'
   | 'smart_compose_message'
   | 'reasoning'
+
+/** ID cuộc hội thoại Copilot đang mở — giữ qua các lần đổi trang trong cùng phiên trình duyệt. */
+const ACTIVE_CONVERSATION_STORAGE_KEY = 'copilot.activeConversationId'
+
+const storedConversationId = () => {
+  try {
+    return window.localStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+const rememberConversationId = (conversationId: string | null) => {
+  try {
+    if (conversationId) window.localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, conversationId)
+    else window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY)
+  } catch {
+    /* chế độ riêng tư: bỏ qua */
+  }
+}
+
+/** Giờ:phút của một mốc ISO — lịch sử lưu ISO, khung chat hiển thị HH:MM. */
+const clockOf = (iso?: string | null) => {
+  if (!iso) return new Date().toTimeString().slice(0, 5)
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? new Date().toTimeString().slice(0, 5) : d.toTimeString().slice(0, 5)
+}
+
+/**
+ * Dựng lại khung chat từ hội thoại đã lưu. Chỉ tái hiện phần "văn bản" (câu hỏi + câu trả lời kèm
+ * trích dẫn) — các thẻ tương tác một lần (confirm/stepper/receipt) không lưu vào lịch sử nên không
+ * dựng lại, tránh nút bấm trỏ tới trạng thái đã chết sau khi tải lại trang.
+ */
+const chatItemsFromConversation = (items: CopilotConversationMessage[]): StreamItem[] =>
+  items.map((m, idx) => ({
+    id: `hist-${idx}-${m.at ?? ''}`,
+    type: m.role === 'user' ? 'user' : 'agent',
+    text: m.content,
+    time: clockOf(m.at),
+    data:
+      m.role === 'assistant'
+        ? { citations: m.citations ?? [], grounded: (m.citations ?? []).length > 0, mode: 'react' }
+        : undefined,
+  }))
 
 interface StreamItem {
   id: string
@@ -825,6 +885,56 @@ export function SalesWorkspacePage() {
   const reasoningMsgIdRef = useRef<string | null>(null)
   const appliedFinalRef = useRef<CopilotFinalPayload | null>(null)
 
+  // ── Lịch sử hội thoại Copilot (lỗi P1 "đổi trang là mất hội thoại") ──────────
+  // Nguồn sự thật là server: mở lại trang thì nạp lại đúng cuộc đang dở thay vì bắt đầu trắng.
+  const [conversationId, setConversationId] = useState<string | null>(() => storedConversationId())
+  const [historyOpen, setHistoryOpen] = useState(true)
+  /** Chỉ nạp lại khung chat khi đổi cuộc — không đè lên lượt đang gõ. */
+  const loadedConversationRef = useRef<string | null | undefined>(undefined)
+  const conversations = useCopilotConversations()
+  const conversation = useCopilotConversation(conversationId)
+  const appendTurn = useAppendCopilotTurnSync()
+  const deleteConversation = useDeleteCopilotConversation()
+  const pendingQuestionsRef = useRef<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!conversationId) {
+      // Cuộc mới: chỉ dọn khung chat một lần cho mỗi lần "làm mới".
+      if (loadedConversationRef.current !== null) {
+        loadedConversationRef.current = null
+        setMessages([])
+        copilot.reset()
+      }
+      return
+    }
+    const detail = conversation.data
+    if (!detail || detail.conversation_id !== conversationId) return
+    if (loadedConversationRef.current === conversationId) return
+    loadedConversationRef.current = conversationId
+    setMessages(chatItemsFromConversation(detail.messages ?? []))
+    copilot.reset()
+    scrollChatToEnd()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ nạp khi đổi cuộc/ có dữ liệu mới lần đầu
+  }, [conversationId, conversation.data])
+
+  /** Đổi cuộc: lưu lựa chọn rồi để effect trên nạp nội dung từ server. */
+  const openConversation = (nextId: string | null) => {
+    rememberConversationId(nextId)
+    setConversationId(nextId)
+    setFailedTurn(null)
+    if (nextId) setHistoryOpen(true)
+  }
+
+  const handleDeleteConversation = async (id: string) => {
+    try {
+      await deleteConversation.mutateAsync(id)
+    } catch {
+      showToast('Không xoá được cuộc hội thoại — anh thử lại giúp em')
+      return
+    }
+    if (id === conversationId) openConversation(null)
+  }
+
 
   // Copilot Composer State
   const [draftContent, setDraftContent] = useState(
@@ -1006,9 +1116,40 @@ export function SalesWorkspacePage() {
     })
     if (!final.grounded && final.mode !== 'react') {
       showToast('Câu trả lời chưa đối chiếu được dữ liệu — anh kiểm tra lại giúp em')
+      // Không lưu câu trả lời vào lịch sử: mở lại sau này sẽ không còn thấy cảnh báo này.
+      delete pendingQuestionsRef.current[msgId]
+      scrollChatToEnd()
+      return
     }
     scrollChatToEnd()
+
+    // Ghi lượt hỏi–đáp vào lịch sử server (không chặn UI). Câu hỏi gốc lấy từ hàng đợi theo id
+    // lượt reasoning, nên câu trả lời luôn khớp đúng câu đã hỏi kể cả khi Sale bấm nhanh.
+    const question = pendingQuestionsRef.current[msgId] ?? [...messages].reverse().find((m) => m.type === 'user')?.text
+    delete pendingQuestionsRef.current[msgId]
+    if (question) {
+      appendTurn({
+        conversation_id: conversationId,
+        user_message: question,
+        assistant_message: final.reply,
+        citations: final.citations ?? [],
+        action_type: final.action_type ?? null,
+      }).then((detail) => {
+        if (!detail) return
+        // Lượt đầu tiên của cuộc mới: server đặt tên cuộc → ghi nhớ id để lần sau ghi tiếp.
+        if (!conversationId && detail.conversation_id) {
+          rememberConversationId(detail.conversation_id)
+          setConversationId(detail.conversation_id)
+          loadedConversationRef.current = detail.conversation_id
+        }
+      })
+    }
   }, [copilot.final, copilot.steps])
+
+  // Câu hỏi của lượt đang chạy — effect chốt lượt ở trên đọc lại theo id lượt reasoning.
+  const recordPendingQuestion = (reasoningId: string, question: string) => {
+    pendingQuestionsRef.current[reasoningId] = question
+  }
 
   /**
    * Nudge THẬT: khi danh sách báo giá (polling/SSE) cho thấy có hồ sơ cần Sale xử lý
@@ -1479,6 +1620,7 @@ export function SalesWorkspacePage() {
     const reasoningId = `reasoning-${Date.now()}`
     reasoningMsgIdRef.current = reasoningId
     appliedFinalRef.current = null
+    recordPendingQuestion(reasoningId, text)
     setMessages((prev) => [
       ...prev,
       {
@@ -1638,6 +1780,22 @@ export function SalesWorkspacePage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setHistoryOpen((v) => !v)}
+            title={historyOpen ? 'Ẩn lịch sử hội thoại' : 'Hiện lịch sử hội thoại'}
+            className="h-7 text-xs gap-1.5"
+          >
+            {historyOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
+            <History className="h-3.5 w-3.5" />
+            Lịch sử
+            {conversations.data && conversations.data.total > 0 && (
+              <Badge variant="secondary" className="ml-0.5 h-4 px-1.5 text-[10px]">
+                {conversations.data.total}
+              </Badge>
+            )}
+          </Button>
           <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
             🟢 Online · FCS v2.6
           </Badge>
@@ -1655,6 +1813,64 @@ export function SalesWorkspacePage() {
 
       {/* ================= 2. WORKSPACE CONVERSATION & PANEL ================= */}
       <div className="flex min-h-0 flex-1">
+        {/* ----- LỊCH SỬ HỘI THOẠI (thanh bên) ----- */}
+        {historyOpen && (
+          <aside
+            aria-label="Lịch sử hội thoại Copilot"
+            className="flex w-56 shrink-0 flex-col border-r border-border bg-muted/20"
+          >
+            <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hội thoại đã lưu</span>
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={() => openConversation(null)}>
+                <Plus className="mr-1 h-3 w-3" /> Mới
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+              {conversations.isLoading && <p className="px-1 py-2 text-[11px] text-muted-foreground">Đang tải lịch sử…</p>}
+              {conversations.isError && (
+                <p className="px-1 py-2 text-[11px] text-destructive">Không tải được lịch sử. Anh thử lại sau giúp em.</p>
+              )}
+              {conversations.data && conversations.data.items.length === 0 && (
+                <p className="px-1 py-2 text-[11px] text-muted-foreground">
+                  Chưa có hội thoại nào. Hội thoại sẽ được lưu tự động và xem lại được sau khi đổi trang.
+                </p>
+              )}
+              {conversations.data?.items.map((c) => (
+                <div
+                  key={c.conversation_id}
+                  className={cn(
+                    'group cursor-pointer rounded-lg border px-2 py-1.5 transition-colors',
+                    c.conversation_id === conversationId
+                      ? 'border-primary/40 bg-primary/10'
+                      : 'border-transparent hover:border-border hover:bg-muted/50',
+                  )}
+                  onClick={() => openConversation(c.conversation_id)}
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <span className="line-clamp-2 text-[11px] font-medium text-foreground">{c.title}</span>
+                    <button
+                      type="button"
+                      aria-label={`Xoá hội thoại ${c.title}`}
+                      className="hidden shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive group-hover:block"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleDeleteConversation(c.conversation_id)
+                      }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Clock className="h-2.5 w-2.5" />
+                    {clockOf(c.updated_at)}
+                    <span>· {c.message_count} lượt</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
+
         {/* ----- AGENT CONVERSATION (MAIN) ----- */}
         <section className="flex min-w-0 flex-1 flex-col bg-background">
           {/* Chat Stream Messages */}

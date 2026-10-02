@@ -47,6 +47,23 @@ const normalizeRole = (role: string): UserRole => {
   return upper
 }
 
+/**
+ * Cấp user_id chưa tồn tại trong bộ nhân viên.
+ *
+ * Vì sao cần: `USR-ADM-001` đã thuộc về minh.tuan (POLICY_ADMIN) trong fixture, nên nếu tài khoản
+ * ADMIN đầu tiên trùng id này thì `staffById()` trả về hồ sơ POLICY_ADMIN cũ → mọi API yêu cầu
+ * quyền ADMIN đều 403 dù đã khởi tạo và đăng nhập đúng.
+ */
+const allocateUserId = (prefix: string, seed: number) => {
+  let n = seed
+  let candidate = `${prefix}${String(n).padStart(3, '0')}`
+  while (STAFF_FIXTURE.some((u) => u.user_id === candidate)) {
+    n += 1
+    candidate = `${prefix}${String(n).padStart(3, '0')}`
+  }
+  return candidate
+}
+
 const makeToken = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, '0')).join('')
 
 export const adminCpHandlers = [
@@ -76,7 +93,7 @@ export const adminCpHandlers = [
       email,
       phone: body.phone?.trim() || null,
       role: 'ADMIN',
-      user_id: `USR-ADM-${String(nextId(db, 'user')).padStart(3, '0')}`,
+      user_id: allocateUserId('USR-ADM-', nextId(db, 'user')),
       full_name: body.full_name ?? userName,
       title: 'Quản trị viên',
       is_active: true,
@@ -131,7 +148,7 @@ export const adminCpHandlers = [
       email,
       phone: body.phone?.trim() || null,
       role: normalizeRole(body.role ?? 'SALE'),
-      user_id: `USR-${String(users.length + 1).padStart(3, '0')}`,
+      user_id: allocateUserId('USR-', users.length + 1),
       full_name: body.full_name ?? userName,
       title: null,
       is_active: true,

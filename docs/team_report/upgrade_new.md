@@ -265,14 +265,91 @@ muốn nhanh thật thì cần **FTS5** (SQLite) / **pg_trgm** (Postgres) chứ 
 
 ---
 
-## 7. Còn lại (nói thẳng, không hứa quá)
+## 8. Đợt 5 (2026-10-02) — Ba yêu cầu người dùng nêu trực tiếp
+
+Đợt này xử lý đúng ba việc được yêu cầu "làm trước", theo thứ tự ưu tiên: hội thoại phải giữ được →
+câu trả lời không được lộ lệnh → Admin tự khai báo nhà cung cấp/đơn giá và đo được chi phí.
+
+### 8.1 Lỗi mất hội thoại khi đổi trang (P1 — bug, không phải tính năng mới)
+
+**Trước:** nội dung chat chỉ nằm trong `useState` của `SalesWorkspacePage`. Đổi route (sang CRM rồi
+quay lại) hoặc F5 là mất sạch; không có cách nào tra lại câu hỏi/câu trả lời cũ.
+
+**Nay — lưu ở server, không phải localStorage:**
+
+| Tầng | Việc đã làm |
+| :--- | :--- |
+| Lưu trữ | `src/agents/copilot/history.py` — lưu **theo từng nhân viên** xuống `data/copilot_conversations.json` (append-theo-lượt, có khoá luồng), trần 50 cuộc/người và 200 lượt/cuộc; đọc lại được cả sau khi restart backend |
+| API | `GET/POST /api/v1/copilot/conversations`, `GET /conversations/{id}`, `POST /conversations/turns` (tự tạo cuộc khi để trống `conversation_id`), `PATCH /conversations/{id}` (đổi tên), `DELETE /conversations/{id}` — tất cả yêu cầu đăng nhập và **chỉ thấy dữ liệu của chính mình** (người khác nhận 404, không phải 403) |
+| UI | `SalesWorkspacePage` nhớ `conversation_id` đang mở qua `localStorage` (chỉ id, không phải nội dung), nạp lại cuộc cũ khi vào trang, có **thanh bên "Hội thoại đã lưu"** để mở lại cuộc bất kỳ, nút "Mới" để bắt đầu cuộc khác, xoá được từng cuộc |
+| Ghi lượt | Mỗi câu trả lời cuối được ghi kèm trích dẫn + loại hành động; ghi **fire-and-forget có hàng đợi tuần tự** nên lỗi mạng không chặn hội thoại, và câu hỏi luôn khớp đúng lượt trả lời kể cả khi Sale bấm nhanh liên tiếp |
+| Nhất quán mock | Mock giữ hội thoại trong bộ nhớ tiến trình (đủ để demo "đổi trang vẫn còn"), có hook `onReset()` để `POST /__mock/reset` và test dọn state |
+
+Chủ ý **không** lưu các lượt chưa kiểm chứng (`grounded=false`, chế độ offline) vào lịch sử: mở lại
+sau này sẽ không còn thấy cảnh báo "chưa đối chiếu được dữ liệu" đi kèm, nên thà không lưu.
+Khi dựng lại khung chat từ lịch sử, chỉ tái hiện phần văn bản + trích dẫn — các thẻ tương tác một lần
+(xác nhận, stepper, biên nhận) không dựng lại vì trạng thái của chúng đã chết.
+
+### 8.2 Lệnh gạch chéo lọt vào câu trả lời
+
+**Trước:** Sale gõ `/chinh-sach` hoặc gõ tắt `/ch` thì chính chuỗi lệnh đó đi thẳng vào prompt/ngữ
+cảnh, có đường lọt nguyên văn vào câu trả lời.
+
+**Nay, chặn ở cả hai bên:**
+
+- Backend `src/agents/copilot/commands.py`: `normalize_user_message()` dịch lệnh đầy đủ thành câu lệnh
+  tự nhiên (`/chinh-sach` → "Tra cứu chính sách đang hiệu lực", `/baogia căn ZEN-A-1205` →
+  "Xem pipeline báo giá căn ZEN-A-1205", gõ tắt `/ch` → bỏ hẳn token lệnh); `strip_command_mentions()`
+  dọn tàn dư trong câu trả lời sinh ra; `sanitize_history()` dọn lệnh còn sót trong lịch sử gửi kèm.
+  Các chuỗi hợp lệ như `km/h`, `/api/v1`, `Anh/chị` **không** bị chạm tới.
+- Mock (nơi lỗi này tái hiện được trong chế độ demo): `translateSlash()` chạy **trước** `parseIntent`,
+  nên `/ch` không còn rơi vào nhánh "smalltalk" rồi bị đọc nguyên văn.
+
+### 8.3 Admin tự khai báo nhà cung cấp LLM + tab Chi phí & hiệu năng
+
+**Nguyên tắc ưu tiên (đúng như yêu cầu):** có nhà cung cấp **đang hoạt động trong DB** → dùng DB;
+DB trống → rơi về biến môi trường; không có cả hai → chế độ suy luận tất định. API trả kèm `source`
+(`db` | `env` | `none`) và màn hình nói rõ đang chạy bằng nguồn nào — không bắt Admin đoán.
+
+| Hạng mục | Chi tiết |
+| :--- | :--- |
+| Bảng | `llm_providers` (`provider_id`, name, provider, base_url, model_name, `api_key_encrypted`, input/output_price_per_1m, currency, temperature, priority, is_active, last_test_*) |
+| Bảo mật khoá | Mã hoá Fernet (`LLM_SECRET_KEY`/`SECRET_KEY`), lưu tiền tố `enc::`; **mọi phản hồi chỉ trả khoá đã che** `sk-t…abcd`; PUT để trống `api_key` = giữ khoá cũ |
+| Ưu tiên chạy | `priority` tăng dần; phần tử đầu là primary, phần còn lại là chuỗi dự phòng (`with_fallbacks`) |
+| Kiểm tra kết nối | `POST /admin/llm/providers/{id}/test` gọi `{base_url}/models` (timeout 8 s), lưu lại `last_test_status/latency/timestamp` |
+| Đo lường | Mỗi lượt gọi LLM ghi JSONL (`data/llm_usage.jsonl`): token vào/ra, độ trễ, lỗi, lượt dự phòng, và **chi phí quy từ đơn giá** = `in/1M × đơn giá_in + out/1M × đơn giá_out` |
+| Tổng hợp | `GET /admin/llm/usage/summary?days=` → tổng chi phí, tỉ lệ lỗi, p50/p95 độ trễ, bình quân/lượt, theo nhà cung cấp, theo ngày; `GET /admin/llm/usage/records?limit=` → log thô |
+| UI `admin_cp` | Trang quản trị nay có **3 khu vực tách tab**: *Người dùng & phân quyền* (như cũ) · *Nhà cung cấp LLM* (thêm/sửa/xoá, khoá che, nút kiểm tra kết nối, cảnh báo khi đang chạy bằng ENV) · *Chi phí & hiệu năng* (thẻ tổng, bảng theo nhà cung cấp/model, biểu đồ theo ngày, log lượt gần nhất; chọn 7/14/30 ngày) |
+| Quyền | Toàn bộ API `/api/v1/admin/llm/*` chỉ ADMIN (nhân viên thường 403); tab chỉ hiện trong `admin_cp` vốn đã chặn theo vai `ADMIN` |
+
+Sửa kèm trong mock (phát hiện khi kiểm thử luồng thật): tài khoản ADMIN khởi tạo đầu tiên bị cấp
+`USR-ADM-001` trùng với hồ sơ `minh.tuan` (POLICY_ADMIN) trong fixture, khiến `staffById()` trả về
+hồ sơ cũ và **mọi API ADMIN đều 403 dù đã đăng nhập đúng**. Nay id được cấp bỏ qua id đã tồn tại.
+
+### 8.4 Kiểm chứng đợt 5 (chạy thật)
+
+| Lệnh / kịch bản | Kết quả |
+| :--- | :--- |
+| `.venv/bin/python -m pytest -q` | **526 passed** (đợt 4: 503; +23 test mới) |
+| `cd frontend && npm test` | **33/33 passed** (đợt 4: 25/25; +8 test vòng 5) |
+| `cd frontend && npx tsc -b apps/internal apps/customer` (+ `--force`) | **exit 0** |
+| `cd frontend && npm run lint` | **0 error**, 124 warning (không tăng so với đợt 4) |
+| Chuẩn hoá lệnh (backend, kiểm trực tiếp `commands.py`) | `/chinh-sach` → "Tra cứu chính sách đang hiệu lực"; `/ch` → `ch` (bỏ token lệnh); `km/h`, `/api/v1`, `Anh/chị` giữ nguyên |
+| Chat với `/chinh-sach` trên mock | câu trả lời **không** còn chuỗi `/chinh-sach` lẫn `/(^|\s)ch`, vẫn `grounded=true` |
+| Hội thoại trên mock (curl) | ghi lượt → `CNV-000001` 2 lượt, tiêu đề lấy từ câu hỏi đầu; `GET /copilot/conversations` → `total=1`; nhân viên khác đọc được? **404** |
+| Admin LLM trên mock (curl) | `GET /admin/llm/providers` → `source=env`, `total=0` → `POST` → `LLM-0001`, khoá `sk-l…3456`; `GET /usage/summary` → 1 lượt, chi phí 0.000203 USD, p95 391 ms |
+| API thật (pytest `tests/test_api/test_llm_admin.py`) | tạo thiếu `api_key` → **422**; PUT `api_key=null` giữ khoá cũ; nguồn `db`/`env`; chi phí `1M in + 0.5M out @ 0.15/0.60 = 0.45 USD`; `error_rate` và p95 đúng |
+
+---
+
+## 9. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
    Trang `/admin/copilot-quality` đã trả lời được "chất lượng đang lên hay xuống, kém ở đâu".
    Còn thiếu: **phân loại tag tự động** (hiện Sale gửi tag thô) và **tiêu chí gỡ** một "điều cần tránh"
    khỏi prompt khi nó đã được sửa — cả hai cần thêm dữ liệu thật mới đáng làm.
-2. **Critic chưa gọi LLM sửa lời**: hiện critic *phát hiện + nhắc*, không tự viết lại. Đã có cờ `COPILOT_CRITIC=1` để bật một lượt sửa, nhưng **cố ý để mặc định TẮT** vì nhân đôi độ trễ mà chưa có dashboard chi phí.
+2. **Critic chưa gọi LLM sửa lời**: hiện critic *phát hiện + nhắc*, không tự viết lại. Đã có cờ `COPILOT_CRITIC=1` để bật một lượt sửa, nhưng **cố ý để mặc định TẮT** vì nhân đôi độ trễ. Từ đợt 5 đã có tab **Chi phí & hiệu năng** (§8.3) để đo cái giá đó trước khi bật — việc còn lại là chạy thử vài ngày rồi quyết định.
 3. **Trôi hợp đồng mock vs backend (TD-4.1)** mới xử lý ở tầng type (`QuoteCreateOutcome`) và ở lớp benchmark/cổng ban hành (§6.2 — nay hai bên trả cùng shape); triệt để thì mock-server nên đổi sang **201 đồng bộ** cho khớp backend thật, và `POST /policies/publish` của backend thật nên trả `PolicyDocument` như type frontend đang khai.
-4. **125 cảnh báo oxlint** còn lại: 129 lượt `no-unused-vars` (đã bù bằng phần dọn trong trang bán hàng) ở `LeadInboxPage`, `PolicyListPage`… — dọn tiếp là việc cơ học, không rủi ro.
+4. **124 cảnh báo oxlint** còn lại: chủ yếu `no-unused-vars` ở `LeadInboxPage`, `PolicyListPage`… — dọn tiếp là việc cơ học, không rủi ro (đợt 5 không làm phát sinh cảnh báo mới).
 5. **Cache tool hiện trong-một-lượt** (theo phiên chat). Cache xuyên lượt/TTL cần thêm khoá theo `transaction_date` + chính sách hiệu lực để không trả dữ liệu cũ — nên làm cùng lúc với dashboard chi phí.
 6. **Eval mới chạy offline tất định** (không cần API key). Muốn đo chất lượng LLM thật thì chạy `python scripts/run_copilot_eval.py --mode llm` khi có `OPENAI_API_KEY`; bộ ngưỡng CI hiện bám chế độ offline để phù hợp môi trường không có key.

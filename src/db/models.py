@@ -487,3 +487,37 @@ class UserModel(Base):
     def is_active(self) -> bool:
         return True
 
+
+class LLMProviderModel(Base):
+    """Nhà cung cấp LLM do Admin khai báo trong giao diện (không phải sửa .env).
+
+    Thứ tự ưu tiên: bản ghi trong DB (theo `priority` tăng dần) được dùng trước; **nếu DB chưa có
+    bản ghi nào đang bật** thì hệ thống mới rơi về cấu hình ENV. Nhờ vậy Admin tự thêm/đổi khoá
+    ngay trên UI, không cần deploy lại.
+
+    `api_key_encrypted` lưu khoá đã mã hoá (Fernet, xem `src/services/llm/secrets.py`); API trả về
+    chỉ hiển thị dạng che `sk-…abcd`. `input_price_per_1m` / `output_price_per_1m` là **đơn giá**
+    để quy ra chi phí mỗi lượt gọi (đo độ tiêu tốn).
+    """
+
+    __tablename__ = "llm_providers"
+
+    provider_id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"LLM-{uuid.uuid4().hex[:10]}")
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="openai")
+    base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(128), nullable=False, default="gpt-4o-mini")
+    api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    #: Đơn giá theo 1 triệu token (đơn vị ở `currency`) — dùng để tính chi phí đo độ tiêu tốn.
+    input_price_per_1m: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    output_price_per_1m: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
+    temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.2)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_test_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_test_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+

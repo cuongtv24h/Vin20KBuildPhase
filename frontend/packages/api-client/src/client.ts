@@ -42,6 +42,15 @@ import type {
   QuoteListParams,
   QuotePdf,
   ReauthGrant,
+  CopilotAppendTurnRequest,
+  CopilotConversationDetail,
+  CopilotConversationListResponse,
+  LlmProvider,
+  LlmProviderListResponse,
+  LlmProviderPayload,
+  LlmProviderTestResult,
+  LlmUsageRecordsResponse,
+  LlmUsageSummary,
   ReauthRequest,
   RulesTestReport,
   SendMessageCommand,
@@ -216,5 +225,38 @@ export const api = {
      */
     feedbackRecent: (params: CopilotFeedbackRecentParams = {}, signal?: AbortSignal) =>
       call<CopilotFeedbackRecentResponse>('copilotFeedbackRecent', {}, { query: { ...params }, signal }),
+
+    // ─── Lịch sử hội thoại (giữ qua các trang, tra cứu lại được) ─────────────
+    conversations: (signal?: AbortSignal) =>
+      call<CopilotConversationListResponse>('copilotConversations', {}, { signal }),
+    conversationCreate: (body: { title?: string } = {}, o: CommandOptions = {}) =>
+      call<CopilotConversationDetail>('copilotConversationCreate', {}, { json: body, ...o }),
+    conversation: (conversationId: string, signal?: AbortSignal) =>
+      call<CopilotConversationDetail>('copilotConversationDetail', { conversation_id: conversationId }, { signal }),
+    /** Ghi một lượt hỏi–đáp; bỏ trống `conversation_id` để tạo cuộc mới. */
+    appendTurn: (body: CopilotAppendTurnRequest, o: CommandOptions = {}) =>
+      call<CopilotConversationDetail>('copilotConversationTurn', {}, { json: body, ...o }),
+    conversationRename: (conversationId: string, title: string, o: CommandOptions = {}) =>
+      call<CopilotConversationDetail>('copilotConversationRename', { conversation_id: conversationId }, { json: { title }, ...o }),
+    conversationDelete: (conversationId: string, o: CommandOptions = {}) =>
+      call<{ ok: boolean; conversation_id: string }>('copilotConversationDelete', { conversation_id: conversationId }, o),
+  },
+
+  llmAdmin: {
+    /** Danh sách nhà cung cấp Admin khai báo (DB trước, ENV sau). */
+    providers: (signal?: AbortSignal) => call<LlmProviderListResponse>('llmProviders', {}, { signal }),
+    createProvider: (body: LlmProviderPayload, o: CommandOptions = {}) =>
+      call<LlmProvider>('llmProviderCreate', {}, { json: body, ...o }),
+    updateProvider: (providerId: string, body: LlmProviderPayload, o: CommandOptions = {}) =>
+      call<LlmProvider>('llmProviderUpdate', { provider_id: providerId }, { json: body, ...o }),
+    deleteProvider: (providerId: string, o: CommandOptions = {}) =>
+      call<{ ok: boolean; provider_id: string }>('llmProviderDelete', { provider_id: providerId }, o),
+    testProvider: (providerId: string, o: CommandOptions = {}) =>
+      call<LlmProviderTestResult>('llmProviderTest', { provider_id: providerId }, { json: {}, ...o }),
+    /** Tab "Chi phí & hiệu năng": token, chi phí theo đơn giá, p50/p95, tỉ lệ lỗi. */
+    usageSummary: (days = 14, signal?: AbortSignal) =>
+      call<LlmUsageSummary>('llmUsageSummary', {}, { query: { days }, signal }),
+    usageRecords: (limit = 50, signal?: AbortSignal) =>
+      call<LlmUsageRecordsResponse>('llmUsageRecords', {}, { query: { limit }, signal }),
   },
 }

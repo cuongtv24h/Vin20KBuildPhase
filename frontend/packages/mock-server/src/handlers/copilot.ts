@@ -7,6 +7,7 @@ import { rankScenarios } from '../engine/recommend'
 import { PAYMENT_PLANS_FIXTURE } from '../fixtures/plans'
 import { POLICIES_FIXTURE } from '../fixtures/policies'
 import { UNITS_FIXTURE } from '../fixtures/units'
+import { recordMockLlmCall } from './llmAdmin'
 import { route, toMswPath } from './route'
 
 /**
@@ -36,7 +37,35 @@ function normalize(text: string): string {
 
 const UNIT_RE = /\b([A-Z]{2,4}-[A-Z0-9]{1,3}-\d{3,4}|[A-Z]{1,3}-\d{2}\.\d{2})\b/i
 
-function parseIntent(message: string): Intent {
+/** Bảng lệnh gạch chéo → câu lệnh tự nhiên (đồng bộ với `SLASH_COMMAND_MAP` phía backend). */
+const SLASH_HINTS: Array<[RegExp, (rest: string) => string]> = [
+  [/^\/tao-khach/i, (rest) => `Tạo khách hàng mới${rest}`],
+  [/^\/tim-khach/i, (rest) => `Tìm khách hàng${rest}`],
+  [/^\/khach-hang/i, () => 'Xem danh sách hồ sơ khách'],
+  [/^\/baogia/i, (rest) => `Xem pipeline báo giá${rest}`],
+  [/^\/soan-tin/i, () => 'Soạn tin tư vấn cho khách'],
+  [/^\/chinh-sach/i, (rest) => `Tra cứu chính sách đang hiệu lực${rest}`],
+  [/^\/tinh-lai/i, (rest) => `Tính lại báo giá${rest}`],
+  [/^\/gio-hang/i, () => 'Xem giỏ hàng còn căn nào'],
+]
+
+/**
+ * Chuẩn hoá câu Sale gửi: lệnh gạch chéo (kể cả viết tắt như `/ch`) phải được dịch thành câu lệnh
+ * tự nhiên **trước khi** phân tích ý định, nếu không từ khoá sẽ lọt vào câu trả lời.
+ */
+export function translateSlash(message: string): string {
+  const trimmed = message.trim()
+  const matched = SLASH_HINTS.find(([re]) => re.test(trimmed))
+  if (matched) return matched[1](trimmed.replace(matched[0], ' ').replace(/\s+/g, ' ').trimEnd()).trim()
+  if (!trimmed.startsWith('/')) return message
+  const typed = trimmed.replace(/^\/+/, '').replace(/-/g, ' ').trim()
+  // Gõ tắt (/ch, /baogi…) không khớp bảng đầy đủ: vẫn bỏ phần lệnh để không lộ vào câu trả lời.
+  if (typed.length <= 3) return ''
+  return typed.charAt(0).toUpperCase() + typed.slice(1)
+}
+
+function parseIntent(rawMessage: string): Intent {
+  const message = translateSlash(rawMessage)
   const t = normalize(message)
   const unitMatch = UNIT_RE.exec(message)
   const bedrooms = /(\d)\s*(?:pn|phong ngu|ngu|br)\b/.exec(t)
@@ -358,6 +387,7 @@ export const copilotHandlers = [
     const message = await readMessage(request)
     if (!message.trim()) return HttpResponse.json({ detail: 'Tin nhắn không được để trống.' }, { status: 422 })
     const turn = await buildTurn(message)
+    recordMockLlmCall('openai', 'gpt-4o-mini', message.length + turn.reply.length, turn.reply.length, 380 + (message.length % 120))
     return HttpResponse.json(turn)
   }),
 
@@ -407,6 +437,9 @@ export const copilotHandlers = [
   http.post(toMswPath(ENDPOINTS.copilotChatStream.path), async ({ request }) => {
     const message = await readMessage(request)
     const turn = await buildTurn(message)
+    // Mock chạy offline nên không có LLM thật: ghi một lượt "gọi" tất định để tab
+    // Chi phí & hiệu năng có số liệu thật để tính thay vì bảng rỗng.
+    recordMockLlmCall('openai', 'gpt-4o-mini', message.length + turn.reply.length, turn.reply.length, 380 + (message.length % 120))
     const frames = turn.reasoning
       .map((event) => `event: copilot\ndata: ${JSON.stringify(event)}\n\n`)
       .join('')

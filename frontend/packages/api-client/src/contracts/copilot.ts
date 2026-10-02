@@ -156,3 +156,40 @@ export interface CopilotFeedbackResponse {
   recorded_at: string
   summary: CopilotFeedbackSummary
 }
+
+
+// ─── Lịch sử hội thoại Copilot (giữ qua các trang, tra cứu lại được) ─────────
+
+export interface CopilotConversationMessage {
+  role: 'user' | 'assistant'
+  content: string
+  at?: string | null
+  citations?: CopilotCitation[]
+  action_type?: string | null
+}
+
+export interface CopilotConversationSummary {
+  conversation_id: string
+  title: string
+  created_at?: string | null
+  updated_at?: string | null
+  message_count: number
+  last_message: string
+}
+
+export interface CopilotConversationDetail extends CopilotConversationSummary {
+  messages: CopilotConversationMessage[]
+}
+
+export interface CopilotConversationListResponse {
+  total: number
+  items: CopilotConversationSummary[]
+}
+
+export interface CopilotAppendTurnRequest {
+  conversation_id?: string | null
+  user_message: string
+  assistant_message: string
+  citations?: CopilotCitation[]
+  action_type?: string | null
+}

@@ -19,7 +19,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -243,3 +243,152 @@ async def copilot_feedback_summary() -> CopilotFeedbackSummary:
 
     return CopilotFeedbackSummary(**feedback_module.summarize_feedback())
 
+
+
+# ─── Lịch sử hội thoại (giữ và tra cứu lại được) ──────────────────────────────
+# Trước đây hội thoại chỉ nằm trong state React nên đổi trang là mất. Bốn endpoint dưới
+# lưu theo từng nhân viên (chủ sở hữu đọc/ghi, không ai xem được của người khác).
+
+
+def require_staff_principal(
+    authorization: str | None = Header(None, alias="Authorization"),
+    principal: Principal = Depends(get_current_principal),
+) -> Principal:
+    """Lịch sử hội thoại là dữ liệu riêng của từng nhân viên → bắt buộc có phiên đăng nhập.
+
+    `get_current_principal` mặc định trả về khách "SALES-001" khi thiếu header (di sản của các
+    endpoint chỉ đọc dữ liệu công khai), nên ở đây phải chặn hẳn để không ai ghi/đọc nhờ bucket mặc định.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Cần đăng nhập để xem lịch sử hội thoại Copilot.",
+        )
+    return principal
+
+
+class ConversationMessage(BaseModel):
+    role: str = Field(..., description="'user' | 'assistant'")
+    content: str
+    at: str | None = None
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    action_type: str | None = None
+
+
+class ConversationSummary(BaseModel):
+    conversation_id: str
+    title: str
+    created_at: str | None = None
+    updated_at: str | None = None
+    message_count: int = 0
+    last_message: str = ""
+
+
+class ConversationDetail(ConversationSummary):
+    messages: list[ConversationMessage] = Field(default_factory=list)
+
+
+class ConversationListResponse(BaseModel):
+    total: int
+    items: list[ConversationSummary]
+
+
+class CreateConversationRequest(BaseModel):
+    title: str | None = None
+
+
+class AppendTurnRequest(BaseModel):
+    conversation_id: str | None = Field(None, description="Bỏ trống để tạo cuộc mới")
+    user_message: str
+    assistant_message: str
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    action_type: str | None = None
+
+
+class RenameConversationRequest(BaseModel):
+    title: str
+
+
+@router.get("/conversations", response_model=ConversationListResponse)
+async def copilot_list_conversations(
+    limit: int = Query(30, ge=1, le=100),
+    principal: Principal = Depends(require_staff_principal),
+) -> ConversationListResponse:
+    """Lịch sử hội thoại của **chính nhân viên đang đăng nhập** (mới nhất trước)."""
+    from src.agents.copilot import history as history_module
+
+    items = history_module.list_conversations(principal.user_id, limit=limit)
+    return ConversationListResponse(total=len(items), items=[ConversationSummary(**i) for i in items])
+
+
+@router.post("/conversations", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
+async def copilot_create_conversation(
+    req: CreateConversationRequest | None = None,
+    principal: Principal = Depends(require_staff_principal),
+) -> ConversationDetail:
+    """Mở cuộc hội thoại mới (Sale bấm "Cuộc trò chuyện mới")."""
+    from src.agents.copilot import history as history_module
+
+    created = history_module.create_conversation(principal.user_id, (req.title if req else None))
+    return ConversationDetail(**created)
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
+async def copilot_get_conversation(
+    conversation_id: str,
+    principal: Principal = Depends(require_staff_principal),
+) -> ConversationDetail:
+    """Đọc lại một cuộc hội thoại cũ (chỉ chủ sở hữu)."""
+    from src.agents.copilot import history as history_module
+
+    found = history_module.get_conversation(principal.user_id, conversation_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc hội thoại này.")
+    return ConversationDetail(**found)
+
+
+@router.post("/conversations/turns", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
+async def copilot_append_turn(
+    req: AppendTurnRequest,
+    principal: Principal = Depends(require_staff_principal),
+) -> ConversationDetail:
+    """Ghi một lượt hỏi–đáp vào hội thoại (tự tạo cuộc mới nếu chưa có `conversation_id`)."""
+    from src.agents.copilot import history as history_module
+
+    if not (req.user_message.strip() or req.assistant_message.strip()):
+        raise HTTPException(status_code=422, detail="Lượt hội thoại phải có nội dung.")
+    updated = history_module.append_turn(
+        principal.user_id,
+        conversation_id=req.conversation_id,
+        user_message=req.user_message,
+        assistant_message=req.assistant_message,
+        citations=req.citations,
+        action_type=req.action_type,
+    )
+    return ConversationDetail(**updated)
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationSummary)
+async def copilot_rename_conversation(
+    conversation_id: str,
+    req: RenameConversationRequest,
+    principal: Principal = Depends(require_staff_principal),
+) -> ConversationSummary:
+    from src.agents.copilot import history as history_module
+
+    updated = history_module.rename_conversation(principal.user_id, conversation_id, req.title)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc hội thoại này.")
+    return ConversationSummary(**updated)
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_200_OK)
+async def copilot_delete_conversation(
+    conversation_id: str,
+    principal: Principal = Depends(require_staff_principal),
+) -> dict[str, Any]:
+    from src.agents.copilot import history as history_module
+
+    if not history_module.delete_conversation(principal.user_id, conversation_id):
+        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc hội thoại này.")
+    return {"ok": True, "conversation_id": conversation_id}

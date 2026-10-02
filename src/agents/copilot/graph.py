@@ -24,7 +24,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from src.agents.copilot import critic, feedback, grounding, intents, memory, planner, verifier
+from src.agents.copilot import commands, critic, feedback, grounding, intents, memory, planner, verifier
 from src.agents.copilot.prompts import build_system_prompt
 from src.agents.copilot.tools import COPILOT_TOOLS, TOOLS_BY_NAME
 from src.agents.tools.guardrails import scan_output_leakage, scan_prompt_injection
@@ -241,6 +241,9 @@ def _finalize(
     tool_calls = [obs.get("tool") for obs in observations if obs.get("tool")]
     grounded = bool(citations) or intent.intent in (intents.INTENT_SMALL_TALK,)
 
+    # Prompt đã dặn không nhắc lệnh gạch chéo, nhưng model vẫn có thể nhắc — chặn ở output.
+    text = commands.strip_command_mentions(text)
+
     if not text:
         text = "Em đã ghi nhận yêu cầu. Anh/chị cần em làm rõ thêm bước nào không ạ?"
 
@@ -378,7 +381,17 @@ async def stream_copilot(
     max_iterations: int = MAX_ITERATIONS,
 ) -> AsyncIterator[CopilotEvent]:
     """Chạy vòng lặp ReAct và phát từng bước xuống UI."""
-    message = (request.message or "").strip()
+    # Lệnh gạch chéo (/chinh-sach, /baogia…) phải được dịch sang câu tự nhiên TRƯỚC khi vào LLM,
+    # nếu không model sẽ lặp lại đúng chuỗi lệnh đó trong câu trả lời và làm lệch nội dung.
+    message = commands.normalize_user_message(request.message)
+    request = CopilotRequest(
+        message=message,
+        history=commands.sanitize_history(request.history),
+        current_unit=request.current_unit,
+        lead_dossier_id=request.lead_dossier_id,
+        transaction_date=request.transaction_date,
+        project_id=request.project_id,
+    )
     intent = intents.detect_intent(message)
 
     # 0) Bộ nhớ phiên: điền slot còn thiếu từ lịch sử hội thoại

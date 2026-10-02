@@ -105,6 +105,11 @@ vector_indices/
 *.sqlite
 *.sqlite3
 
+# Dữ liệu vận hành của Copilot/đo lường LLM — chứa nội dung hội thoại thật của khách,
+# sinh ra lúc chạy (đường dẫn đổi được qua COPILOT_HISTORY_PATH / LLM_USAGE_PATH).
+data/copilot_conversations.json
+data/llm_usage.jsonl
+
 # ------------------------------------------------------------------------------
 # LAYER 5: LLM, Tokenizer & Embedding Model Local Caches & Weights
 # ------------------------------------------------------------------------------

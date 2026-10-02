@@ -92,6 +92,14 @@ async def lifespan(app: FastAPI):
 
     await _bootstrap_database()
 
+    # Nạp nhà cung cấp LLM Admin đã khai báo trong DB (DB trước, ENV sau — xem llm_providers).
+    try:
+        from src.services.llm_providers import refresh_provider_cache
+
+        await refresh_provider_cache()
+    except Exception as exc:  # noqa: BLE001 — không được chặn khởi động app vì cấu hình LLM
+        logger.warning("Không nạp được cấu hình nhà cung cấp LLM: %s", exc)
+
     yield
 
     if manager is not None:

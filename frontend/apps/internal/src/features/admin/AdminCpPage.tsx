@@ -67,8 +67,10 @@ import {
   TableRow,
 } from '@pricepolicy/ui/components/ui/table'
 import { toast } from '@pricepolicy/ui/state/toastStore'
+import { cn } from '@pricepolicy/ui/lib/utils'
 
 import { useSessionStore } from '@/auth/sessionStore'
+import { LlmProvidersTab, LlmUsageTab } from './LlmAdminTabs'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trang Quản trị Hệ thống (Admin CP)
@@ -261,9 +263,7 @@ function InitialAdminSetup({ onSetupSuccess }: { onSetupSuccess: () => void }) {
 // 2. Bảng điều khiển Quản trị Người dùng & Phân quyền (Admin CP Dashboard)
 // Cấu trúc hiển thị: user | password | email | phone | role
 // ─────────────────────────────────────────────────────────────────────────────
-function AdminUserManagementDashboard() {
-  const currentUser = useSessionStore((s) => s.session?.user)
-  const clearSession = useSessionStore((s) => s.clearSession)
+function AdminUsersTab() {
 
   const [roleFilter, setRoleFilter] = useState<string>('ALL')
   const [search, setSearch] = useState('')
@@ -306,19 +306,8 @@ function AdminUserManagementDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Banner Action */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold tracking-tight">Quản trị Người dùng & Phân quyền</h2>
-            <Badge variant="outline" className="border-primary/30 text-primary text-xs">
-              admin_cp
-            </Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Quản trị danh sách người dùng và phân quyền hệ thống.
-          </p>
-        </div>
+      {/* Banner Action — tiêu đề chung đã ở khung tab phía trên */}
+      <div className="flex items-center justify-end">
         <Button onClick={() => setIsAddOpen(true)} className="shadow">
           <UserPlus className="mr-2 h-4 w-4" />
           Thêm tài khoản mới
@@ -551,6 +540,66 @@ function AdminUserManagementDashboard() {
           </DialogContent>
         </Dialog>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2b. Bảng điều khiển Admin CP — 3 khu vực tách tab
+//     · Người dùng & phân quyền
+//     · Nhà cung cấp LLM (tự khai báo API key, đơn giá) — không cần sửa ENV
+//     · Chi phí & hiệu năng (đo token, độ trễ, chi phí mỗi lượt gọi)
+// ─────────────────────────────────────────────────────────────────────────────
+type AdminTab = 'users' | 'providers' | 'usage'
+
+function AdminUserManagementDashboard() {
+  const [tab, setTab] = useState<AdminTab>('users')
+
+  const tabs: Array<{ id: AdminTab; label: string; hint: string }> = [
+    { id: 'users', label: 'Người dùng & phân quyền', hint: 'Tài khoản, vai trò, khởi tạo' },
+    { id: 'providers', label: 'Nhà cung cấp LLM', hint: 'API key + đơn giá, không cần sửa ENV' },
+    { id: 'usage', label: 'Chi phí & hiệu năng', hint: 'Token, độ trễ, chi phí mỗi lượt gọi' },
+  ]
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold tracking-tight">Quản trị Hệ thống</h2>
+          <Badge variant="outline" className="border-primary/30 text-primary text-xs">
+            admin_cp
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Tài khoản &amp; phân quyền, cấu hình nhà cung cấp LLM và đo lường chi phí/hiệu năng của trợ lý AI.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Khu vực quản trị">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            title={t.hint}
+            className={cn(
+              'rounded-lg border px-3 py-2 text-left transition-colors',
+              tab === t.id
+                ? 'border-primary/40 bg-primary/10 text-foreground'
+                : 'border-border bg-card text-muted-foreground hover:bg-muted/50',
+            )}
+          >
+            <span className="block text-sm font-semibold">{t.label}</span>
+            <span className="block text-[11px] text-muted-foreground">{t.hint}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === 'users' && <AdminUsersTab />}
+      {tab === 'providers' && <LlmProvidersTab />}
+      {tab === 'usage' && <LlmUsageTab />}
     </div>
   )
 }

@@ -1,14 +1,18 @@
-import { useQuery } from '@tanstack/react-query'
-import { useCallback, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../client'
+import { newRequestId } from '../http'
 import type {
+  CopilotAppendTurnRequest,
   CopilotChatHistoryItem,
+  CopilotConversationDetail,
   CopilotChatRequest,
   CopilotFeedbackRecentParams,
   CopilotFinalPayload,
   CopilotReasoningStep,
   CopilotStreamEvent,
 } from '../contracts'
+import { queryKeys, useCommand } from './core'
 
 export interface CopilotContext {
   currentUnit?: string | null
@@ -172,4 +176,81 @@ export const useCopilotFeedbackRecent = (params: CopilotFeedbackRecentParams = {
     queryKey: copilotQualityKeys.recent(params),
     queryFn: () => api.copilot.feedbackRecent(params),
     refetchInterval: 60_000,
+  })
+
+// ─── Lịch sử hội thoại (giữ qua các trang, tra cứu lại được) ──────────────────
+
+/** Danh sách cuộc hội thoại của chính nhân viên đang đăng nhập (mới nhất trước). */
+export const useCopilotConversations = () =>
+  useQuery({
+    queryKey: queryKeys.copilotConversations,
+    queryFn: ({ signal }) => api.copilot.conversations(signal),
+  })
+
+/** Nội dung đầy đủ của một cuộc hội thoại cũ (đọc lại sau khi đổi trang). */
+export const useCopilotConversation = (conversationId: string | null) =>
+  useQuery({
+    queryKey: queryKeys.copilotConversation(conversationId ?? 'none'),
+    queryFn: ({ signal }) => api.copilot.conversation(conversationId as string, signal),
+    enabled: Boolean(conversationId),
+  })
+
+/** Ghi lượt hỏi–đáp vào lịch sử (tự tạo cuộc mới nếu chưa có). */
+export const useAppendCopilotTurn = () =>
+  useCommand((body: CopilotAppendTurnRequest, key) => api.copilot.appendTurn(body, { idempotencyKey: key }), {
+    invalidate: () => [queryKeys.copilotConversations],
+  })
+
+/** Mở cuộc hội thoại mới (nút "Cuộc trò chuyện mới"). */
+export const useCreateCopilotConversation = () =>
+  useCommand(
+    (_: void, key) => api.copilot.conversationCreate({}, { idempotencyKey: key }),
+    { invalidate: () => [queryKeys.copilotConversations] },
+  )
+
+export const useRenameCopilotConversation = () =>
+  useCommand(
+    ({ conversationId, title }: { conversationId: string; title: string }, key) =>
+      api.copilot.conversationRename(conversationId, title, { idempotencyKey: key }),
+    { invalidate: () => [queryKeys.copilotConversations] },
+  )
+
+/**
+ * Ghi lượt hỏi–đáp vào lịch sử **không chặn UI** (fire-and-forget, có hàng đợi tuần tự).
+ *
+ * Vì sao không dùng `useCommand`: lượt chat là hiệu ứng phụ của câu trả lời đã hiển thị — nếu
+ * mạng lỗi thì Sale vẫn thấy câu trả lời, chỉ mất bản ghi; không được để lỗi này nổi lên UI hay
+ * chặn lượt chat kế tiếp. Hàng đợi giữ đúng thứ tự user → assistant khi bấm nhanh liên tiếp.
+ */
+export const useAppendCopilotTurnSync = () => {
+  const qc = useQueryClient()
+  const queue = useRef<Promise<CopilotConversationDetail | null>>(Promise.resolve(null))
+
+  const append = useCallback(
+    (body: CopilotAppendTurnRequest) => {
+      const next = queue.current
+        .then(() => api.copilot.appendTurn(body, { idempotencyKey: newRequestId() }))
+        .then((detail) => {
+          void qc.invalidateQueries({ queryKey: queryKeys.copilotConversations })
+          return detail
+        })
+        .catch(() => {
+          /* Lịch sử là phụ trợ: lỗi ghi không được làm gián đoạn hội thoại đang mở. */
+          return null
+        })
+      queue.current = next
+      return next
+    },
+    [qc],
+  )
+
+  // Đảm bảo lượt cuối cùng kịp gửi khi Sale rời trang (đổi route → component unmount).
+  useEffect(() => () => void queue.current, [])
+
+  return append
+}
+
+export const useDeleteCopilotConversation = () =>
+  useCommand((conversationId: string, key) => api.copilot.conversationDelete(conversationId, { idempotencyKey: key }), {
+    invalidate: () => [queryKeys.copilotConversations],
   })
