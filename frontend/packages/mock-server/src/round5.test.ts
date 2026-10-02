@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { api } from '@pricepolicy/api-client/client'
+import { turnToAppendPayload } from '@pricepolicy/api-client/copilotHistory'
 import { ApiError } from '@pricepolicy/api-client/errors'
 import { setAuthTokenProvider } from '@pricepolicy/api-client/http'
 import { resetDb } from './db'
@@ -102,6 +103,36 @@ describe('Lịch sử hội thoại Copilot', () => {
     const detail = await api.copilot.conversation(first.conversation_id)
     expect(detail.messages).toHaveLength(4)
     expect(detail.messages[0].content).toBe('Tra cứu chính sách đang hiệu lực')
+  })
+
+  it('câu trả lời chế độ dự phòng (chưa đối chiếu dữ liệu) VẪN phải lưu vào lịch sử', async () => {
+    // Đúng lỗi Sale báo: backend chưa cấu hình khoá LLM → mọi câu trả lời có mode=offline_react,
+    // grounded=false. Bản cũ bỏ qua không lưu → lịch sử rỗng và đổi trang là mất hội thoại.
+    await loginAs(SALE)
+    const payload = turnToAppendPayload({
+      conversationId: null,
+      question: 'Căn này giá bao nhiêu?',
+      final: {
+        reply: 'Dạ em chưa đối chiếu được dữ liệu, anh kiểm tra lại giúp em.',
+        citations: [],
+        action_type: null,
+      },
+    })
+    expect(payload.user_message).toBe('Căn này giá bao nhiêu?')
+    expect(payload.assistant_message).toContain('chưa đối chiếu')
+    expect(payload.citations).toEqual([])
+
+    const saved = await api.copilot.appendTurn(payload)
+    expect(saved.conversation_id).toBeTruthy()
+
+    // "Đổi trang rồi quay lại": danh sách và nội dung cuộc vẫn còn nguyên.
+    const list = await api.copilot.conversations()
+    expect(list.items.map((c) => c.conversation_id)).toContain(saved.conversation_id)
+    const detail = await api.copilot.conversation(saved.conversation_id)
+    expect(detail.messages.map((m) => m.content)).toEqual([
+      'Căn này giá bao nhiêu?',
+      'Dạ em chưa đối chiếu được dữ liệu, anh kiểm tra lại giúp em.',
+    ])
   })
 
   it('lịch sử tách theo nhân viên, đổi tên và xoá được', async () => {

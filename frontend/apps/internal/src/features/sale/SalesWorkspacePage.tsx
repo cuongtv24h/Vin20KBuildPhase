@@ -55,6 +55,7 @@ import {
   useUpdateTtsSettings,
   useTtsVoiceFeedback,
 } from '@pricepolicy/api-client/hooks'
+import { turnToAppendPayload } from '@pricepolicy/api-client/copilotHistory'
 import type {
   LeadDossier,
   LeadCreatePayload,
@@ -895,7 +896,8 @@ export function SalesWorkspacePage() {
   // ── Lịch sử hội thoại Copilot (lỗi P1 "đổi trang là mất hội thoại") ──────────
   // Nguồn sự thật là server: mở lại trang thì nạp lại đúng cuộc đang dở thay vì bắt đầu trắng.
   const [conversationId, setConversationId] = useState<string | null>(() => storedConversationId())
-  const [historyOpen, setHistoryOpen] = useState(true)
+  // Mặc định ẨN khung lịch sử cho gọn màn hình chat; Sale bấm nút "Lịch sử" mới mở.
+  const [historyOpen, setHistoryOpen] = useState(false)
   /** Chỉ nạp lại khung chat khi đổi cuộc — không đè lên lượt đang gõ. */
   const loadedConversationRef = useRef<string | null | undefined>(undefined)
   const conversations = useCopilotConversations()
@@ -923,6 +925,24 @@ export function SalesWorkspacePage() {
     scrollChatToEnd()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ nạp khi đổi cuộc/ có dữ liệu mới lần đầu
   }, [conversationId, conversation.data])
+
+  /**
+   * Không mở được cuộc cũ: 404 (đã bị xoá / của nhân viên khác) thì quên id đang nhớ để lần sau
+   * vào trang không lặp lại lỗi cũ; lỗi mạng thì chỉ báo nhẹ, giữ nguyên id để thử lại.
+   */
+  useEffect(() => {
+    if (!conversationId || !conversation.error) return
+    const status = (conversation.error as { status?: number }).status
+    if (status === 404) {
+      rememberConversationId(null)
+      setConversationId(null)
+      loadedConversationRef.current = null
+      showToast('Cuộc hội thoại cũ không còn — đã mở cuộc trò chuyện mới.')
+    } else {
+      showToast('Không tải được hội thoại cũ — anh mở lại trang giúp em.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy khi lỗi đổi
+  }, [conversationId, conversation.error])
 
   /** Đổi cuộc: lưu lựa chọn rồi để effect trên nạp nội dung từ server. */
   const openConversation = (nextId: string | null) => {
@@ -1226,10 +1246,10 @@ export function SalesWorkspacePage() {
     })
     if (!final.grounded && final.mode !== 'react') {
       showToast('Câu trả lời chưa đối chiếu được dữ liệu — anh kiểm tra lại giúp em')
-      // Không lưu câu trả lời vào lịch sử: mở lại sau này sẽ không còn thấy cảnh báo này.
-      delete pendingQuestionsRef.current[msgId]
-      scrollChatToEnd()
-      return
+      // VẪN lưu vào lịch sử. Trước đây chỗ này `return` sớm với lý do "mở lại sẽ không còn cảnh báo",
+      // nhưng hậu quả nặng hơn nhiều: khi backend chạy chế độ dự phòng (offline_react — không có khoá
+      // LLM), KHÔNG lượt nào được lưu → khung lịch sử luôn rỗng và đổi trang là mất cả hội thoại.
+      // Cảnh báo vẫn còn vì câu trả lời lưu kèm citations rỗng (UI hiển thị là chưa đối chiếu).
     }
     scrollChatToEnd()
 
@@ -1238,13 +1258,11 @@ export function SalesWorkspacePage() {
     const question = pendingQuestionsRef.current[msgId] ?? [...messages].reverse().find((m) => m.type === 'user')?.text
     delete pendingQuestionsRef.current[msgId]
     if (question) {
-      appendTurn({
-        conversation_id: conversationId,
-        user_message: question,
-        assistant_message: final.reply,
-        citations: final.citations ?? [],
-        action_type: final.action_type ?? null,
-      }).then((detail) => {
+      // `turnToAppendPayload` là hàm thuần đã có test (packages/api-client/src/copilotHistory.ts):
+      // lưu MỌI lượt, kể cả câu trả lời chế độ dự phòng — nếu không, lịch sử rỗng và đổi trang là mất hội thoại.
+      appendTurn(
+        turnToAppendPayload({ conversationId, question, final }),
+      ).then((detail) => {
         if (!detail) return
         // Lượt đầu tiên của cuộc mới: server đặt tên cuộc → ghi nhớ id để lần sau ghi tiếp.
         if (!conversationId && detail.conversation_id) {
@@ -1887,6 +1905,24 @@ export function SalesWorkspacePage() {
             <span className="font-display text-xs font-bold tracking-wide">Trợ lý Copilot AI</span>
             <span className="ml-2 text-[11px] text-muted-foreground hidden sm:inline">VLand Future Riverside</span>
           </div>
+          {/* Nút Lịch sử nằm bên trái, cạnh tiêu đề: khung lịch sử mặc định ẩn, bấm đây mới mở. */}
+          <Button
+            size="sm"
+            variant={historyOpen ? 'secondary' : 'outline'}
+            onClick={() => setHistoryOpen((v) => !v)}
+            title={historyOpen ? 'Ẩn lịch sử hội thoại' : 'Hiện lịch sử hội thoại'}
+            aria-expanded={historyOpen}
+            className="h-7 gap-1.5 text-xs"
+          >
+            {historyOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
+            <History className="h-3.5 w-3.5" />
+            Lịch sử
+            {conversations.data && conversations.data.total > 0 && (
+              <Badge variant="secondary" className="ml-0.5 h-4 px-1.5 text-[10px]">
+                {conversations.data.total}
+              </Badge>
+            )}
+          </Button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -1899,22 +1935,6 @@ export function SalesWorkspacePage() {
           >
             <Volume2 className="h-3.5 w-3.5" />
             {ttsEffective?.auto_speak ? 'Tự đọc' : 'Giọng đọc'}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setHistoryOpen((v) => !v)}
-            title={historyOpen ? 'Ẩn lịch sử hội thoại' : 'Hiện lịch sử hội thoại'}
-            className="h-7 text-xs gap-1.5"
-          >
-            {historyOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
-            <History className="h-3.5 w-3.5" />
-            Lịch sử
-            {conversations.data && conversations.data.total > 0 && (
-              <Badge variant="secondary" className="ml-0.5 h-4 px-1.5 text-[10px]">
-                {conversations.data.total}
-              </Badge>
-            )}
           </Button>
           <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
             🟢 Online · FCS v2.6

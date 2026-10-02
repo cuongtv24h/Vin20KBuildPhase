@@ -15,6 +15,7 @@ từ `COPILOT_HISTORY_PATH`, mặc định `data/copilot_conversations.json`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -31,7 +32,13 @@ MAX_MESSAGES_PER_CONVERSATION = 200
 #: Độ dài tiêu đề tối đa suy ra từ câu hỏi đầu tiên.
 TITLE_MAX_CHARS = 80
 
+#: Khoá trong MỘT tiến trình (an toàn luồng của uvicorn).
 _LOCK = threading.Lock()
+
+try:  # POSIX — dùng được trên VM Ubuntu
+    import fcntl
+except ImportError:  # pragma: no cover - Windows dev không có fcntl
+    fcntl = None  # type: ignore[assignment]
 
 VALID_ROLES = ("user", "assistant")
 
@@ -78,6 +85,31 @@ def _derive_title(first_message: str) -> str:
     return text if len(text) <= TITLE_MAX_CHARS else text[: TITLE_MAX_CHARS - 1].rstrip() + "…"
 
 
+@contextlib.contextmanager
+def _process_lock():
+    """Khoá **liên tiến trình** cho các thao tác đọc–sửa–ghi file lịch sử.
+
+    Vì sao cần: production chạy `uvicorn --workers 2` (xem `deploy/ecosystem.config.cjs`) — hai
+    tiến trình Python riêng biệt cùng đọc/sửa/ghi một file JSON. `threading.Lock` chỉ khoá trong
+    nội bộ một tiến trình, nên hai worker ghi đè lẫn nhau: lượt hỏi–đáp của nhau biến mất khỏi
+    lịch sử (Sale "không thấy hội thoại cũ"). `flock` trên file `.lock` cạnh file dữ liệu khoá
+    được cả liên tiến trình; máy không có `fcntl` (Windows) thì lùi về khoá luồng như trước.
+    """
+    path = _path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _LOCK:
+        if fcntl is None:
+            yield
+            return
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        with open(lock_path, "w", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _public(conversation: dict[str, Any], *, with_messages: bool) -> dict[str, Any]:
     base = {
         "conversation_id": conversation["conversation_id"],
@@ -114,15 +146,16 @@ def _find(store: dict[str, Any], user_id: str, conversation_id: str) -> dict[str
 
 def list_conversations(user_id: str, *, limit: int = 30) -> list[dict[str, Any]]:
     """Danh sách cuộc hội thoại của một nhân viên, mới nhất trước."""
-    store = _read_store()
-    items = [c for c in store["conversations"] if c.get("user_id") == user_id]
-    items.sort(key=lambda c: c.get("updated_at") or "", reverse=True)
-    return [_public(c, with_messages=False) for c in items[: max(1, limit)]]
+    with _process_lock():
+        store = _read_store()
+        items = [c for c in store["conversations"] if c.get("user_id") == user_id]
+        items.sort(key=lambda c: c.get("updated_at") or "", reverse=True)
+        return [_public(c, with_messages=False) for c in items[: max(1, limit)]]
 
 
 def get_conversation(user_id: str, conversation_id: str) -> dict[str, Any] | None:
     """Chi tiết một cuộc hội thoại (kèm toàn bộ lượt). Chỉ chủ sở hữu đọc được."""
-    with _LOCK:
+    with _process_lock():
         store = _read_store()
         found = _find(store, user_id, conversation_id)
         return _public(found, with_messages=True) if found else None
@@ -130,7 +163,7 @@ def get_conversation(user_id: str, conversation_id: str) -> dict[str, Any] | Non
 
 def create_conversation(user_id: str, title: str | None = None) -> dict[str, Any]:
     """Tạo cuộc hội thoại mới (chưa có lượt nào)."""
-    with _LOCK:
+    with _process_lock():
         store = _read_store()
         now = _now()
         conversation = {
@@ -160,7 +193,7 @@ def append_turn(
 
     Trả về bản ghi hội thoại đã cập nhật — FE dùng luôn `conversation_id` cho lượt kế tiếp.
     """
-    with _LOCK:
+    with _process_lock():
         store = _read_store()
         conversation = _find(store, user_id, conversation_id) if conversation_id else None
         if conversation is None:
@@ -197,7 +230,7 @@ def append_turn(
 
 
 def rename_conversation(user_id: str, conversation_id: str, title: str) -> dict[str, Any] | None:
-    with _LOCK:
+    with _process_lock():
         store = _read_store()
         found = _find(store, user_id, conversation_id)
         if not found:
@@ -209,7 +242,7 @@ def rename_conversation(user_id: str, conversation_id: str, title: str) -> dict[
 
 
 def delete_conversation(user_id: str, conversation_id: str) -> bool:
-    with _LOCK:
+    with _process_lock():
         store = _read_store()
         before = len(store["conversations"])
         store["conversations"] = [

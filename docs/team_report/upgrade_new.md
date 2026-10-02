@@ -564,6 +564,82 @@ Thêm bước CI `bash -n deploy/*.sh` (`.github/workflows/ci.yml`) để script
 
 ---
 
+## 12. Đợt 8 (2026-10-02) — Sửa lỗi "không mở được lịch sử cũ / mất hội thoại khi đổi trang" & mặc định ẩn khung lịch sử
+
+### 12.1 Ba lỗi tìm được (có bằng chứng, không phải phỏng đoán)
+
+**Lỗi 1 — Không lượt nào được lưu khi backend chạy chế độ dự phòng (nguyên nhân chính, phía frontend).**
+`SalesWorkspacePage` có đoạn `if (!final.grounded && final.mode !== 'react') { …; return }` — bỏ qua
+**không lưu** câu trả lời "chưa đối chiếu được dữ liệu". Chế độ `offline_react` (không có khoá LLM) luôn
+cho `grounded=false`, nên trên môi trường đó **mọi lượt đều không được ghi** → danh sách "Hội thoại đã lưu"
+rỗng và đổi trang là mất hội thoại. Lý do ghi trong comment ("mở lại sẽ không còn cảnh báo") không đứng
+vững: `grounded` **không được dùng ở đâu khi render** (chỉ có 3 chỗ gán, 0 chỗ đọc) — nên việc bỏ lưu
+chẳng giữ được cảnh báo nào, chỉ làm mất dữ liệu của Sale.
+
+**Lỗi 2 — Hai worker uvicorn ghi đè lịch sử của nhau (phía backend, đo được).**
+`src/agents/copilot/history.py` chỉ có `threading.Lock` (khoá trong **một** tiến trình), nhưng
+`deploy/ecosystem.config.cjs` chạy `uvicorn --workers 2`. Hai tiến trình cùng đọc–sửa–ghi một file JSON
+→ mất lượt. Đo thật (3 tiến trình × 15 lượt, cùng một cuộc):
+
+| Bản | Kết quả |
+| :--- | :--- |
+| Có `flock` (bản mới) | **90/90** message, cả 3 lần chạy |
+| Chỉ `threading.Lock` (bản cũ) | **36/90**, **54/90**, **30/90** — và có tiến trình còn crash `FileNotFoundError` khi hai worker tranh nhau file `.tmp` (request 500 giữa lượt chat) |
+
+**Lỗi 3 — Mở cuộc cũ bị 404 thì UI im lặng.** Nếu `logs/deploy-state`… nhầm, nếu `conversationId` nhớ
+trong `localStorage` trỏ tới cuộc đã bị xoá (hoặc của nhân viên khác), query lỗi nhưng UI **không xử lý**:
+khung chat trống trơn, id cũ vẫn nằm đó và lần vào trang sau lặp lại y hệt.
+
+### 12.2 Đã sửa
+
+| Việc | Chi tiết |
+| :--- | :--- |
+| Lưu **mọi** lượt | Quy tắc tách thành hàm thuần `turnToAppendPayload()` trong `frontend/packages/api-client/src/copilotHistory.ts` — có test khoá hành vi (`round5.test.ts`) |
+| Khoá liên tiến trình | `history.py`: `_process_lock()` dùng `fcntl.flock` trên file `.lock` cạnh file dữ liệu, bọc **cả** đọc–sửa–ghi (kể cả `list_conversations`); máy không có `fcntl` (Windows) lùi về khoá luồng như cũ |
+| 404 khi mở cuộc cũ | Xoá id đang nhớ + mở cuộc mới + báo "Cuộc hội thoại cũ không còn…"; lỗi mạng chỉ báo nhẹ và giữ id để thử lại |
+| Khung lịch sử | **Mặc định ẨN**; nút "Lịch sử" chuyển sang **bên trái** cạnh tiêu đề (kèm số cuộc), bấm mới mở; chọn một cuộc trong danh sách thì khung vẫn mở |
+
+### 12.3 Kiểm chứng (chạy thật)
+
+| Lệnh / kịch bản | Kết quả |
+| :--- | :--- |
+| `.venv/bin/python -m pytest -q` | **536 passed** (đợt 7: 535; +1 test đa tiến trình) |
+| `pytest tests/test_agents/test_copilot_history_concurrency.py` | pass — 3 tiến trình × 15 lượt, đủ **90/90** message |
+| A/B có/không `flock` (script đo riêng) | có: 90/90 · 90/90 · 90/90 — không: 36/90 · 54/90 · 30/90 (kèm crash) |
+| `cd frontend && npm test` | **39/39** (đợt 7: 38; +1 test chế độ dự phòng vẫn lưu) |
+| `npx tsc -b apps/internal apps/customer` | exit 0 |
+| `npm run lint` | 0 error, 124 warning (không tăng) |
+| `npm run build -w @pricepolicy/internal` | OK; bundle chứa đủ 3 dấu hiệu mới (kiểm bằng `grep -rF` trong `dist/assets`) |
+| `ruff check src/ tests/` | All checks passed |
+
+**Chưa kiểm chứng:** hành vi UI trong trình duyệt thật — sandbox không có trình duyệt (tải Chromium bị chặn,
+apt không tới được repo). Vì vậy phần "mặc định ẩn / bấm nút mới hiện" mới được xác nhận ở mức mã nguồn +
+bundle + typecheck, chưa có ảnh chụp màn hình. Việc cần làm trên VM ở §12.4.
+
+### 12.4 Trên VM cần làm gì (vì sao vẫn "không thấy lịch sử")
+
+Bản đang chạy trên `demoday.work.gd` rất có thể vẫn là **bundle cũ** (lần deploy 08:46 đã bỏ qua build/reload
+— xem §11.4). Sau khi đưa được các commit này lên remote mà VM dùng:
+
+```bash
+cd ~/vland
+git pull origin develop     # lấy deploy.sh mới + các bản vá này
+git up --force              # ép build lại frontend + reload backend
+```
+
+Kiểm tra nhanh trên VM (phải thấy giờ build mới):
+
+```bash
+ls -l --time-style=+%F_%T frontend/apps/internal/dist/assets/ | head -3
+curl -s localhost:8000/api/v1/copilot/conversations   # 401 = endpoint có; 404 = còn chạy code cũ
+```
+
+Trên trình duyệt: **Ctrl+Shift+R** (xoá bundle cũ trong cache) rồi vào lại trang Sale — nút "Lịch sử"
+nằm bên trái cạnh tiêu đề, khung lịch sử ẩn sẵn, bấm mới hiện.
+
+
+---
+
 ## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
@@ -584,3 +660,7 @@ Thêm bước CI `bash -n deploy/*.sh` (`.github/workflows/ci.yml`) để script
    repo fixture + pm2/health giả (§11.5). Việc cần làm: chạy 3 lệnh ở §11.6 trên VM, rồi deploy thử một commit nhỏ
    (đổi 1 file backend) để xác nhận log `pip=0 npm-ci=0 build=0` và thời gian ~10–20 giây. Đường nginx chỉ được
    kiểm chứng một phần (sandbox không có nginx/sudo) — nếu VM yêu cầu mật khẩu sudo, script in ra lệnh chạy tay.
+9. **Kiểm chứng UI trong trình duyệt thật còn thiếu** (sandbox không có Chromium/Playwright): các thay đổi
+   khung lịch sử (§12) mới xác nhận ở mức mã nguồn + bundle + typecheck. Cần một vòng chạy tay trên
+   `demoday.work.gd` (Ctrl+Shift+R) để chốt: ẩn mặc định, bấm mới hiện, đổi trang rồi quay lại vẫn còn hội thoại,
+   và mở lại được cuộc cũ trong danh sách.
