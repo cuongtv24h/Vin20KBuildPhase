@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Inbox, LogOut, Menu, MessageSquare, ScrollText, ShieldCheck, Sparkles, Users, X } from 'lucide-react'
+import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Gauge, Inbox, LogOut, Menu, MessageSquare, ScrollText, ShieldCheck, Sparkles, Users, X } from 'lucide-react'
 import { useState, type ComponentType } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '@pricepolicy/api-client/client'
@@ -24,6 +24,7 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
     { to: '/admin_cp', label: 'Quản trị Users', icon: ShieldCheck },
     { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
     { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
+    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge },
   ],
   SALE: [
     { to: '/sale/workspace', label: 'Trợ lý Copilot', icon: Sparkles },
@@ -36,6 +37,7 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   POLICY_ADMIN: [
     { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
     { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
+    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge },
   ],
 }
 

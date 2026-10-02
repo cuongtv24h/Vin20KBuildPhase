@@ -11,6 +11,10 @@ export default defineConfig({
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   server: {
     port: 5174,
+    // Dev trong sandbox/preview trỏ tới host ngoài localhost → phải bind 0.0.0.0 và cho phép host lạ.
+    // Chỉ áp dụng cho máy chủ dev, không ảnh hưởng bản build.
+    host: true,
+    allowedHosts: true,
     proxy: {
       '/api/v1': {
         target: 'http://127.0.0.1:8000',

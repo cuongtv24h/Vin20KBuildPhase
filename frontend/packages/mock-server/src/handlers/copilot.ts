@@ -7,7 +7,7 @@ import { rankScenarios } from '../engine/recommend'
 import { PAYMENT_PLANS_FIXTURE } from '../fixtures/plans'
 import { POLICIES_FIXTURE } from '../fixtures/policies'
 import { UNITS_FIXTURE } from '../fixtures/units'
-import { toMswPath } from './route'
+import { route, toMswPath } from './route'
 
 /**
  * Sales Copilot giả lập — bản sao tất định của ReAct agent ở backend thật (C-??/SCR-S00).
@@ -280,18 +280,55 @@ interface FeedbackEntry {
   comment: string
   tags: string[]
   mode: string | null
+  tools_used: string[]
+  turn_id: string | null
 }
 
 const feedbackLog: FeedbackEntry[] = []
+
+/** Che SĐT/email — bản sao hành vi `feedback.mask_pii` của backend thật. */
+function maskPii(text: string): string {
+  return text
+    .replace(/\b0\d{8,10}\b/g, (m) => `${m.slice(0, 3)}***${m.slice(-2)}`)
+    .replace(/\b[\w.+-]+@[\w-]+\.[\w.]+\b/g, '***@***')
+}
+
+/** Bản ghi đã che PII để trả cho trang quản trị chất lượng. */
+function toEntryView(entry: FeedbackEntry, mask = true) {
+  return {
+    recorded_at: entry.recorded_at,
+    rating: entry.rating,
+    label: entry.rating > 0 ? 'up' : entry.rating < 0 ? 'down' : 'neutral',
+    message: mask ? maskPii(entry.message) : entry.message,
+    reply: mask ? maskPii(entry.reply) : entry.reply,
+    comment: mask ? maskPii(entry.comment) : entry.comment,
+    tags: entry.tags,
+    mode: entry.mode,
+    tools_used: entry.tools_used,
+    turn_id: entry.turn_id,
+  }
+}
 
 function feedbackSummary() {
   const up = feedbackLog.filter((e) => e.rating === 1).length
   const down = feedbackLog.filter((e) => e.rating === -1).length
   const neutral = feedbackLog.filter((e) => e.rating === 0).length
+  const negatives = feedbackLog.filter((e) => e.rating < 0)
   const tagCounts = new Map<string, number>()
+  const toolCounts = new Map<string, number>()
+  const modeCounts = new Map<string, number>()
+  const dayCounts = new Map<string, { up: number; down: number }>()
   for (const entry of feedbackLog) {
-    if (entry.rating >= 0) continue
+    modeCounts.set(entry.mode ?? 'không rõ', (modeCounts.get(entry.mode ?? 'không rõ') ?? 0) + 1)
+    const day = entry.recorded_at.slice(0, 10)
+    const bucket = dayCounts.get(day) ?? { up: 0, down: 0 }
+    if (entry.rating > 0) bucket.up += 1
+    if (entry.rating < 0) bucket.down += 1
+    dayCounts.set(day, bucket)
+  }
+  for (const entry of negatives) {
     for (const tag of entry.tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
+    for (const tool of entry.tools_used) toolCounts.set(tool, (toolCounts.get(tool) ?? 0) + 1)
   }
   return {
     total: feedbackLog.length,
@@ -300,6 +337,10 @@ function feedbackSummary() {
     neutral,
     satisfaction_rate: up + down > 0 ? Number((up / (up + down)).toFixed(4)) : null,
     top_negative_tags: [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
+    by_mode: [...modeCounts.entries()].map(([mode, count]) => ({ mode, count })),
+    by_day: [...dayCounts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, v]) => ({ date, ...v })),
+    top_failing_tools: [...toolCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
+    recent_negative: negatives.slice(-5).reverse().map((e) => toEntryView(e)),
   }
 }
 
@@ -329,11 +370,13 @@ export const copilotHandlers = [
       comment?: string
       tags?: string[]
       mode?: string | null
+      tools_used?: string[]
+      turn_id?: string | null
     }
     if (!body?.message || ![ -1, 0, 1 ].includes(Number(body.rating))) {
       return HttpResponse.json({ detail: 'Thiếu câu hỏi hoặc điểm đánh giá không hợp lệ.' }, { status: 422 })
     }
-    const entry = {
+    const entry: FeedbackEntry = {
       recorded_at: new Date().toISOString(),
       rating: Number(body.rating),
       message: body.message,
@@ -341,14 +384,25 @@ export const copilotHandlers = [
       comment: body.comment ?? '',
       tags: body.tags ?? [],
       mode: body.mode ?? null,
+      tools_used: body.tools_used ?? [],
+      turn_id: body.turn_id ?? null,
     }
     feedbackLog.push(entry)
     return HttpResponse.json({ ok: true, recorded_at: entry.recorded_at, summary: feedbackSummary() })
   }),
 
-  http.get(toMswPath(ENDPOINTS.copilotFeedbackSummary.path), () =>
-    HttpResponse.json(feedbackSummary()),
-  ),
+  // Hai endpoint ĐỌC đi qua `route()` để được áp xác thực + phân quyền theo khai báo trong
+  // `ENDPOINTS` (summary: mọi nhân viên; recent: chỉ ADMIN/POLICY_ADMIN).
+  route('copilotFeedbackSummary', () => ({ body: feedbackSummary() })),
+
+  // Trang quản trị chất lượng: danh sách chi tiết, mới nhất trước, đã che PII.
+  route('copilotFeedbackRecent', ({ query }) => {
+    const limit = Math.min(Math.max(Number(query.get('limit') ?? 50), 1), 200)
+    const ratingParam = query.get('rating')
+    const filtered = ratingParam === null ? feedbackLog : feedbackLog.filter((e) => e.rating === Number(ratingParam))
+    const items = filtered.slice(-limit).reverse().map((e) => toEntryView(e))
+    return { body: { total: items.length, items } }
+  }),
 
   http.post(toMswPath(ENDPOINTS.copilotChatStream.path), async ({ request }) => {
     const message = await readMessage(request)

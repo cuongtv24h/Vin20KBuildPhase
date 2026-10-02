@@ -1,6 +1,6 @@
 # PricePolicy AI Agent — Hệ Thống Trợ Lý AI Định Giá & Tư Vấn Chính Sách Bất Động Sản Doanh Nghiệp (P-096)
 
-[![CI - Pytest](https://img.shields.io/badge/pytest-495%2F495%20passed-brightgreen.svg)](tests/)
+[![CI - Pytest](https://img.shields.io/badge/pytest-498%2F498%20passed-brightgreen.svg)](tests/)
 [![Code Style - Ruff](https://img.shields.io/badge/code%20style-ruff%20clean-blue.svg)](ruff.toml)
 [![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.14-blue.svg)](requirements.txt)
 [![Architecture](https://img.shields.io/badge/architecture-PEC--RAG%20%7C%20TDEC-orange.svg)](ARCHITECTURE.md)
@@ -153,12 +153,12 @@ uvicorn src.main:app --reload --port 8000
 
 ## 6. Kiểm Thử & Đo Lường Chất Lượng (Quality & Eval)
 
-### Chạy Toàn Bộ Test Suite (495 passed, ~12 s)
+### Chạy Toàn Bộ Test Suite (498 passed, ~12 s)
 ```bash
 .venv/bin/pytest tests/ -q
 ```
 
-### Chạy Test Frontend (22 test trên MSW, không cần backend)
+### Chạy Test Frontend (24 test trên MSW, không cần backend)
 ```bash
 cd frontend && npm test
 ```
@@ -195,7 +195,9 @@ python scripts/run_eval.py
 | Câu trả lời nhiều bước (planner) | ≥ 1 | **2** |
 
 Phản hồi của Sale (P2) được ghi qua `POST /api/v1/copilot/feedback` và dùng làm "điều cần tránh"
-trong prompt các lượt sau; xem thống kê ở `GET /api/v1/copilot/feedback/summary`.
+trong prompt các lượt sau. Quản trị viên theo dõi chất lượng ở trang **Chất lượng Copilot**
+(`/admin/copilot-quality`, ADMIN + POLICY_ADMIN): tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê,
+và danh sách lượt bị chê — nội dung do server **che PII** (SĐT/email khách) trước khi trả về.
 
 ---
 

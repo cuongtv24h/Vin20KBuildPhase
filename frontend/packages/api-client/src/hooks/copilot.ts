@@ -1,8 +1,10 @@
+import { useQuery } from '@tanstack/react-query'
 import { useCallback, useRef, useState } from 'react'
 import { api } from '../client'
 import type {
   CopilotChatHistoryItem,
   CopilotChatRequest,
+  CopilotFeedbackRecentParams,
   CopilotFinalPayload,
   CopilotReasoningStep,
   CopilotStreamEvent,
@@ -147,3 +149,27 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
 
   return { ...state, send, cancel, retry, reset }
 }
+
+
+// ─── Trang quản trị chất lượng Copilot (ADMIN / POLICY_ADMIN) ────────────────
+
+export const copilotQualityKeys = {
+  summary: ['copilot', 'feedback', 'summary'] as const,
+  recent: (params: CopilotFeedbackRecentParams) => ['copilot', 'feedback', 'recent', params] as const,
+}
+
+/** Thống kê tích luỹ: tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê. */
+export const useCopilotFeedbackSummary = () =>
+  useQuery({
+    queryKey: copilotQualityKeys.summary,
+    queryFn: () => api.copilot.feedbackSummary(),
+    refetchInterval: 60_000,
+  })
+
+/** Danh sách phản hồi chi tiết (server đã che PII). */
+export const useCopilotFeedbackRecent = (params: CopilotFeedbackRecentParams = {}) =>
+  useQuery({
+    queryKey: copilotQualityKeys.recent(params),
+    queryFn: () => api.copilot.feedbackRecent(params),
+    refetchInterval: 60_000,
+  })

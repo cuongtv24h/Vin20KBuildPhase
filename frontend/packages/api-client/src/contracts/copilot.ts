@@ -116,6 +116,39 @@ export interface CopilotFeedbackSummary {
   neutral: number
   satisfaction_rate: number | null
   top_negative_tags: [string, number][]
+  /** Phân bố theo chế độ trả lời (react / offline_react / guardrail). */
+  by_mode?: { mode: string; count: number }[]
+  /** Xu hướng 14 ngày gần nhất, đã điền cả ngày trống. */
+  by_day?: { date: string; up: number; down: number }[]
+  /** Tool hay xuất hiện ở các lượt bị chê — gợi ý nơi cần cải thiện. */
+  top_failing_tools?: [string, number][]
+  /** 5 lượt bị chê gần nhất (đã che PII). */
+  recent_negative?: CopilotFeedbackEntry[]
+}
+
+/** Một dòng trong trang quản trị chất lượng (nội dung đã được server che PII). */
+export interface CopilotFeedbackEntry {
+  recorded_at: string | null
+  rating: number
+  label: string
+  message: string
+  reply: string
+  comment: string
+  tags: string[]
+  mode: string | null
+  tools_used: string[]
+  turn_id: string | null
+}
+
+export interface CopilotFeedbackRecentResponse {
+  total: number
+  items: CopilotFeedbackEntry[]
+}
+
+export interface CopilotFeedbackRecentParams {
+  limit?: number
+  /** 1 = hữu ích, -1 = chưa đạt, 0 = trung tính. Bỏ trống = tất cả. */
+  rating?: -1 | 0 | 1
 }
 
 export interface CopilotFeedbackResponse {

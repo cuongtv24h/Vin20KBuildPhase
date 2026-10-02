@@ -19,12 +19,13 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from src.agents.copilot import CopilotService
 from src.agents.copilot.graph import CopilotRequest
+from src.api.deps import Principal, get_current_principal
 
 logger = logging.getLogger(__name__)
 
@@ -146,12 +147,38 @@ class CopilotFeedbackRequest(BaseModel):
 
 
 class CopilotFeedbackSummary(BaseModel):
+    """Thống kê tổng hợp — KHÔNG chứa nội dung hội thoại nên an toàn để trả cho mọi nhân viên."""
+
     total: int
     up: int
     down: int
     neutral: int
     satisfaction_rate: float | None = None
     top_negative_tags: list[list[Any]] = Field(default_factory=list)
+    by_mode: list[dict[str, Any]] = Field(default_factory=list, description="Phân bố theo chế độ trả lời")
+    by_day: list[dict[str, Any]] = Field(default_factory=list, description="Xu hướng 14 ngày: {date, up, down}")
+    top_failing_tools: list[list[Any]] = Field(default_factory=list, description="Tool hay xuất hiện ở lượt bị chê")
+    recent_negative: list[dict[str, Any]] = Field(default_factory=list, description="5 lượt bị chê gần nhất (đã che PII)")
+
+
+class CopilotFeedbackEntry(BaseModel):
+    """Một dòng phản hồi trong trang quản trị chất lượng (đã che PII)."""
+
+    recorded_at: str | None = None
+    rating: int
+    label: str
+    message: str = ""
+    reply: str = ""
+    comment: str = ""
+    tags: list[str] = Field(default_factory=list)
+    mode: str | None = None
+    tools_used: list[str] = Field(default_factory=list)
+    turn_id: str | None = None
+
+
+class CopilotFeedbackRecentResponse(BaseModel):
+    total: int
+    items: list[CopilotFeedbackEntry] = Field(default_factory=list)
 
 
 class CopilotFeedbackResponse(BaseModel):
@@ -184,6 +211,29 @@ async def copilot_feedback(req: CopilotFeedbackRequest) -> CopilotFeedbackRespon
         recorded_at=str(entry["recorded_at"]),
         summary=CopilotFeedbackSummary(**summary),
     )
+
+
+@router.get("/feedback/recent", response_model=CopilotFeedbackRecentResponse)
+async def copilot_feedback_recent(
+    limit: int = Query(50, ge=1, le=200),
+    rating: int | None = Query(None, ge=-1, le=1, description="Lọc theo điểm: 1 hữu ích, -1 chưa đạt"),
+    principal: Principal = Depends(get_current_principal),
+) -> CopilotFeedbackRecentResponse:
+    """Danh sách phản hồi gần nhất cho **trang quản trị chất lượng** (ADMIN / POLICY_ADMIN).
+
+    Trả về nội dung hội thoại nên siết quyền và **che PII** (SĐT/email) trước khi rời server —
+    trang chất lượng cần đọc *câu hỏi và câu trả lời* để đánh giá Copilot, không cần dữ liệu khách.
+    """
+    if not principal.has_role("ADMIN", "POLICY_ADMIN"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ Quản trị viên hệ thống hoặc Quản trị chính sách được xem phản hồi chi tiết.",
+        )
+
+    from src.agents.copilot import feedback as feedback_module
+
+    items = feedback_module.list_recent(limit=limit, rating=rating, mask=True)
+    return CopilotFeedbackRecentResponse(total=len(items), items=[CopilotFeedbackEntry(**i) for i in items])
 
 
 @router.get("/feedback/summary", response_model=CopilotFeedbackSummary)

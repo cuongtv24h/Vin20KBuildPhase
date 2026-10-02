@@ -28,6 +28,7 @@ const PolicyListPage = page(() => import('@/features/admin/PolicyListPage'), 'Po
 const PolicyDetailPage = page(() => import('@/features/admin/PolicyDetailPage'), 'PolicyDetailPage')
 const BenchmarkPage = page(() => import('@/features/admin/BenchmarkPage'), 'BenchmarkPage')
 const AdminCpPage = page(() => import('@/features/admin/AdminCpPage'), 'AdminCpPage')
+const CopilotQualityPage = page(() => import('@/features/admin/CopilotQualityPage'), 'CopilotQualityPage')
 const DevPanel = IS_DEV_TOOLS_ENABLED ? page(() => import('@/components/dev/DevPanel'), 'DevPanel') : null
 
 function StaffArea({ role }: { role: UserRole | UserRole[] }) {
@@ -76,6 +77,7 @@ function NotFoundPage() {
  *   Sale (Kinh doanh)             /sale/leads  /sale/quotes  /sale/quotes/new  /sale/quotes/:id
  *   Quản lý kinh doanh (Manager)  /manager/approvals  /manager/approvals/:id
  *   Quản trị chính sách           /admin/policies  /admin/policies/:id  /admin/benchmark
+ *   Chất lượng Copilot            /admin/copilot-quality (ADMIN + POLICY_ADMIN)
  *   Quản trị viên hệ thống        /admin_cp
  */
 function App() {
@@ -118,6 +120,7 @@ function App() {
             <Route path="policies" element={<PolicyListPage />} />
             <Route path="policies/:policyId" element={<PolicyDetailPage />} />
             <Route path="benchmark" element={<BenchmarkPage />} />
+            <Route path="copilot-quality" element={<CopilotQualityPage />} />
           </Route>
 
           <Route path="*" element={<NotFoundPage />} />

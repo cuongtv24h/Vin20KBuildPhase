@@ -16,15 +16,17 @@
 
 | Lệnh | Kết quả |
 | :--- | :--- |
-| `.venv/bin/python -m pytest tests/ -q` | **495 passed**, 1 warning |
+| `.venv/bin/python -m pytest tests/ -q` | **498 passed**, 1 warning |
 | `.venv/bin/python -m ruff check src/ tests/ scripts/` | **All checks passed** (trước: 9 lỗi ở `scripts/`) |
 | `.venv/bin/python scripts/run_copilot_eval.py` | tool **1.00** · citation **1.00** · bịa **0.00** · p95 **4 ms** |
 | `cd frontend && npx tsc -p packages/tsconfig.json` | **exit 0** (trước: 8 lỗi type) |
 | `cd frontend && npx tsc -b apps/internal apps/customer` | **exit 0** |
-| `cd frontend && npm test` | **23/23 passed** (2 file, trước 22) |
+| `cd frontend && npm test` | **24/24 passed** (2 file, trước 22) |
 | `cd frontend && npx oxlint` | **0 error**, 125 warning (trước: 151) |
 | `cd frontend && npm run build` | build Vite thành công |
 | Smoke `filterCommands` (lọc lệnh không dấu) | 6/6 kịch bản khớp đúng |
+| **Smoke end-to-end qua Vite proxy** (mock-server :8000 + app nội bộ :5174) | Sale gọi `/copilot/feedback/recent` → **403**; ADMIN → 200 với SĐT đã che `091***78`; `/summary` trả `by_day`/`by_mode`/`top_failing_tools` đúng dữ liệu vừa gửi |
+| `pytest tests/test_agents/copilot tests/test_api/test_copilot_endpoints.py -q` | **59 passed** (Copilot + API phản hồi) |
 
 ---
 
@@ -62,6 +64,26 @@
 | **Cache tool + ngân sách ngữ cảnh** | `graph.py` | `_tool_cache_key()` (tham số chuẩn hoá thứ tự) → gọi lại y hệt một tool trong cùng lượt không chạy lại; `MAX_TOTAL_OBSERVATION_CHARS` siết dần Observation; `context_budget` báo cáo lại UI/report |
 | **Bảng chi phí trong eval** | `scripts/run_copilot_eval.py` | In khối "Chi phí & kiểm duyệt": số câu bị critic gắn cờ, số câu nhiều bước, tổng ký tự Observation, số lần dùng lại cache |
 | API | `src/api/endpoints/copilot.py`, `service.py` | DTO thêm `verified`, `verification`, `plan[]`, `slots{}`, `critique`, `context_budget`; thêm 2 endpoint phản hồi (validate `rating ∈ [-1, 1]`, an toàn khi chưa có log) |
+
+### 2.4 Trang **Quản trị chất lượng Copilot** (bổ sung theo yêu cầu review nội bộ)
+
+> Câu hỏi đặt ra: *"Học từ phản hồi — trong user admin có nên có mục quản lý để theo dõi đánh giá chất lượng không?"*
+> **Có.** Không có màn hình theo dõi thì vòng lặp phản hồi chỉ chạy một chiều (ghi log mà không ai đọc),
+> và không ai phát hiện được chất lượng đang đi xuống. Đã dựng đầy đủ:
+
+| Hạng mục | File | Nội dung |
+| :--- | :--- | :--- |
+| Trang quản trị | `frontend/apps/internal/src/features/admin/CopilotQualityPage.tsx` **(mới)** | 4 thẻ KPI (tổng phản hồi · **tỉ lệ hài lòng** · lượt chưa đạt · nhãn bị chê nhiều nhất); **biểu đồ xu hướng 14 ngày** (cột xanh/đỏ theo ngày, có `role="img"` + `aria-label`, ngày trống vẫn hiện để không hiểu sai là mất dữ liệu); thẻ **"Cần cải thiện ở đâu"** (tool hay xuất hiện ở lượt bị chê, phân bố theo chế độ `react/offline_react/guardrail`); bảng **phản hồi chi tiết** lọc theo *tất cả / chưa đạt / hữu ích*, mỗi dòng có câu hỏi, câu trả lời, lý do Sale nêu, nhãn, tool đã dùng và nút **sao chép** để đưa vào biên bản cải tiến |
+| Điều hướng | `App.tsx`, `components/layout/StaffLayout.tsx` | Route `/admin/copilot-quality`, menu **"Chất lượng Copilot"** cho cả `ADMIN` và `POLICY_ADMIN` |
+| API thống kê | `GET /api/v1/copilot/feedback/summary` (mở rộng) | Thêm `by_mode[]`, `by_day[]` (14 ngày, đã điền ngày trống), `top_failing_tools[]`, `recent_negative[]` |
+| API chi tiết | `GET /api/v1/copilot/feedback/recent` **(mới)** | `limit` (1–200) + `rating` (−1/0/1), mới nhất trước |
+| **Phân quyền** | `src/api/endpoints/copilot.py`, `ENDPOINTS.copilotFeedbackRecent` | Chỉ `ADMIN` / `POLICY_ADMIN`; Sale gọi → **403** |
+| **Che PII** | `feedback.mask_pii()` | Câu hỏi của Sale thường kèm tên + SĐT khách → server che SĐT (`091***78`) và email (`***@***`) **trước khi rời server**; trang chất lượng cần nội dung nghiệp vụ, không cần dữ liệu khách |
+| Mock + test | `handlers/copilot.ts`, `scenarios.test.ts`, `tests/test_api/test_copilot_endpoints.py` | Mock có đủ 2 endpoint (đi qua `route()` nên RBAC được thực thi), test 403 cho Sale, test che PII, test lọc theo điểm, test xu hướng/chế độ |
+
+**Vì sao tách khỏi `/admin_cp`:** `/admin_cp` là quản trị *tài khoản* (vòng đời user), còn đây là quản trị
+*chất lượng AI* — gộp vào một trang sẽ phình và sai vai. Trang mới nằm cùng nhóm với "Chính sách bán hàng"
+và "Kiểm thử công thức", đúng chỗ cho người theo dõi chất lượng.
 
 ---
 
@@ -106,8 +128,10 @@
 | TSConfig dùng chung | `frontend/packages/tsconfig.json` **(mới)** | Typecheck cho `api-client` · `ui` · `mock-server` |
 | 8 lỗi type tồn đọng | `contracts/models.ts`, `contracts/copilot.ts`, `client.ts`, `mock-server/src/server.ts`, `scenarios.test.ts` | Thêm `QuoteCreateOutcome` (dung hoà **201 đồng bộ** của backend vs **202 + SSE** của TD-4.1/mock); `CopilotStepType` thêm `plan`; `Buffer → BodyInit` tường minh; 3 chỗ `stream_url` nullable được khẳng định rõ hợp đồng |
 | Ruff toàn repo | `ruff.toml`, `scripts/seed_canonical_inventory.py` | Dọn 9 lỗi tồn đọng ở `scripts/`; ghi rõ per-file ignore `E402` cho script phải chèn `sys.path` trước import |
-| README | `README.md` | Badge + số test **479 → 495**; thêm mục **chạy eval Copilot** kèm bảng ngưỡng CI/số thật |
-| Demo runbook | `docs/team_report/DEMO_RUNBOOK.md` | Kỳ vọng "71 passed" (số cũ nhiều tháng) → 495 |
+| Sửa script khởi động mock | `packages/mock-server/package.json` | `start` dùng `node --experimental-strip-types` **không resolve được import không đuôi** (`./db`) → đổi sang `tsx` (đã có sẵn trong devDependencies, khớp `dev`). Phát hiện khi dựng preview để tự kiểm chứng trang mới |
+| Dev server cho preview | `apps/internal/vite.config.ts` | Thêm `host: true` + `allowedHosts: true` để chạy được sau proxy preview (trước đó Vite chỉ nghe localhost); chỉ ảnh hưởng dev server, không ảnh hưởng bản build |
+| README | `README.md` | Badge + số test **479 → 498**; mục **chạy eval Copilot** kèm bảng ngưỡng CI/số thật; giới thiệu trang Chất lượng Copilot |
+| Demo runbook | `docs/team_report/DEMO_RUNBOOK.md` | Kỳ vọng "71 passed" (số cũ nhiều tháng) → 498 |
 | Biên bản | `docs/team_report/upgrade_new.md` | **File này** — bản ghi chính thức |
 | Nháp trước đó | `upgrade/README.md`, `upgrade/PLAN.md`, `upgrade/CHANGELOG.md` | Giữ lại làm lịch sử; `upgrade/README.md` trỏ về file này |
 
@@ -138,7 +162,8 @@
 | §3 P1 — verifier | ✅ | `verifier.py` |
 | §3 P1 — ngữ cảnh chủ động | ✅ | `prompts.py` nạp chính sách/giỏ hàng/hồ sơ |
 | §3 P2 — critic vòng 2 | ✅ | `critic.py` + cảnh báo trên UI + cổng CI (0 gắn cờ trên bộ vàng) |
-| §3 P2 — học từ phản hồi | ✅ | `feedback.py` + 2 endpoint + nút 👍/👎 + few-shot động |
+| §3 P2 — học từ phản hồi | ✅ | `feedback.py` + nút 👍/👎 + few-shot động |
+| Bổ sung — trang quản trị chất lượng cho vòng lặp phản hồi | ✅ | `/admin/copilot-quality` (KPI, xu hướng 14 ngày, tool kém, bảng chi tiết, RBAC, che PII) |
 | §3 P2 — cache tool + ngân sách token/latency | ✅ | `_tool_cache_key`, `MAX_TOTAL_OBSERVATION_CHARS`, khối chi phí trong eval |
 | §3 P2 — nudge chủ động theo trạng thái hồ sơ | ✅ | Nudge SLA + nudge trạng thái báo giá |
 | §5.3 — CI frontend + tsconfig package | ✅ | Job `frontend`, `packages/tsconfig.json` |
@@ -149,7 +174,10 @@
 
 ## 6. Còn lại (nói thẳng, không hứa quá)
 
-1. **Học từ phản hồi mới ở mức "log + few-shot"**, chưa fine-tune/weight-tuning. Muốn vòng lặp đầy đủ thì cần: dashboard đọc `feedback/summary`, phân loại tag tự động, và tiêu chí gỡ một "điều cần tránh" khỏi prompt khi đã được sửa.
+1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
+   Trang `/admin/copilot-quality` đã trả lời được "chất lượng đang lên hay xuống, kém ở đâu".
+   Còn thiếu: **phân loại tag tự động** (hiện Sale gửi tag thô) và **tiêu chí gỡ** một "điều cần tránh"
+   khỏi prompt khi nó đã được sửa — cả hai cần thêm dữ liệu thật mới đáng làm.
 2. **Critic chưa gọi LLM sửa lời**: hiện critic *phát hiện + nhắc*, không tự viết lại. Đã có cờ `COPILOT_CRITIC=1` để bật một lượt sửa, nhưng **cố ý để mặc định TẮT** vì nhân đôi độ trễ mà chưa có dashboard chi phí.
 3. **Trôi hợp đồng mock vs backend (TD-4.1)** mới xử lý ở tầng type (`QuoteCreateOutcome`); triệt để thì mock-server nên đổi sang **201 đồng bộ** cho khớp backend thật.
 4. **125 cảnh báo oxlint** còn lại: 129 lượt `no-unused-vars` (đã bù bằng phần dọn trong trang bán hàng) ở `LeadInboxPage`, `PolicyListPage`… — dọn tiếp là việc cơ học, không rủi ro.

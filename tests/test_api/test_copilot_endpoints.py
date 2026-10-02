@@ -157,3 +157,85 @@ async def test_feedback_endpoint_is_empty_safe_before_any_vote(client, tmp_path,
     assert resp.status_code == 200
     assert resp.json()["total"] == 0
     assert resp.json()["satisfaction_rate"] is None
+
+
+# ─── Trang quản trị chất lượng: danh sách phản hồi chi tiết ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_feedback_recent_requires_admin_role(client, tmp_path, monkeypatch):
+    """Nội dung hội thoại là dữ liệu nhạy cảm → chỉ ADMIN/POLICY_ADMIN, và phải che PII."""
+    monkeypatch.setenv("COPILOT_FEEDBACK_PATH", str(tmp_path / "feedback.jsonl"))
+    from src.agents.copilot import feedback as feedback_module
+
+    feedback_module.record_feedback(
+        message="Tạo khách Nguyễn Văn A 0912345678",
+        reply="Đã bóc tách hồ sơ",
+        rating=-1,
+        comment="thiếu căn cứ",
+        tags=["thieu_can_cu"],
+        mode="react",
+        tools_used=["tra_cuu_ho_so_khach_hang"],
+        path=tmp_path / "feedback.jsonl",
+    )
+
+    # Sale (mặc định khi không có header) → 403
+    forbidden = await client.get("/api/v1/copilot/feedback/recent")
+    assert forbidden.status_code == 403
+
+    # ADMIN → 200, mới nhất trước, PII đã che
+    ok = await client.get("/api/v1/copilot/feedback/recent", headers={"X-User-Role": "ADMIN"})
+    assert ok.status_code == 200
+    body = ok.json()
+    assert body["total"] == 1
+    entry = body["items"][0]
+    assert entry["rating"] == -1
+    assert "0912345678" not in entry["message"]
+    assert "091***78" in entry["message"]
+    assert entry["tags"] == ["thieu_can_cu"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_recent_filters_by_rating_and_limit(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_FEEDBACK_PATH", str(tmp_path / "feedback.jsonl"))
+    from src.agents.copilot import feedback as feedback_module
+
+    path = tmp_path / "feedback.jsonl"
+    for idx, rating in enumerate([1, 1, -1, 0]):
+        feedback_module.record_feedback(message=f"câu {idx}", rating=rating, path=path)
+
+    only_down = await client.get(
+        "/api/v1/copilot/feedback/recent", params={"rating": -1}, headers={"X-User-Role": "POLICY_ADMIN"}
+    )
+    assert only_down.status_code == 200
+    assert [i["rating"] for i in only_down.json()["items"]] == [-1]
+
+    limited = await client.get(
+        "/api/v1/copilot/feedback/recent", params={"limit": 2}, headers={"X-User-Role": "ADMIN"}
+    )
+    items = limited.json()["items"]
+    assert len(items) == 2
+    # Mới nhất trước
+    assert items[0]["message"] == "câu 3"
+
+
+@pytest.mark.asyncio
+async def test_feedback_summary_carries_trend_and_mode(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_FEEDBACK_PATH", str(tmp_path / "feedback.jsonl"))
+    from src.agents.copilot import feedback as feedback_module
+
+    path = tmp_path / "feedback.jsonl"
+    feedback_module.record_feedback(message="a", rating=1, mode="react", path=path)
+    feedback_module.record_feedback(
+        message="b", rating=-1, mode="offline_react", tools_used=["tra_cuu_gio_hang"], path=path
+    )
+
+    resp = await client.get("/api/v1/copilot/feedback/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert {row["mode"] for row in body["by_mode"]} == {"react", "offline_react"}
+    assert body["by_day"] and body["by_day"][-1]["up"] + body["by_day"][-1]["down"] >= 1
+    assert body["top_failing_tools"] == [["tra_cuu_gio_hang", 1]]
+    assert len(body["recent_negative"]) == 1
+    assert body["recent_negative"][0]["rating"] == -1

@@ -433,6 +433,38 @@ describe('Sales Copilot (ReAct)', () => {
 
     await expectApiError(api.copilot.feedback({ message: '', rating: 1 }), 422, 'HTTP_ERROR')
   })
+
+  it('Trang quản trị chất lượng: chỉ ADMIN/POLICY_ADMIN xem được chi tiết, PII bị che', async () => {
+    // Sale thường → 403 (RBAC đọc từ khai báo `auth` trong ENDPOINTS)
+    await loginAs(SALE)
+    await expectApiError(api.copilot.feedbackRecent({ limit: 5 }), 403, 'FORBIDDEN')
+
+    // Ghi một phản hồi có SĐT khách bằng chính Sale
+    await api.copilot.feedback({
+      message: 'Tạo khách Nguyễn Văn A 0912345678',
+      reply: 'Đã bóc tách hồ sơ',
+      rating: -1,
+      comment: 'thiếu căn cứ',
+      tags: ['thieu_can_cu'],
+      mode: 'react',
+      tools_used: ['tra_cuu_ho_so_khach_hang'],
+    })
+
+    await loginAs(ADMIN)
+    const recent = await api.copilot.feedbackRecent({ limit: 10 })
+    expect(recent.total).toBeGreaterThanOrEqual(1)
+    const entry = recent.items[0]
+    expect(entry.rating).toBe(-1)
+    expect(entry.message).not.toContain('0912345678')
+    expect(entry.message).toContain('091***78')
+
+    const onlyDown = await api.copilot.feedbackRecent({ limit: 10, rating: -1 })
+    expect(onlyDown.items.every((i) => i.rating === -1)).toBe(true)
+
+    const summary = await api.copilot.feedbackSummary()
+    expect(summary.by_mode?.some((m) => m.mode === 'react')).toBe(true)
+    expect(summary.top_failing_tools?.some(([tool]) => tool === 'tra_cuu_ho_so_khach_hang')).toBe(true)
+  })
 })
 
 describe('Policy Admin', () => {

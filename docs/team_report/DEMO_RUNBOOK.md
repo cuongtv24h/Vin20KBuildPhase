@@ -21,7 +21,7 @@ bash scripts/demo_reset.sh
 
 # 3. Kiểm tra sức khỏe bộ test trước khi diễn tập
 py -3 -m pytest tests/ -q --no-header
-# Kỳ vọng: 495 passed (đã gồm 56 test Copilot + eval harness + phản hồi; xem README §6)
+# Kỳ vọng: 498 passed (đã gồm 59 test Copilot + eval harness + phản hồi + trang chất lượng; xem README §6)
 ```
 
 ---

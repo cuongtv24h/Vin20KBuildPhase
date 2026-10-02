@@ -1,4 +1,6 @@
 import type {
+  CopilotFeedbackRecentParams,
+  CopilotFeedbackRecentResponse,
   CopilotFeedbackRequest,
   CopilotFeedbackResponse,
   CopilotFeedbackSummary,
@@ -206,5 +208,11 @@ export const api = {
       call<CopilotFeedbackResponse>('copilotFeedback', {}, { json: body, ...o }),
     /** Thống kê phản hồi tích luỹ (dashboard chất lượng). */
     feedbackSummary: (signal?: AbortSignal) => call<CopilotFeedbackSummary>('copilotFeedbackSummary', {}, { signal }),
+    /**
+     * Danh sách phản hồi chi tiết cho trang quản trị chất lượng (ADMIN/POLICY_ADMIN).
+     * Nội dung đã được server che PII trước khi trả về.
+     */
+    feedbackRecent: (params: CopilotFeedbackRecentParams = {}, signal?: AbortSignal) =>
+      call<CopilotFeedbackRecentResponse>('copilotFeedbackRecent', {}, { query: { ...params }, signal }),
   },
 }
