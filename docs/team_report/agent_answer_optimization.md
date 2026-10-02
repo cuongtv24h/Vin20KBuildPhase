@@ -1,8 +1,42 @@
 # Tối ưu câu trả lời của Agent — phân tích sâu & kế hoạch
 
-**Trạng thái: ĐỀ XUẤT — chưa sửa một dòng code nào.** Theo nguyên tắc đã chốt (§14.9 tài liệu đợt trước:
-câu hỏi/ví dụ của người dùng để tìm hiểu vấn đề thì dừng ở *thảo luận – phản biện – đề xuất giải pháp*),
-tài liệu này là bản phân tích có bằng chứng chạy thật + kế hoạch triển khai, chờ chốt phạm vi.
+**Trạng thái: P0 đã triển khai xong (2026-10-02). P1/P2/P3 đang chờ anh chốt (danh sách câu hỏi ở §8).**
+
+Người dùng chốt phạm vi: *"tôi muốn nói về độ rõ ràng và văn phong hợp lý khi trả lời, làm P0 đi"*.
+P0 = dọn các cảnh báo xếp chồng và sửa văn phong trả lời — **không** đổi nội dung nghiệp vụ (phần đó là P1/P2/P3).
+
+## 0. P0 đã làm gì — trước/sau trên đúng ví dụ của người dùng
+
+Chạy thật `_finalize` với câu trả lời y nguyên trong ví dụ:
+
+| | Trước P0 | Sau P0 |
+|---|---|---|
+| Số dòng cảnh báo cuối câu | **3** (`Lưu ý` verifier + `Lưu ý` grounded + `Kiểm duyệt nội bộ` critic) | **0** |
+| `grounded` | `False` (báo động giả) | `True` |
+| `verified` | `False` (vì "2 tỷ", "2,5 tỷ", "6,1 tỷ") | `True` — "2 tỷ" là số Sale nêu, "2,5/6,1 tỷ" là dải giá canonical |
+| `critique.ok` | `False` (đòi mỏ neo [n] dù không có chứng cứ nào) | `True` |
+| Nội dung gửi khách | có chen câu quy trình nội bộ | sạch, chỉ còn nội dung tư vấn |
+
+**4 thay đổi mã nguồn:**
+
+| # | File | Thay đổi |
+|---|---|---|
+| P0.1 | `src/agents/copilot/graph.py` | `grounded` = có citation **hoặc** tool tra cứu chính sách/giỏ hàng (`tra_cuu_chinh_sach`, `tra_cuu_gio_hang`, `tinh_phuong_an_thanh_toan`) chạy thành công — kết luận "0 căn khớp" cũng là dữ liệu, không phải "chưa đối chiếu" |
+| P0.2 | `src/agents/copilot/verifier.py` | Tha số **do Sale nêu trong câu hỏi** (`echoed_claims`) và số/mã **có trong bối cảnh canonical** (`context_claims`); số không ai nói vẫn bị bắt |
+| P0.3 | `src/agents/copilot/critic.py` | Chỉ nhắc "gắn mỏ neo [n]" khi lượt đó **có** citation để trỏ tới; gọi trực tiếp không truyền observation thì giữ luật chặt (tương thích ngược) |
+| P0.4 | `src/agents/copilot/graph.py` | Mọi cảnh báo gộp vào **tối đa MỘT** khối `Ghi chú nội bộ:`; ghi chú kiểm duyệt **không** chèn vào nội dung trả lời (đã có banner riêng trên UI từ dữ liệu `critique`) |
+| P0.5 | `src/agents/copilot/prompts.py` | Luật văn phong: mở đầu bằng kết luận; nêu rõ **phạm vi** của mọi số liệu phân khúc (cấm ghép "N căn toàn giỏ" với nhãn "3 ngủ"); hỏi lại tối đa 2 câu có đánh số; không viết câu quy trình nội bộ. Tách `canonical_facts()` để verifier biết đâu là số liệu hệ thống — **cố ý không** gồm `avoid_examples` (do LLM tổng hợp từ phản hồi) |
+
+**Bằng chứng chạy thật:** `.venv/bin/python -m pytest -q` → **572 passed** (thêm 16 ca mới trong
+`tests/test_agents/copilot/test_copilot_answer_clarity.py`); `ruff check src/ tests/` sạch;
+`scripts/run_copilot_eval.py` → tool 100% · citation 100% · **bịa 0.0%** (không hồi quy bộ 32 câu vàng).
+
+**Khoảng trống đã biết (nói thẳng):** ghi chú kiểm duyệt chỉ hiện khi lượt trả lời đang mở; mở lại lịch sử
+thì mất vì hội thoại chỉ lưu `reply` + `citations`. Muốn giữ lâu cần thêm trường vào bản ghi lượt (backend).
+Đây là việc nhỏ nhưng **chưa làm** — nằm trong danh sách câu hỏi (§8, câu P2.4).
+
+**Chưa đo được trong sandbox:** thay đổi prompt (P0.5) chỉ đo được ở chế độ `llm` (cần API key + egress).
+Bộ eval hiện chạy offline. Cần một vòng bấm tay trên VM để xác nhận văn phong.
 
 Ví dụ người dùng đưa (đối tượng phân tích):
 
@@ -185,3 +219,89 @@ Thêm vào `scripts/run_copilot_eval.py` bộ ca khó và **ngưỡng CI**:
 > danh sách, in đậm, blockquote) ⇒ hình thức bản mong muốn hiển thị được, **không cần** thêm thư viện markdown.
 > Riêng gạch đầu dòng lồng trong mục số (mục 2 của bản mong muốn) sẽ bị làm phẳng — nếu cần giữ, phải sửa
 > parser block của `FormattedAiMessage`.
+
+---
+
+## 8. Danh sách câu hỏi để tinh chỉnh P1 / P2 / P3
+
+Cách dùng: mỗi câu có **đề xuất mặc định** — anh chỉ cần trả lời "theo đề xuất", hoặc sửa lại ý nào khác.
+Không cần trả lời hết một lượt; câu nào chốt trước em làm trước.
+
+### P1 — Nội dung & giá trị câu trả lời (quan trọng nhất)
+
+**P1.1 — Khi lọc rỗng thì nới tiêu chí tới đâu?**
+Đề xuất: nới **bỏ trần giá trước** (giữ số phòng ngủ) → nếu vẫn rỗng mới **hạ 1 phòng ngủ** → cuối cùng mới
+liệt kê cả giỏ. Lý do: khách hỏi 3 ngủ thì hạ phòng ngủ là đổi nhu cầu, cần nói rõ "đây là gợi ý gần nhất".
+→ *Anh muốn Copilot tự nới, hay chỉ nêu các phương án để Sale chọn?*
+
+**P1.2 — Có được tự tính phương án tài chính khi Sale nêu ngân sách không?**
+Đề xuất: **có**, nhưng chỉ khi Sale nêu số tiền, và ghi rõ giả định ("tạm coi 2 tỷ là **vốn tự có**").
+Đây là thay đổi *hành vi*: Copilot chủ động đưa số tiền (đợt đầu 1,0065 tỷ · tổng tự chi 2,1716 tỷ · hụt ~172 triệu).
+→ *Anh muốn Copilot chủ động đưa số, hay chỉ gợi ý và chờ Sale bấm?*
+
+**P1.3 — Khi không có căn nào khớp, có luôn kèm "căn gần nhất và thiếu bao nhiêu" không?**
+Đề xuất: **luôn kèm 1 dòng** ("căn 3 ngủ gần nhất là ZEN-B-1502 — 6,1 tỷ, cao hơn ngân sách 4,1 tỷ").
+→ *Có sợ lộ thông tin giá khi Sale chưa hỏi không?*
+
+**P1.4 — Ngân sách Sale nêu được hiểu là gì?**
+Đề xuất: hiểu là **tổng giá trị căn** (khớp cách lọc giỏ hàng hiện nay), và **hỏi lại** nếu có dấu hiệu là
+vốn tự có. Nếu Sale nói rõ "vốn tự có 2 tỷ" thì chuyển sang tính theo vốn tự có.
+→ *Anh muốn mặc định là tổng giá, hay luôn hỏi lại?*
+
+**P1.5 — Bao nhiêu căn thì chuyển sang bảng so sánh?**
+Đề xuất: ≤5 căn → liệt kê có mỏ neo; >5 căn → bảng so sánh + nêu tiêu chí sắp xếp (giá tăng dần).
+→ *Ngưỡng anh thấy phù hợp?*
+
+**P1.6 — Có cần nêu "dữ liệu lấy tại ngày giao dịch nào" không?**
+Đề xuất: chỉ nêu khi trả lời về **giá/chính sách** ("giá niêm yết theo chính sách đang hiệu lực ngày 02/10/2026").
+
+**P1.7 — Ưu tiên khi phải chọn: rõ ràng, đầy đủ hay ngắn gọn?**
+Đề xuất thứ tự: **rõ ràng → đầy đủ → ngắn gọn** (ngắn mà mơ hồ thì Sale vẫn phải hỏi lại, tốn hơn).
+→ *Anh đổi thứ tự được không?*
+
+### P2 — Mỏ neo `[n]` & cách hiển thị
+
+**P2.1 — `[n]` cần bấm mở được căn cứ, hay chỉ đánh số?**
+Đề xuất: **bấm mở được** (hạ tầng modal căn cứ đã có sẵn: `citationToEvidence`).
+→ *Nếu ngại khối lượng UI thì chỉ đánh số.*
+
+**P2.2 — Số do Sale tự nêu (2 tỷ) có gắn `[n]` không?**
+Đề xuất: **không**. Số của Sale in đậm + ghi chú "(số anh/chị nêu)"; mỏ neo chỉ dành cho **số liệu hệ thống**.
+Lý do: mỏ neo là con trỏ tới nguồn — gắn cho số người dùng nhập là sai nghĩa, làm loãng khái niệm.
+→ *Anh có cần mọi con số đều có mỏ neo, kể cả số của Sale?*
+
+**P2.3 — Mỏ neo do máy tự chèn hay để LLM tự viết?**
+Đề xuất: **máy tự chèn** ở tầng hậu xử lý (khớp số → tìm citation → chèn `[n]`), LLM chỉ viết nội dung.
+Lý do: LLM gõ tay không đảm bảo nhất quán, và không kiểm chứng được.
+→ *Anh có muốn thấy `[n]` ngay trong bản nháp, hay chỉ khi gửi khách?*
+
+**P2.4 — "Ghi chú kiểm duyệt nội bộ" có cần lưu theo hội thoại không?**
+Đề xuất: **có** — hiện mở lại lịch sử là mất ghi chú (chỉ lưu `reply` + `citations`). Cần thêm 1 trường vào
+bản ghi lượt (backend + mock + UI). Khối lượng nhỏ nhưng đụng hợp đồng API.
+→ *Anh có cần ghi chú sống cùng hội thoại, hay chỉ cần thấy lúc đang chat là đủ?*
+
+### P3 — Chống nhiễm & cổng chất lượng
+
+**P3.1 — Giữ dải giá giỏ hàng trong prompt (kèm nhãn "TOÀN GIỎ") hay bỏ hẳn để buộc gọi tool?**
+Đề xuất: **giữ + nhãn** (đã làm ở P0.5): giúp Copilot biết giỏ có gì khi tool lỗi, mà không còn bị hiểu nhầm
+"N căn toàn giỏ" thành "N căn của phân khúc".
+
+**P3.2 — Có thêm cổng CI "N căn X ngủ phải khớp phân khúc" không?**
+Đề xuất: **có** (đối chiếu máy với dữ liệu canonical, không đọc bằng mắt). Đây là lỗi đã xảy ra thật.
+
+**P3.3 — Ngưỡng chất lượng mới cho bộ eval?**
+Đề xuất: câu hỏi tra cứu **0%** được phép còn "Ghi chú nội bộ"; tỷ lệ bịa tiếp tục **0%**; thêm ca
+"lọc rỗng" và "ngân sách là vốn tự có" vào bộ 32 câu vàng.
+
+**P3.4 — Chính sách/giá có được coi là cố định trong ngày không?**
+Đề xuất: không — luôn tra theo ngày giao dịch, và ghi chú "đối chiếu CSBH tại ngày gửi" khi câu trả lời
+có số tiền.
+
+### Câu hỏi để hiểu kỳ vọng (giúp em khỏi đoán)
+
+**K1 —** Anh có thêm **mẫu câu trả lời nào khác** ngoài ví dụ này không? (Em đưa vào bộ vàng để không
+hồi quy.) Càng nhiều ví dụ, P1 càng chắc.
+**K2 —** Người đọc chính của câu trả lời là **Sale** (tự dùng) hay **khách** (Sale copy gửi)? Quyết định văn phong.
+**K3 —** Trong ví dụ, anh thích điểm nào nhất ở "câu trả lời mong muốn": **mỏ neo `[n]`**, **câu hỏi đánh số**,
+hay **phần ghi chú tách riêng**? (Em ưu tiên làm đúng cái đó trước.)
+**K4 —** Có chấp nhận câu trả lời **dài hơn** một chút để đủ căn cứ không, hay phải gọn trong ~6 câu như hiện tại?

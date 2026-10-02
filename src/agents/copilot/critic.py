@@ -9,6 +9,8 @@ Chủ đích thiết kế:
 - **Chỉ chạy ở lượt "quan trọng"** (có số tiền, có ưu đãi, hoặc là câu soạn tin/tuân thủ).
 - **Không tự sửa lời của LLM**: critic trả về danh sách vấn đề + gợi ý, tầng gọi quyết định
   (mặc định: chèn lời nhắc an toàn, có thể bật một lượt sửa bằng `COPILOT_CRITIC=1`).
+- **Chỉ nhắc điều làm được**: yêu cầu "gắn mỏ neo [n]" chỉ đặt ra khi lượt đó **có** citation để trỏ tới;
+  lượt tra cứu trả rỗng mà bị nhắc mỏ neo chỉ tạo nhiễu.
 """
 
 from __future__ import annotations
@@ -67,6 +69,19 @@ def is_high_stakes(reply: str, intent: str | None = None) -> bool:
     return bool(_MONEY_RE.search(reply) or _CONDITIONAL_OFFER_RE.search(reply))
 
 
+def _has_anchorable_evidence(observations: list[dict[str, Any]] | None) -> bool:
+    """Có chứng cứ nào để gắn mỏ neo không.
+
+    `MONEY_WITHOUT_ANCHOR` chỉ có nghĩa khi **tồn tại** nguồn để trỏ tới. Một lượt tra giỏ hàng trả về
+    rỗng (0 citation) mà vẫn nhắc "gắn mỏ neo [n] cho từng con số" là lời nhắc **không hành động được**:
+    Sale không có gì để gắn, chỉ thấy câu trả lời bị gắn cờ oan.
+    """
+    if observations is None:
+        # Không truyền observation (dùng như hàm thuần) → giữ luật chặt như trước để tương thích ngược.
+        return True
+    return any((obs.get("citations") or []) for obs in observations)
+
+
 def critique_reply(reply: str, *, intent: str | None = None, observations: list[dict[str, Any]] | None = None) -> Critique:
     """Soi câu trả lời bằng luật; trả về danh sách vấn đề kèm gợi ý sửa."""
     text = str(reply or "")
@@ -74,7 +89,7 @@ def critique_reply(reply: str, *, intent: str | None = None, observations: list[
     if not text.strip():
         return result
 
-    if _MONEY_RE.search(text) and not _ANCHOR_RE.search(text):
+    if _has_anchorable_evidence(observations) and _MONEY_RE.search(text) and not _ANCHOR_RE.search(text):
         result.ok = False
         result.issues.append(
             {

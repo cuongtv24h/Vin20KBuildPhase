@@ -25,7 +25,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from src.agents.copilot import commands, critic, feedback, grounding, intents, memory, planner, verifier
-from src.agents.copilot.prompts import build_system_prompt
+from src.agents.copilot.prompts import build_system_prompt, canonical_facts
 from src.agents.copilot.tools import COPILOT_TOOLS, TOOLS_BY_NAME
 from src.agents.tools.guardrails import scan_output_leakage, scan_prompt_injection
 
@@ -45,6 +45,11 @@ MAX_TOOL_MESSAGE_CHARS = 1_400
 MAX_TOTAL_OBSERVATION_CHARS = 6_000
 #: Trần rút gọn khi đã cạn ngân sách ngữ cảnh.
 TIGHT_TOOL_MESSAGE_CHARS = 700
+#: Tool tra cứu **dữ liệu chính sách/giỏ hàng**. Chạy thành công — kể cả khi trả về rỗng
+#: ("không có căn nào khớp tiêu chí") — vẫn là câu trả lời có căn cứ: kết luận "0 căn" là một
+#: dữ kiện của hệ thống, không phải suy đoán. Trước đây `grounded` chỉ tính `bool(citations)`
+#: nên đúng trường hợp này bị dán nhãn "chưa đối chiếu được với dữ liệu chính sách/giỏ hàng".
+_GROUNDED_LOOKUP_TOOLS = frozenset({"tra_cuu_chinh_sach", "tra_cuu_gio_hang", "tinh_phuong_an_thanh_toan"})
 
 _ACTION_BLOCK_RE = re.compile(r"```(?:json:smart_action|json)\s*(\{.*?\})\s*```", re.DOTALL)
 _NAME_STRIP_RE = re.compile(
@@ -200,8 +205,17 @@ def _finalize(
     *,
     plan: list[planner.PlanStep] | None = None,
     slots: memory.SessionSlots | None = None,
+    question: str = "",
+    known_context: str = "",
 ) -> dict[str, Any]:
-    """Hậu xử lý câu trả lời cuối: tách Smart Card, gộp citation, kiểm rò rỉ, kiểm chứng số liệu."""
+    """Hậu xử lý câu trả lời cuối: tách Smart Card, gộp citation, kiểm rò rỉ, kiểm chứng số liệu.
+
+    `question` là câu hỏi gốc của Sale — cần để verifier không gắn cờ oan những con số do chính
+    người dùng nêu ra (ví dụ ngân sách 2 tỷ) mà câu trả lời chỉ nhắc lại.
+
+    `known_context` là **dữ liệu canonical** đã nạp vào prompt (dải giá giỏ hàng, chính sách hiệu lực) —
+    xem `prompts.canonical_facts`. Cũng là số liệu thật của hệ thống.
+    """
     action_type: str | None = None
     action_data: dict[str, Any] | None = None
     suggested_actions = list(suggested_default)
@@ -239,7 +253,18 @@ def _finalize(
 
     citations = _dedupe_citations([c for obs in observations for c in (obs.get("citations") or [])])
     tool_calls = [obs.get("tool") for obs in observations if obs.get("tool")]
-    grounded = bool(citations) or intent.intent in (intents.INTENT_SMALL_TALK,)
+    # `grounded` = câu trả lời dựa trên dữ liệu hệ thống. Ba đường:
+    #  1. Có citation (đường thường gặp).
+    #  2. Tool tra cứu chính sách/giỏ hàng đã chạy **thành công** — kể cả trả về rỗng, vì "0 căn khớp"
+    #     là kết luận lấy từ dữ liệu (lỗi cũ: trường hợp này bị coi là "chưa đối chiếu").
+    #  3. Câu chào hỏi/xã giao (không cần dữ liệu).
+    lookup_ok = any(
+        obs.get("tool") in _GROUNDED_LOOKUP_TOOLS
+        and not obs.get("error")
+        and not obs.get("error_code")
+        for obs in observations
+    )
+    grounded = bool(citations) or lookup_ok or intent.intent in (intents.INTENT_SMALL_TALK,)
 
     # Prompt đã dặn không nhắc lệnh gạch chéo, nhưng model vẫn có thể nhắc — chặn ở output.
     text = commands.strip_command_mentions(text)
@@ -247,26 +272,33 @@ def _finalize(
     if not text:
         text = "Em đã ghi nhận yêu cầu. Anh/chị cần em làm rõ thêm bước nào không ạ?"
 
-    # Verifier: mọi số liệu/mã văn bản trong câu trả lời phải có trong Observation.
-    check = verifier.verify_reply(text, observations)
+    # Verifier: mọi số liệu/mã văn bản trong câu trả lời phải có trong Observation (hoặc trong câu
+    # hỏi của Sale — số người dùng tự nêu không tính là bịa).
+    check = verifier.verify_reply(text, observations, question=question, context=known_context)
+
+    # Ghi chú nội bộ: gộp **tất cả** cảnh báo vào MỘT khối duy nhất ở cuối câu trả lời.
+    # Trước đây mỗi tầng tự chèn một dòng riêng, có lượt bị 3 dòng "Lưu ý" xếp chồng làm câu trả lời
+    # trông mất tin cậy dù nội dung không sai.
+    notes: list[str] = []
     if not check.verified:
         logger.warning("Verifier phát hiện số liệu không có nguồn: %s", check.unsupported)
-        text += (
-            "\n\n_Lưu ý: có số liệu chưa đối chiếu được với dữ liệu hệ thống ("
+        notes.append(
+            "có số liệu chưa đối chiếu được với dữ liệu hệ thống ("
             + ", ".join(check.unsupported[:3])
-            + ") — anh/chị kiểm tra lại giúp em trước khi dùng._"
+            + ")"
         )
-
     if not grounded and intent.intent not in (intents.INTENT_SMALL_TALK,):
-        text += "\n\n_Lưu ý: câu trả lời này chưa đối chiếu được với dữ liệu chính sách/giỏ hàng — anh/chị kiểm tra lại giúp em._"
+        notes.append("nội dung này chưa đối chiếu với dữ liệu chính sách/giỏ hàng")
+    if notes:
+        text += "\n\n_Ghi chú nội bộ: " + " · ".join(notes) + " — anh/chị kiểm tra lại trước khi dùng._"
 
     # Critic vòng 2 (P2): chỉ soi lượt quan trọng — câu có số tiền/ưu đãi hoặc câu soạn tin, tuân thủ.
+    # Kết quả trả về ở trường `critique` (UI hiển thị banner riêng) — **không** chèn thêm câu vào nội
+    # dung trả lời: đây là ghi chú nội bộ, không phải nội dung gửi khách, và tránh trùng với khối
+    # "Ghi chú nội bộ" ngay trên.
     review = critic.Critique()
     if critic.is_high_stakes(text, intent.intent):
         review = critic.critique_reply(text, intent=intent.intent, observations=observations)
-        note = critic.revision_note(review)
-        if note:
-            text += note
 
     return {
         "reply": text,
@@ -462,18 +494,20 @@ async def stream_copilot(
         offline_reason = str(exc)
         logger.warning("Không khởi tạo được LLM cho Copilot (%s) — dùng offline ReAct.", exc)
 
-    system_prompt = build_system_prompt(
-        {
-            "current_unit": slots.current_unit or request.current_unit,
-            "lead_dossier_id": slots.lead_dossier_id or request.lead_dossier_id,
-            "transaction_date": slots.transaction_date or request.transaction_date,
-            "project_id": request.project_id,
-            "plan": [{"intent": s.intent, "tool": s.tool} for s in plan],
-            "history_summary": memory.summarize_history(request.history),
-            # Học từ phản hồi (P2): các lượt từng bị chê, nhắc để không lặp lại cách trả lời đó.
-            "avoid_examples": feedback.few_shot_hints(),
-        }
-    )
+    prompt_context = {
+        "current_unit": slots.current_unit or request.current_unit,
+        "lead_dossier_id": slots.lead_dossier_id or request.lead_dossier_id,
+        "transaction_date": slots.transaction_date or request.transaction_date,
+        "project_id": request.project_id,
+        "plan": [{"intent": s.intent, "tool": s.tool} for s in plan],
+        "history_summary": memory.summarize_history(request.history),
+        # Học từ phản hồi (P2): các lượt từng bị chê, nhắc để không lặp lại cách trả lời đó.
+        "avoid_examples": feedback.few_shot_hints(),
+    }
+    system_prompt = build_system_prompt(prompt_context)
+    # Chỉ phần **dữ liệu canonical** (không gồm `avoid_examples` do LLM tổng hợp) mới được coi là
+    # nguồn tham chiếu cho verifier.
+    canonical_reference = "\n".join(canonical_facts(prompt_context))
     messages: list[Any] = [SystemMessage(content=system_prompt)]
     for item in (request.history or [])[-MAX_HISTORY_MESSAGES:]:
         role = str(item.get("role", "")).lower()
@@ -515,6 +549,8 @@ async def stream_copilot(
                         intent,
                         plan=plan,
                         slots=slots,
+                        question=request.message,
+                        known_context=canonical_reference,
                     )
                     final["iterations"] = iteration
                     final["mode"] = "react"
@@ -567,6 +603,8 @@ async def stream_copilot(
                 intent,
                 plan=plan,
                 slots=slots,
+                question=request.message,
+                known_context=canonical_reference,
             )
             final["iterations"] = max_iterations
             final["mode"] = "react"
@@ -616,6 +654,8 @@ async def stream_copilot(
         intent,
         plan=plan,
         slots=slots,
+        question=request.message,
+        known_context=canonical_reference,
     )
     final["iterations"] = 1
     final["mode"] = "offline_react"

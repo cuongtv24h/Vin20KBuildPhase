@@ -29,14 +29,23 @@ COPILOT_SYSTEM_PROMPT = """Bạn là Sales Copilot AI — trợ lý đồng hàn
    ĐỀ XUẤT bằng Smart Card để Sale bấm xác nhận. Không tự nhận "đã gửi/đã tạo" nếu chưa có
    Observation xác nhận.
 
-# CÁCH TRẢ LỜI
+# CÁCH TRẢ LỜI (rõ ràng, mạch lạc — người đọc phải nắm được ngay)
 - Tiếng Việt, xưng "em", gọi Sale là "anh/chị". Ngắn gọn, chuyên nghiệp, tối đa ~6 câu.
+- **Mở đầu bằng kết luận** trong 1 câu (ví dụ "chưa có căn nào khớp tiêu chí"), rồi mới tới số liệu
+  giải thích. Không kể lể quá trình tra cứu.
+- Khi số liệu thuộc một **phân khúc** (theo số phòng ngủ, theo dự án, theo khoảng giá), phải nói rõ
+  phạm vi của con số. TUYỆT ĐỐI không ghép con số của **toàn giỏ** với nhãn của một phân khúc
+  (ví dụ: "4 căn" là toàn giỏ — không được viết thành "4 căn 3 ngủ" nếu thực tế chỉ có 1 căn 3 ngủ).
 - Câu hỏi nhiều ý (ví dụ "tính phương án rồi soạn tin cho khách"): gọi ĐỦ các tool cần thiết
   (nhiều vòng) trước khi trả lời; không bỏ sót ý nào.
 - Mọi số tiền/tỷ lệ trong câu trả lời PHẢI lấy nguyên từ Observation, không tự làm tròn hay
   đổi đơn vị khác với dữ liệu tool trả về.
 - Khi nêu điều khoản/số liệu, chú thích nguồn dạng [policy_id · Điều/Khoản] hoặc [FCS v2.6].
-- Nếu thiếu dữ liệu để hành động (ví dụ chưa biết căn nào), hỏi đúng 1 câu ngắn để chốt.
+- Nếu thiếu dữ liệu để hành động (ví dụ chưa biết căn nào): hỏi lại **tối đa 2 câu**, khi có từ 2 ý
+  thì đánh số 1. 2. cho dễ trả lời; gộp ý phụ vào cùng câu thay vì hỏi dồn nhiều lần.
+- **Không viết các câu về quy trình/kiểm duyệt nội bộ** trong phần trả lời ("cần gắn mỏ neo", "chưa
+  đối chiếu được", "kiểm duyệt nội bộ"…). Hệ thống tự hiển thị phần đó cho Sale; câu trả lời của em
+  phải là nội dung tư vấn đọc được, không phải ghi chú quy trình.
 - KHÔNG nhắc người dùng gõ lệnh gạch chéo (/baogia, /tao-khach...). Hãy gợi ý bằng câu tự nhiên.
 
 # SMART CARD (bắt buộc khi Sale yêu cầu một hành động nghiệp vụ)
@@ -58,16 +67,18 @@ Nếu câu hỏi chỉ để tra cứu/giải thích thì KHÔNG chèn khối n�
 """
 
 
-def build_system_prompt(context: dict[str, Any] | None = None) -> str:
-    """Ghép prompt luật chơi + bối cảnh động (ngày, dự án, giỏ hàng, chính sách hiệu lực)."""
+def canonical_facts(context: dict[str, Any] | None = None) -> list[str]:
+    """Các dòng **dữ liệu canonical** nạp vào bối cảnh: ngày giao dịch, chính sách hiệu lực, giỏ hàng.
+
+    Tách riêng khỏi phần "học từ phản hồi"/"kế hoạch gợi ý" vì đây là **số liệu hệ thống** — dùng làm
+    văn bản tham chiếu cho verifier: con số đến từ đây là số liệu thật của hệ thống, không phải LLM bịa.
+    Phần `avoid_examples` (do LLM tổng hợp từ phản hồi của Sale) **cố ý không** nằm trong đây.
+    """
     context = context or {}
     tx_date = str(context.get("transaction_date") or date.today().isoformat())
     project_id = context.get("project_id")
-    current_unit = context.get("current_unit")
-    lead_dossier_id = context.get("lead_dossier_id")
 
-    lines: list[str] = [COPILOT_SYSTEM_PROMPT, "", "# BỐI CẢNH PHIÊN LÀM VIỆC (dữ liệu hệ thống)"]
-    lines.append(f"- Ngày giao dịch mặc định: {tx_date}.")
+    lines: list[str] = [f"- Ngày giao dịch mặc định: {tx_date}."]
 
     policy = grounding.resolve_active_policy(project_id, date.fromisoformat(tx_date) if tx_date else date.today())
     if policy:
@@ -87,11 +98,22 @@ def build_system_prompt(context: dict[str, Any] | None = None) -> str:
 
     units = grounding.search_units()
     lines.append(
-        f"- Giỏ hàng canonical: {len(units)} căn đang mở bán, giá niêm yết trước thuế từ "
+        f"- Giỏ hàng canonical (**số liệu của TOÀN GIỎ, mọi số phòng ngủ**): {len(units)} căn đang mở bán, giá niêm yết trước thuế từ "
         f"{grounding.format_vnd(min((u['listed_price_before_tax_vnd'] for u in units), default=0))} đến "
         f"{grounding.format_vnd(max((u['listed_price_before_tax_vnd'] for u in units), default=0))}. "
         "Chi tiết từng căn → gọi tra_cuu_gio_hang."
     )
+    return lines
+
+
+def build_system_prompt(context: dict[str, Any] | None = None) -> str:
+    """Ghép prompt luật chơi + bối cảnh động (ngày, dự án, giỏ hàng, chính sách hiệu lực)."""
+    context = context or {}
+    current_unit = context.get("current_unit")
+    lead_dossier_id = context.get("lead_dossier_id")
+
+    lines: list[str] = [COPILOT_SYSTEM_PROMPT, "", "# BỐI CẢNH PHIÊN LÀM VIỆC (dữ liệu hệ thống)"]
+    lines.extend(canonical_facts(context))
     if current_unit:
         lines.append(f"- Sale đang chọn căn: {current_unit}.")
     if lead_dossier_id:
@@ -122,4 +144,4 @@ def build_system_prompt(context: dict[str, Any] | None = None) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["COPILOT_SYSTEM_PROMPT", "build_system_prompt"]
+__all__ = ["COPILOT_SYSTEM_PROMPT", "build_system_prompt", "canonical_facts"]
