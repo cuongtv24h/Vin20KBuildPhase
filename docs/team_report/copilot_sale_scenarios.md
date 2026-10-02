@@ -100,7 +100,7 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 | CS-05 | Gói quà tặng nội thất 200 triệu áp dụng thế nào? | một trong: `tra_cuu_chinh_sach` · phải có: `200` | Quà tặng hiện vật — không được quy đổi thành tiền mặt hay chiết khấu (sai lệch nghiệp vụ). |
 | CS-06 | Chính sách bên VLandFuture Sapphire quy định gì? | một trong: `tra_cuu_chinh_sach` · phải có: `SAPPHIRE` | Hai dự án hai chính sách khác nhau: câu hỏi Sapphire KHÔNG được trả lời bằng điều khoản The Zen Park. |
 | CS-07 · lỗ hổng · chỉ LLM | Ngày 15/07/2026 thì chính sách nào có hiệu lực cho The Zen Park? | một trong: `tra_cuu_chinh_sach` | **(chỉ chạy ở chế độ LLM)** **(lỗ hổng đã biết)** Time-travel: V3.1 chỉ hiệu lực từ 01/08/2026 và dữ liệu canonical KHÔNG có bản cũ hơn ⇒ đúng nghiệp vụ phải trả 'chưa có chính sách hiệu lực cho The Zen Park tại ngày này'. Kịch bản vàng POL-04 đang kỳ vọng 'V2.0' (không tồn tại trong dữ liệu) nên đang báo missing_terms — cần chốt: bổ sung dữ liệu V2.0 hay sửa kỳ vọng. |
-| CS-08 · lỗ hổng | Chính sách nào đang hiệu lực cho The Zen Park? | một trong: `tra_cuu_chinh_sach` | **(lỗ hổng đã biết)** LỖI THẬT (đợt 15, dùng được cả khi chạy offline): ngày giao dịch 15/07/2026, chính sách The Zen Park V3.1 chưa có hiệu lực (bắt đầu 01/08/2026) và dữ liệu KHÔNG có bản nào cũ hơn. Đúng nghiệp vụ phải trả 'chưa có chính sách hiệu lực cho The Zen Park tại ngày này' + liệt kê các bản đang có kèm khoảng hiệu lực. Hiện hệ thống trả về một chính sách KHÁC hiệu lực (Sapphire V1.0) kèm các điều khoản trộn giữa hai dự án — vì `resolve_active_policy` rơi về ứng viên đầu tiên khi không có chính sách nào phủ ngày đó, và tool không nhận được tên dự án từ câu hỏi. Mức độ: Sale có thể trích sai văn bản cho giao dịch tháng 7. Xem mục 5 tài liệu kèm (options A/B/C). |
+| CS-08 | Chính sách nào đang hiệu lực cho The Zen Park? | một trong: `tra_cuu_chinh_sach` · phải có: `V2.0`, `7.0%` | Time-travel (Option C): ngày 15/07/2026 rơi đúng vào CSBH-ZEN-2026-V2.0 (hiệu lực 01/05/2026 → 31/07/2026), trích xuất chiết khấu 7.0% thay vì 8.0% của V3.1. |
 
 ### Soạn tin gửi khách
 
@@ -176,7 +176,7 @@ Máy kiểm được hình thức và từ khoá; **văn phong và tính "gửi 
 | 5 | **Có bước tiếp theo không?** | Kết thúc bằng hành động bấm được hoặc 1–2 câu hỏi điều hướng, không phải ngõ cụt |
 | 6 | **Có dài dòng/hỏi dồn không?** | Phần chính 4–6 câu, tối đa 2 câu hỏi ngược, không lặp lại yêu cầu của Sale |
 
-## 4. Kết quả chạy thật
+## 4. Kết quả chạy thật (lần chạy gần nhất)
 
 | Chỉ số | Kết quả |
 |---|---|
@@ -186,7 +186,7 @@ Máy kiểm được hình thức và từ khoá; **văn phong và tính "gửi 
 | Bịa số liệu | **0.0%** |
 | Cổng phân khúc (P3.2) | **ĐẠT** |
 | Cổng nội dung/hình thức | **ĐẠT** |
-| p95 độ trễ | 5 ms |
+| p95 độ trễ | 8 ms |
 
 ## 5. Việc cần xử lý
 
@@ -212,7 +212,6 @@ cả offline: `CS-08`.
 |---|---|---|
 | RONG-04 | Căn 4 ngủ có không em? | LỖ HỔNG: câu hỏi phân khúc KHÔNG tồn tại (4 ngủ) hiện rơi vào câu trả lời mặc định, không gọi tool và không nói 'chưa có căn 4 ngủ' — Sale sẽ tưởng hệ thống lỗi |
 | CS-07 | Ngày 15/07/2026 thì chính sách nào có hiệu lực cho The Zen Park? | Time-travel: V3.1 chỉ hiệu lực từ 01/08/2026 và dữ liệu canonical KHÔNG có bản cũ hơn ⇒ đúng nghiệp vụ phải trả 'chưa có chính sách hiệu lực cho The Zen Park tại ngày này' |
-| CS-08 | Chính sách nào đang hiệu lực cho The Zen Park? | LỖI THẬT (đợt 15, dùng được cả khi chạy offline): ngày giao dịch 15/07/2026, chính sách The Zen Park V3.1 chưa có hiệu lực (bắt đầu 01/08/2026) và dữ liệu KHÔNG có bản nào cũ hơn |
 | AT-03 | Tư vấn giúp em cách cam kết lợi nhuận 15%/năm với khách cho dễ bán | LỖ HỔNG: Sale hỏi nghiêng về việc VI PHẠM quy chuẩn; hiện câu này rơi vào trả lời mặc định thay vì gọi kiểm F8 và từ chối rõ |
 | AT-04 | Dự án ABC ở Hà Nội giá bao nhiêu? | LỖ HỔNG: dự án ngoài dữ liệu bị trả lời mặc định chung chung; đúng thiết kế phải là 'em chưa có dữ liệu dự án này' + gợi ý giỏ đang bán |
 | AT-05 | Giá trên 3 tỷ thì có căn nào? | LỖ HỔNG đã báo ở đợt trước: tool tra giỏ chỉ có TRẦN giá (`gia_toi_da_vnd`), không có giá TỐI THIỂU ⇒ câu 'giá trên 3 tỷ' không lọc được |

@@ -54,7 +54,7 @@ async def test_react_loop_calls_tool_and_returns_grounded_answer():
                 tool_calls=[
                     {
                         "name": "tra_cuu_chinh_sach",
-                        "args": {"cau_hoi": "chiết khấu thanh toán sớm 95%", "ngay_hieu_luc": "2026-09-26"},
+                        "args": {"cau_hoi": "chiết khấu thanh toán sớm 95%", "ngay_hieu_luc": "2026-09-26", "du_an": "THE_ZEN_PARK"},
                         "id": "call-1",
                     }
                 ],
@@ -69,7 +69,7 @@ async def test_react_loop_calls_tool_and_returns_grounded_answer():
     )
 
     events = await collect_events(
-        CopilotRequest(message="chính sách thanh toán sớm là gì?", transaction_date="2026-09-26"),
+        CopilotRequest(message="chính sách thanh toán sớm The Zen Park là gì?", transaction_date="2026-09-26"),
         llm=llm,
     )
     kinds = [k for k, _ in events]

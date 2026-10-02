@@ -119,14 +119,24 @@ def _compose_topic(clause: str) -> str:
 
 def _args_for(intent: str, clause: str, entity: dict) -> dict:
     tx_date = str(entity.get("transaction_date") or "")
-    unit = str(entity.get("unit_code") or entity.get("current_unit") or "ZEN-A-1205")
+    raw_unit = str(entity.get("unit_code") or entity.get("current_unit") or "")
+    unit = raw_unit or "ZEN-A-1205"
+    project_id = str(entity.get("project_id") or "")
+    if not project_id and raw_unit:
+        if raw_unit.startswith("ZEN-"):
+            project_id = "THE_ZEN_PARK"
+        elif raw_unit.startswith("SAP-"):
+            project_id = "VLANDFUTURE_SAPPHIRE"
+        elif raw_unit.startswith(("R-", "G-", "SH-")):
+            project_id = "PROJECT-VLF-001"
     if intent == intents.INTENT_LOOKUP_POLICY:
-        return {"cau_hoi": clause, "ngay_hieu_luc": tx_date}
+        return {"cau_hoi": clause, "ngay_hieu_luc": tx_date, "du_an": project_id}
     if intent == intents.INTENT_BROWSE_UNITS:
         return {
             "so_phong_ngu": entity.get("bedrooms") or 0,
             "gia_toi_da_vnd": entity.get("amount_vnd") or 0,
             "ma_can": entity.get("unit_code") or "",
+            "du_an": project_id,
         }
     if intent == intents.INTENT_ASSESS_FUNDS:
         return {

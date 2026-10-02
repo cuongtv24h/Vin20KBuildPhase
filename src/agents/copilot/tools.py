@@ -84,26 +84,28 @@ async def tra_cuu_chinh_sach(cau_hoi: str, ngay_hieu_luc: str = "", du_an: str =
 
     project_id = du_an.strip() or None
 
-    # 1) Ưu tiên PEC-RAG thật (pgvector / DB đã seed)
+    # 1) Ưu tiên PEC-RAG thật (pgvector / DB đã seed) cho VLF Riverside hoặc khi chưa rõ dự án
     clauses: list[dict[str, Any]] = []
-    try:
-        from src.agents.tools.policy_search import get_rag_service
+    if project_id not in ("THE_ZEN_PARK", "VLANDFUTURE_SAPPHIRE"):
+        try:
+            from src.agents.tools.policy_search import get_rag_service
 
-        service = get_rag_service()
-        for clause in service.retrieve(query=cau_hoi, as_of_date=tx_date, top_k=5):
-            clauses.append(
-                {
-                    "policy_id": clause.policy_id,
-                    "section": " ".join(x for x in [clause.article, clause.clause] if x),
-                    "quote": clause.text.strip(),
-                    "valid_from": str(clause.valid_from),
-                    "valid_to": str(clause.valid_to),
-                    "score": round(float(clause.score or 0.0), 3),
-                    "source": "PEC_RAG",
-                }
-            )
-    except Exception as exc:  # pragma: no cover — phụ thuộc môi trường seed
-        logger.info("PEC-RAG chưa sẵn sàng cho Copilot (%s) — dùng fixture canonical.", exc)
+            service = get_rag_service()
+            for clause in service.retrieve(query=cau_hoi, as_of_date=tx_date, top_k=5):
+                clean_quote = clause.text.strip().replace(" | ", " · ").replace("|", "·")
+                clauses.append(
+                    {
+                        "policy_id": clause.policy_id,
+                        "section": " ".join(x for x in [clause.article, clause.clause] if x),
+                        "quote": clean_quote,
+                        "valid_from": str(clause.valid_from),
+                        "valid_to": str(clause.valid_to),
+                        "score": round(float(clause.score or 0.0), 3),
+                        "source": "PEC_RAG",
+                    }
+                )
+        except Exception as exc:  # pragma: no cover — phụ thuộc môi trường seed
+            logger.info("PEC-RAG chưa sẵn sàng cho Copilot (%s) — dùng fixture canonical.", exc)
 
     citations: list[dict[str, Any]] = []
     if clauses:
@@ -126,20 +128,60 @@ async def tra_cuu_chinh_sach(cau_hoi: str, ngay_hieu_luc: str = "", du_an: str =
     else:
         # 2) Fallback fixture canonical (demo offline, SQLite chưa seed)
         policy = grounding.resolve_active_policy(project_id, tx_date)
-        hits = grounding.find_rules_by_keyword(cau_hoi, project_id)
-        if not hits and policy:
-            hits = [(policy, rule) for rule in policy.get("rules", []) if rule.get("is_selectable")]
-        # Giữ tối đa 4 rule sát nhất
+        if not policy:
+            proj_name = grounding.project_name(project_id) if project_id else "The Zen Park"
+            existing_policies = grounding.list_policies(project_id)
+            if existing_policies:
+                avail_lines = [
+                    f"- `{p.get('policy_id')}` (hiệu lực {p.get('effective_from')} → {p.get('effective_to')})"
+                    for p in existing_policies
+                ]
+                summary = (
+                    f"Chưa có chính sách nào của **{proj_name}** hiệu lực tại {tx_date.isoformat()}. "
+                    f"Hiện có:\n" + "\n".join(avail_lines) + "\n— anh/chị cần em tra theo ngày khác không ạ?"
+                )
+            else:
+                summary = f"Chưa có chính sách nào của **{proj_name}** hiệu lực tại {tx_date.isoformat()}."
+            return _dump(
+                {
+                    "tool": "tra_cuu_chinh_sach",
+                    "as_of_date": tx_date.isoformat(),
+                    "summary": summary,
+                    "citations": [],
+                }
+            )
+
+        policy_rules = list(policy.get("rules", []))
+        tokens = [t for t in grounding.normalize(cau_hoi).split() if len(t) >= 2]
+        matched_rules = []
+        for r in policy_rules:
+            haystack = grounding.normalize(
+                " ".join(
+                    [
+                        str(r.get("rule_code", "")),
+                        str(r.get("title", "")),
+                        str((r.get("source") or {}).get("quote", "")),
+                        str((r.get("source") or {}).get("section", "")),
+                    ]
+                )
+            )
+            score = sum(1 for t in tokens if t in haystack)
+            if score > 0:
+                matched_rules.append((score, r))
+        matched_rules.sort(key=lambda x: x[0], reverse=True)
+        hits = [(policy, r) for _, r in matched_rules]
+        if not hits:
+            hits = [(policy, rule) for rule in policy_rules if rule.get("is_selectable")]
         hits = hits[:4]
         if not hits:
             summary = (
-                f"Không tìm thấy điều khoản nào khớp '{cau_hoi}' trong chính sách hiệu lực "
-                f"tại {tx_date.isoformat()}. Đề nghị nói rõ chính sách cần tra."
+                f"Không tìm thấy điều khoản nào khớp '{cau_hoi}' trong chính sách {policy.get('policy_id')} "
+                f"hiệu lực tại {tx_date.isoformat()}."
             )
         else:
             lines = [
                 f"Chính sách canonical đang hiệu lực tại {tx_date.isoformat()} "
-                f"({grounding.project_name(policy.get('project_id') if policy else project_id)}):"
+                f"({grounding.project_name(policy.get('project_id'))}):"
             ]
             for pol, rule in hits:
                 src = rule.get("source") or {}
@@ -148,7 +190,7 @@ async def tra_cuu_chinh_sach(cau_hoi: str, ngay_hieu_luc: str = "", du_an: str =
                     f"\n  Trích dẫn: \"{src.get('quote', '')}\""
                 )
             summary = _clip("\n".join(lines))
-            citations = grounding.policy_citations(policy, [rule for _, rule in hits]) if policy else []
+            citations = grounding.policy_citations(policy, [rule for _, rule in hits])
 
     return _dump(
         {

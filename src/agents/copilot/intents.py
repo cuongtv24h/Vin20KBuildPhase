@@ -106,13 +106,37 @@ def extract_bedrooms(text: str) -> int | None:
     return None
 
 
+def extract_project_id(text: str) -> str | None:
+    norm = grounding.normalize(text)
+    if any(k in norm for k in ("zen park", "zenpark", "the zen park")):
+        return "THE_ZEN_PARK"
+    if any(k in norm for k in ("sapphire", "vland sapphire", "vlandfuture sapphire")):
+        return "VLANDFUTURE_SAPPHIRE"
+    if any(k in norm for k in ("riverside", "vland riverside", "vland future riverside")):
+        return "PROJECT-VLF-001"
+    unit = extract_unit_code(text)
+    if unit:
+        if unit.startswith("ZEN-"):
+            return "THE_ZEN_PARK"
+        if unit.startswith("SAP-"):
+            return "VLANDFUTURE_SAPPHIRE"
+        if unit.startswith(("R-", "G-", "SH-")):
+            return "PROJECT-VLF-001"
+    return None
+
+
 def detect_intent(text: str) -> IntentResult:
     """Nhận diện ý định nghiệp vụ theo thứ tự ưu tiên (luật tất định, không gọi LLM)."""
+    from src.agents.copilot import memory
+
     lower = grounding.normalize(text)
+    slots = memory.extract_slots_from_text(text)
     entities: dict[str, Any] = {
         "unit_code": extract_unit_code(text),
         "bedrooms": extract_bedrooms(text),
         "amount_vnd": extract_amount(text),
+        "project_id": extract_project_id(text),
+        "transaction_date": slots.get("transaction_date"),
     }
 
     # Mã hồ sơ rõ ràng (DOS-000123 / LD-2026-001) — không thể nhầm với ý định khác.

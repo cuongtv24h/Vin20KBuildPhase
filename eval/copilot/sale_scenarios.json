@@ -544,9 +544,12 @@
       "any_tools": [
         "tra_cuu_chinh_sach"
       ],
-      "expect_citation": false,
-      "known_gap": true,
-      "notes": "LỖI THẬT (đợt 15, dùng được cả khi chạy offline): ngày giao dịch 15/07/2026, chính sách The Zen Park V3.1 chưa có hiệu lực (bắt đầu 01/08/2026) và dữ liệu KHÔNG có bản nào cũ hơn. Đúng nghiệp vụ phải trả 'chưa có chính sách hiệu lực cho The Zen Park tại ngày này' + liệt kê các bản đang có kèm khoảng hiệu lực. Hiện hệ thống trả về một chính sách KHÁC hiệu lực (Sapphire V1.0) kèm các điều khoản trộn giữa hai dự án — vì `resolve_active_policy` rơi về ứng viên đầu tiên khi không có chính sách nào phủ ngày đó, và tool không nhận được tên dự án từ câu hỏi. Mức độ: Sale có thể trích sai văn bản cho giao dịch tháng 7. Xem mục 5 tài liệu kèm (options A/B/C)."
+      "expect_citation": true,
+      "must_contain": [
+        "V2.0",
+        "7.0%"
+      ],
+      "notes": "Time-travel (Option C): ngày 15/07/2026 rơi đúng vào CSBH-ZEN-2026-V2.0 (hiệu lực 01/05/2026 → 31/07/2026), trích xuất chiết khấu 7.0% thay vì 8.0% của V3.1."
     },
     {
       "id": "TIN-01",
