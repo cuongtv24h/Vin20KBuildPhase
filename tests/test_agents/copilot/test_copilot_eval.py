@@ -120,6 +120,17 @@ def _bank() -> dict:
     return json.loads(Path(SALE_SCENARIOS_PATH).read_text(encoding="utf-8"))
 
 
+def test_sale_scenarios_doc_is_in_sync_with_json():
+    """Tài liệu người đọc phải khớp file JSON — bảng kịch bản và danh sách lỗ hổng sinh máy.
+
+    Nếu ai sửa câu hỏi/kỳ vọng trong JSON mà quên sinh lại tài liệu, test này đỏ ngay — tránh cảnh
+    "danh sách trong tài liệu" và "danh sách máy chạy" lệch nhau.
+    """
+    from scripts.gen_sale_scenarios_doc import doc_drift
+
+    assert doc_drift() == [], "Chạy `python scripts/gen_sale_scenarios_doc.py` để sinh lại tài liệu"
+
+
 def test_sale_scenarios_cover_every_workflow_and_tool():
     """Bộ kịch bản phải phủ đủ 12 nhóm việc Sale làm và cả 6 tool — thiếu là bộ test vô nghĩa."""
     questions = _bank()["questions"]

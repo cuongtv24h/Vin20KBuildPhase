@@ -1177,6 +1177,11 @@ bản còn 5 câu ghi nhận lỗ hổng (AT-03, AT-04, AT-05, CS-07, CS-08, RON
 | b | **Code rơi về ứng viên đầu tiên**: `resolve_active_policy` khi không có bản nào phủ ngày vẫn trả về chính sách đầu tiên của dự án, câu trả lời vẫn ghi "đang hiệu lực tại <ngày>" | chạy thật CS-08: tiêu đề "(VLandFuture Sapphire)" nhưng nội dung trích `CSBH-ZEN-2026-V3.1` |
 | c | **Tên dự án không được truyền xuống tool**: `_args_for(LOOKUP_POLICY)` chỉ truyền câu hỏi + ngày ⇒ tool trộn hai dự án | `planner._args_for` |
 
+**Bàn giao:** người dùng chuyển việc #3 cho Gemini (2026-10-02) — bản giao chi tiết ở
+`docs/team_report/handoff_policy_timetravel.md` (ba nguyên nhân kèm vị trí code, hành vi đúng, tiêu chí
+nghiệm thu, cách kiểm chứng, ràng buộc kỹ thuật). Kịch bản `CS-08` mới được thêm để Gemini có ca
+kiểm chạy được ngay cả ở chế độ offline.
+
 Hệ quả nghiệp vụ: **Sale có thể trích sai văn bản chính sách cho giao dịch tháng 7**. Ba lựa chọn A (chỉ
 sửa kỳ vọng), B (sửa code cho trung thực + bóc tên dự án — đề xuất làm trước), C (B + thêm dữ liệu lịch sử
 `CSBH-ZEN-2026-V2.0` để demo đúng năng lực time-travel) được trình bày kèm đánh giá được/mất trong
