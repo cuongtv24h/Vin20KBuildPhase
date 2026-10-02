@@ -266,3 +266,140 @@ async def test_test_ket_noi_bi_cloudflare_chan_ca_hai_thi_bao_loi_doc_duoc(
     assert body["status"] == "ERROR"
     assert "Cloudflare" in body["detail"]
     assert "<!DOCTYPE" not in body["detail"] and "<html" not in body["detail"]
+
+
+def _provider_payload(
+    name: str, priority: int, model: str, *, base_url: str, active: bool = True, api_key: str | None = None
+) -> dict:
+    """Payload khai báo một nhà cung cấp — dùng để dựng chuỗi dự phòng trong các test dưới.
+
+    `api_key` mặc định suy từ `model` (ASCII) — không suy từ `name` vì tên có thể là tiếng Việt và
+    khoá API nằm trong HTTP header (chỉ ASCII).
+    """
+    return {
+        **PAYLOAD,
+        "name": name,
+        "priority": priority,
+        "model_name": model,
+        "base_url": base_url,
+        "is_active": active,
+        "api_key": api_key or f"sk-{model}-1234",
+    }
+
+
+@pytest.mark.asyncio
+async def test_nhieu_khai_bao_db_thi_noi_thanh_chuoi_chinh_du_phong_theo_uu_tien(
+    client: AsyncClient, provider_server
+) -> None:
+    """Khai báo nhiều nhà cung cấp: nhà cung cấp ưu tiên nhỏ nhất là chính, còn lại là dự phòng theo thứ tự.
+
+    Khai báo **lộn xộn** (không theo thứ tự ưu tiên) để chắc chắn chuỗi xếp theo `priority`, không phải
+    theo lúc tạo; nhà cung cấp đang TẮT phải bị loại khỏi chuỗi.
+    """
+    from src.services.llm import get_llm
+    from src.services.llm_providers import resolve_provider_configs
+
+    fake_base, _ = provider_server("ok")
+    # Tạo theo thứ tự: 20 → 10 → 30 → (tắt, 5)
+    for payload in (
+        _provider_payload("Dự phòng 1", 20, "fb1-model", base_url=fake_base),
+        _provider_payload("Chính", 10, "primary-model", base_url=fake_base),
+        _provider_payload("Dự phòng 2", 30, "fb2-model", base_url=fake_base),
+        _provider_payload("Đang tắt", 5, "tat-model", base_url=fake_base, active=False),
+    ):
+        resp = await client.post("/api/v1/admin/llm/providers", json=payload, headers=ADMIN_HEADERS)
+        assert resp.status_code == 201, resp.text
+
+    configs = resolve_provider_configs()
+    assert [c.model_name for c in configs] == ["primary-model", "fb1-model", "fb2-model"]
+    assert configs[0].is_fallback is False
+    assert [c.is_fallback for c in configs[1:]] == [True, True]
+
+    # Và chuỗi đó phải được truyền thật vào LLM mà ứng dụng dùng.
+    llm = get_llm()
+    assert llm.runnable.model_name == "primary-model"
+    assert [m.model_name for m in llm.fallbacks] == ["fb1-model", "fb2-model"]
+
+
+@pytest.mark.asyncio
+async def test_nha_cung_cap_chinh_chet_thi_tu_dong_chay_sang_nha_cung_cap_ke_tiep(
+    client: AsyncClient, provider_server
+) -> None:
+    """Chứng minh bằng lượt gọi thật: primary không gọi được → câu trả lời đến từ nhà cung cấp dự phòng.
+
+    Đây là thứ Admin quan tâm khi khai báo nhiều nhà cung cấp: một cái chết (hoặc bị rate limit) thì
+    dịch vụ vẫn trả lời, không sập Copilot.
+    """
+    from src.services.llm import get_llm
+
+    fake_base, _ = provider_server("ok")
+    # "Chính" trỏ vào cổng không có gì lắng nghe → chắc chắn lỗi kết nối.
+    dead_base = "http://127.0.0.1:9/v1"
+    for payload in (
+        _provider_payload("Chính (chết)", 10, "primary-model", base_url=dead_base, api_key="sk-primary-1234"),
+        _provider_payload("Dự phòng", 20, "fb1-model", base_url=fake_base, api_key="sk-fallback-1234"),
+    ):
+        resp = await client.post("/api/v1/admin/llm/providers", json=payload, headers=ADMIN_HEADERS)
+        assert resp.status_code == 201, resp.text
+
+    llm = get_llm()
+    assert llm.runnable.model_name == "primary-model"
+    answer = await llm.ainvoke("ping")
+    assert answer.content == "pong"  # câu trả lời của nhà cung cấp dự phòng
+
+
+@pytest.mark.asyncio
+async def test_doi_khoa_ma_hoa_khong_lam_mat_nha_cung_cap_nhung_phai_nhap_lai_key(
+    client: AsyncClient, monkeypatch, caplog
+) -> None:
+    """Đặt `LLM_SECRET_KEY` sau khi đã khai báo khoá: vẫn dùng được, nhưng cảnh báo phải nhập lại key.
+
+    Nếu đổi khoá mã hoá mà coi khoá cũ là "hỏng", Admin sẽ mất sạch nhà cung cấp và Copilot ngừng trả
+    lời ngay khi deploy — đường lùi (giải mã bằng khoá mặc định của mã nguồn) tránh đúng chuyện đó,
+    nhưng phải ghi cảnh báo để khoá được mã hoá lại theo khoá riêng.
+    """
+    import logging
+
+    from src.services.llm_providers import refresh_provider_cache, reset_provider_cache
+    from tests.conftest import async_test_session_factory
+
+    created = (await client.post("/api/v1/admin/llm/providers", json=PAYLOAD, headers=ADMIN_HEADERS)).json()
+    assert created["has_api_key"] is True
+
+    monkeypatch.setenv("LLM_SECRET_KEY", "khoa-rieng-cua-vm-2026")
+    reset_provider_cache()
+    caplog.set_level(logging.WARNING, logger="src.services.llm_secrets")
+    async with async_test_session_factory() as session:
+        configs = await refresh_provider_cache(session)
+
+    # Không mất nhà cung cấp (dịch vụ không sập) …
+    assert [c.model_name for c in configs] == [PAYLOAD["model_name"]]
+    assert configs[0].api_key == PAYLOAD["api_key"]
+    # … nhưng phải có cảnh báo yêu cầu nhập lại khoá để mã hoá theo khoá mới.
+    assert any("nhập lại" in record.message.lower() for record in caplog.records)
+
+    # Nhập lại khoá (đúng việc Admin sẽ làm trên giao diện) → mã hoá theo khoá mới.
+    resp = await client.put(
+        f"/api/v1/admin/llm/providers/{created['provider_id']}",
+        json={**PAYLOAD, "api_key": "sk-moi-sau-khi-doi-khoa-9999"},
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+
+    from sqlalchemy import select
+
+    from src.db.models import LLMProviderModel
+
+    async with async_test_session_factory() as session:
+        row = (await session.execute(select(LLMProviderModel))).scalars().first()
+    assert decrypt_api_key(row.api_key_encrypted) == "sk-moi-sau-khi-doi-khoa-9999"
+
+    # Và khi khoá ENV bị đổi sang giá trị khác hẳn (không còn giải mã được bằng khoá cũ) thì phải
+    # bỏ nhà cung cấp đó kèm cảnh báo, không im lặng.
+    monkeypatch.setenv("LLM_SECRET_KEY", "khoa-khac-hoan-toan")
+    reset_provider_cache()
+    caplog.clear()
+    async with async_test_session_factory() as session:
+        configs = await refresh_provider_cache(session)
+    assert configs == []
+    assert any("không giải mã được" in record.message.lower() for record in caplog.records)

@@ -788,6 +788,41 @@ Sau đó vào **Quản trị → Nhà cung cấp LLM**, mở nhà cung cấp, **
 * Bị Cloudflare chặn thật (cả hai đường) → câu tiếng Việt nói rõ Cloudflare và 3 việc cần kiểm tra. Nếu gặp
   trường hợp này, gửi lại ảnh để đối chiếu: lúc đó mới cần nhà cung cấp allowlist đường dẫn API hoặc cho phép IP máy chủ.
 
+### 14.6 Hỏi thêm (cùng đợt 10) — khoá API trong DB có được bảo vệ chưa? Nhiều khai báo thì cơ chế dự phòng còn chạy?
+
+**1) Khoá API trong DB: đã mã hoá, nhưng khoá để mã hoá còn lấy từ ENV.**
+
+* Cột `llm_providers.api_key_encrypted` lưu **Fernet** (`enc::` + ciphertext), không phải plaintext; mọi phản hồi API
+  chỉ trả dạng che `sk-t…abcd`; PUT để trống `api_key` = giữ khoá cũ. Các hành vi này đã có test từ đợt 5 (§8.3).
+* Khoá mã hoá lấy từ `LLM_SECRET_KEY` (hoặc `SECRET_KEY`) trong ENV; **trước đây chưa có trong `.env.example`** nên
+  nhiều khả năng máy chủ đang chạy bằng khoá mặc định của mã nguồn (`vlandfuture-dev-secret-change-me`) — vẫn không
+  lộ khoá trong file DB, nhưng ai đọc được mã nguồn là giải mã được. Vì vậy đợt này ghi rõ biến đó vào `.env.example`.
+* Từ đợt này `src/services/llm_secrets.py` còn: cảnh báo khi **đang mã hoá bằng khoá mặc định**, giải mã được dữ liệu
+  cũ (không làm mất nhà cung cấp khi Admin vừa đặt khoá mới) nhưng cảnh báo **phải nhập lại key** để mã hoá theo khoá
+  riêng, và cảnh báo rõ khi khoá đổi sang giá trị khác hẳn khiến bản ghi không giải mã được (bản ghi đó bị bỏ khỏi
+  chuỗi dự phòng — trước đây bị bỏ **im lặng**).
+* **Bẫy vừa bịt**: hàm lấy khoá chỉ đọc `os.environ`, trong khi `pydantic-settings` nạp `.env` vào object Settings
+  chứ **không ghi vào `os.environ`** → đặt `LLM_SECRET_KEY` trong `.env` của VM rồi khởi động lại vẫn âm thầm dùng
+  khoá mặc định. Nay `_secret()` đi theo thứ tự biến môi trường thật → `.env` (qua `Settings.llm_secret_key`) →
+  khoá mặc định, có test riêng (`tests/test_services/test_llm_secrets.py`) dựng `.env` thật rồi kiểm tra.
+
+**2) Nhiều khai báo trong DB: cơ chế dự phòng chạy thật, đã kiểm chứng bằng lượt gọi thật (không chỉ đọc code).**
+
+* Chuỗi được dựng theo `priority` tăng dần: bản ghi đầu là chính, các bản ghi còn lại là dự phòng (`is_fallback=True`);
+  bản ghi `is_active = false` bị loại; DB có bản ghi **đang bật** thì ENV (`FALLBACK1_*`, `FALLBACK2_*`) không tham gia.
+* Bằng chứng mới (`tests/test_api/test_llm_admin.py`):
+  * `test_nhieu_khai_bao_db_thi_noi_thanh_chuoi_chinh_du_phong_theo_uu_tien` — tạo 4 bản ghi **lộn xộn** (20 → 10 → 30 → 5-tắt),
+    chuỗi thật phải là `primary-model → fb1-model → fb2-model`, bản ghi đang tắt không có mặt.
+  * `test_nha_cung_cap_chinh_chet_thi_tu_dong_chay_sang_nha_cung_cap_ke_tiep` — "chính" trỏ vào cổng chết, gọi thật
+    `llm.ainvoke(...)` và nhận câu trả lời `pong` **từ nhà cung cấp dự phòng**: chuyển tiếp hoạt động end-to-end.
+  * `test_doi_khoa_ma_hoa_khong_lam_mat_nha_cung_cap_nhung_phai_nhap_lai_key` — đổi `LLM_SECRET_KEY` không làm mất nhà
+    cung cấp (không sập dịch vụ) nhưng có cảnh báo; nhập lại key thì mã hoá theo khoá mới.
+* Đã kiểm tra thêm: khi có dự phòng, `bind_tools` vẫn được áp cho **cả** primary lẫn fallback (LangChain uỷ nhiệm
+  `bind_tools` xuống từng runnable) → Copilot không mất khả năng gọi tool tra chính sách khi chạy bằng nhà cung cấp dự phòng.
+* Cách nhìn thấy việc chuyển tiếp trên giao diện: tab **Chi phí & hiệu năng** nhóm theo `(provider, model_name)` kèm
+  `calls` / `failed_calls`, và mỗi bản ghi usage có cờ `is_fallback` — nhà cung cấp lỗi hiện ra ngay ở đó.
+* Khi **cả chuỗi** đều lỗi: Copilot không trả HTTP 500 mà rơi về chế độ offline kèm `degraded_reason` (đường đã có từ trước).
+
 ---
 
 ## 10. Còn lại (nói thẳng, không hứa quá)

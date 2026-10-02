@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     cors_origins: str = "http://localhost:3000"
 
+    #: Khoá mã hoá API key của nhà cung cấp LLM (`src/services/llm_secrets.py`).
+    #: Nhận cả `LLM_SECRET_KEY` và `SECRET_KEY`. Đặt trong `.env` là đủ — không cần export ra shell,
+    #: vì giá trị trong `.env` chỉ được pydantic-settings nạp vào Settings, KHÔNG tự vào `os.environ`.
+    llm_secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("llm_secret_key", "LLM_SECRET_KEY", "SECRET_KEY"),
+    )
+
     # Primary LLM
     openai_api_key: str = ""
     openai_base_url: str | None = None

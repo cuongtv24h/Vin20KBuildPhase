@@ -106,10 +106,20 @@ class _ProviderHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 — tên do BaseHTTPRequestHandler quy định
         type(self).seen_user_agents.append(self.headers.get("User-Agent", ""))
         if self.path.endswith("/chat/completions"):
+            payload = {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "fake-model",
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": "pong"}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+            }
             if self.scenario in {"ok", "cloudflare-models-only"}:
-                self._json(200, {"choices": [{"message": {"content": "pong"}}]})
+                self._json(200, payload)
             elif self.scenario == "missing-v1" and self.path.startswith("/v1/"):
-                self._json(200, {"choices": [{"message": {"content": "pong"}}]})
+                self._json(200, payload)
             else:
                 self._send(403, CLOUDFLARE_HTML.encode(), "text/html; charset=UTF-8")
         else:

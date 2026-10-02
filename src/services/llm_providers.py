@@ -171,13 +171,24 @@ async def refresh_provider_cache(session: Any | None = None) -> list[ProviderCon
         logger.warning("Không nạp được nhà cung cấp LLM từ DB (%s) — dùng ENV nếu có.", exc)
         return resolve_provider_configs()
 
+    # Giải mã mỗi bản ghi đúng một lần: vừa tránh gọi thừa, vừa log được rõ bản ghi nào bị bỏ khỏi chuỗi.
+    decrypted_keys = {row.provider_id: decrypt_api_key(row.api_key_encrypted) for row in rows}
+    usable_rows = [row for row in rows if decrypted_keys[row.provider_id]]
+    for row in rows:
+        if not decrypted_keys[row.provider_id]:
+            logger.warning(
+                "Nhà cung cấp '%s' (%s) không có API key giải mã được → tạm bỏ khỏi chuỗi dự phòng.",
+                row.name,
+                row.provider_id,
+            )
+
     configs = [
         ProviderConfig(
             provider_id=row.provider_id,
             name=row.name,
             provider=row.provider,
             model_name=row.model_name,
-            api_key=decrypt_api_key(row.api_key_encrypted),
+            api_key=decrypted_keys[row.provider_id],
             base_url=row.base_url,
             temperature=float(row.temperature or 0.2),
             priority=int(row.priority or 10),
@@ -187,8 +198,7 @@ async def refresh_provider_cache(session: Any | None = None) -> list[ProviderCon
             source="db",
             is_fallback=index > 0,
         )
-        for index, row in enumerate(rows)
-        if decrypt_api_key(row.api_key_encrypted)
+        for index, row in enumerate(usable_rows)
     ]
     _CACHE = configs
     logger.info("Đã nạp %d nhà cung cấp LLM từ DB.", len(configs))
