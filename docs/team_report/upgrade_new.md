@@ -22,7 +22,7 @@
 | `cd frontend && npx tsc -p packages/tsconfig.json` | **exit 0** (trước: 8 lỗi type) |
 | `cd frontend && npx tsc -b apps/internal apps/customer` | **exit 0** |
 | `cd frontend && npm test` | **24/24 passed** (2 file, trước 22) |
-| `cd frontend && npx oxlint` | **0 error**, 125 warning (trước: 151) |
+| `cd frontend && npx oxlint` | **0 error**, 124 warning (trước: 151) |
 | `cd frontend && npm run build` | build Vite thành công |
 | Smoke `filterCommands` (lọc lệnh không dấu) | 6/6 kịch bản khớp đúng |
 | **Smoke end-to-end qua Vite proxy** (mock-server :8000 + app nội bộ :5174) | Sale gọi `/copilot/feedback/recent` → **403**; ADMIN → 200 với SĐT đã che `091***78`; `/summary` trả `by_day`/`by_mode`/`top_failing_tools` đúng dữ liệu vừa gửi |
@@ -74,7 +74,8 @@
 | Hạng mục | File | Nội dung |
 | :--- | :--- | :--- |
 | Trang quản trị | `frontend/apps/internal/src/features/admin/CopilotQualityPage.tsx` **(mới)** | 4 thẻ KPI (tổng phản hồi · **tỉ lệ hài lòng** · lượt chưa đạt · nhãn bị chê nhiều nhất); **biểu đồ xu hướng 14 ngày** (cột xanh/đỏ theo ngày, có `role="img"` + `aria-label`, ngày trống vẫn hiện để không hiểu sai là mất dữ liệu); thẻ **"Cần cải thiện ở đâu"** (tool hay xuất hiện ở lượt bị chê, phân bố theo chế độ `react/offline_react/guardrail`); bảng **phản hồi chi tiết** lọc theo *tất cả / chưa đạt / hữu ích*, mỗi dòng có câu hỏi, câu trả lời, lý do Sale nêu, nhãn, tool đã dùng và nút **sao chép** để đưa vào biên bản cải tiến |
-| Điều hướng | `App.tsx`, `components/layout/StaffLayout.tsx` | Route `/admin/copilot-quality`, menu **"Chất lượng Copilot"** cho cả `ADMIN` và `POLICY_ADMIN` |
+| Điều hướng | `App.tsx`, `components/layout/StaffLayout.tsx` | Trang **riêng**, route riêng `/admin/copilot-quality` (không nhúng vào `/admin_cp` — khác vai: `/admin_cp` quản trị *tài khoản*, đây quản trị *chất lượng AI*); menu **"Chất lượng Copilot"** cho cả `ADMIN` và `POLICY_ADMIN` |
+| Lối vào từ `/admin_cp` | `AdminCpPage.tsx` | Thêm thẻ chỉ đường (banner nhỏ) ngay trên thanh lọc: mô tả ngắn + nút **"Mở trang chất lượng"** → giúp Admin đang ở trang quản trị tài khoản vẫn tìm thấy |
 | API thống kê | `GET /api/v1/copilot/feedback/summary` (mở rộng) | Thêm `by_mode[]`, `by_day[]` (14 ngày, đã điền ngày trống), `top_failing_tools[]`, `recent_negative[]` |
 | API chi tiết | `GET /api/v1/copilot/feedback/recent` **(mới)** | `limit` (1–200) + `rating` (−1/0/1), mới nhất trước |
 | **Phân quyền** | `src/api/endpoints/copilot.py`, `ENDPOINTS.copilotFeedbackRecent` | Chỉ `ADMIN` / `POLICY_ADMIN`; Sale gọi → **403** |

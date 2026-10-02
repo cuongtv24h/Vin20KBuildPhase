@@ -1,6 +1,8 @@
 import {
   AlertCircle,
   Edit3,
+  ExternalLink,
+  Gauge,
   Loader2,
   Lock,
   LogOut,
@@ -356,6 +358,29 @@ function AdminUserManagementDashboard() {
             </CardHeader>
           </Card>
         </div>
+
+        {/* Lối vào trang chất lượng AI — tách riêng vì khác vai với quản trị tài khoản */}
+        <Card className="border-primary/25 bg-primary/[0.03]">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10">
+                <Gauge className="h-4.5 w-4.5 text-primary" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Chất lượng Copilot</p>
+                <p className="text-xs text-muted-foreground">
+                  Theo dõi đánh giá 👍/👎 của Sale: tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê và nội dung
+                  từng lượt bị chê (đã che PII khách). Số liệu này cũng được nạp lại vào prompt của trợ lý.
+                </p>
+              </div>
+            </div>
+            <Button asChild variant="outline" className="shrink-0">
+              <Link to="/admin/copilot-quality">
+                Mở trang chất lượng <ExternalLink className="ml-2 h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Filter bar */}
         <Card>

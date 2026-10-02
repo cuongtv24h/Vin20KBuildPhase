@@ -195,9 +195,10 @@ python scripts/run_eval.py
 | Câu trả lời nhiều bước (planner) | ≥ 1 | **2** |
 
 Phản hồi của Sale (P2) được ghi qua `POST /api/v1/copilot/feedback` và dùng làm "điều cần tránh"
-trong prompt các lượt sau. Quản trị viên theo dõi chất lượng ở trang **Chất lượng Copilot**
-(`/admin/copilot-quality`, ADMIN + POLICY_ADMIN): tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê,
-và danh sách lượt bị chê — nội dung do server **che PII** (SĐT/email khách) trước khi trả về.
+trong prompt các lượt sau. Quản trị viên theo dõi chất lượng ở **trang riêng `/admin/copilot-quality`**
+(mục "Chất lượng Copilot" trên menu; có thẻ chỉ đường ngay trong `/admin_cp`; quyền ADMIN + POLICY_ADMIN):
+tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê, và danh sách lượt bị chê — nội dung do server
+**che PII** (SĐT/email khách) trước khi trả về.
 
 ---
 
