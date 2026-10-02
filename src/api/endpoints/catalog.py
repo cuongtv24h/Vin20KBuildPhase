@@ -17,7 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import Principal, create_access_token, get_current_principal
-from src.db.models import UnitModel, UserModel
+from src.contracts.units import BEDROOMS_BY_UNIT_TYPE, merge_units
+from src.db.models import ProjectModel, UnitModel, UserModel
 from src.db.session import get_db_session
 
 logger = logging.getLogger(__name__)
@@ -199,30 +200,27 @@ class ReauthGrantSchema(BaseModel):
 # -----------------------------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------------------------
-def _unit_model_to_dict(u: UnitModel) -> dict[str, Any]:
-    bedrooms_map = {"STUDIO": 0, "1BR": 1, "2BR": 2, "3BR": 3, "SHOPHOUSE": 0}
-    area_map = {"STUDIO": 35.0, "1BR": 48.5, "2BR": 72.0, "3BR": 98.5, "SHOPHOUSE": 135.0}
-    block = (
-        "Tháp Riverside (R)"
-        if u.unit_code.startswith("R-")
-        else ("Tháp Garden (G)" if u.unit_code.startswith("G-") else "Khối đế Shophouse")
-    )
-    view = (
-        "View trực diện sông Sài Gòn"
-        if u.unit_code.startswith("R-")
-        else ("View công viên & hồ cảnh quan" if u.unit_code.startswith("G-") else "Mặt tiền đại lộ thương mại")
-    )
+def _unit_model_to_dict(u: UnitModel, project_name: str | None = None) -> dict[str, Any]:
+    """Chuyển 1 dòng `units` trong DB thành payload API.
+
+    Chỉ trả những trường DB **thật sự lưu** (mã căn, dự án, tầng, loại căn, giá, trạng thái).
+    Trước đây hàm này tự "đoán" diện tích theo loại căn (2BR → 72.0m²), gán tháp/view theo tiền tố mã căn
+    và **hardcode tên dự án "VLand Future Riverside"** — Sale sẽ đọc số sai đó cho khách. Nay:
+    `area_m2` không có trong DB ⇒ trả 0 (UI hiển thị "—"), tên dự án lấy từ bảng `projects` và ưu tiên
+    tham số truyền vào.
+    """
     return {
         "unit_code": u.unit_code,
         "project_id": u.project_id,
-        "project_name": "VLand Future Riverside",
-        "block": block,
+        "project_name": project_name or u.project_id,
         "floor": u.floor_number,
-        "bedrooms": bedrooms_map.get(u.unit_type, 2),
-        "area_m2": area_map.get(u.unit_type, 70.0),
-        "view": view,
+        "bedrooms": BEDROOMS_BY_UNIT_TYPE.get(str(u.unit_type or "").upper(), 0),
+        "area_m2": 0.0,
         "listed_price_before_tax_vnd": u.listed_price_before_tax_vnd,
         "status": u.status,
+        # Hai trường dưới đây KHÔNG có trong bảng `units`; trả rỗng thay vì suy diễn theo mã căn.
+        "block": "",
+        "view": "",
     }
 
 
@@ -233,36 +231,35 @@ async def get_public_projects(
     """GET /api/v1/public/projects — Trang chủ khách hàng & danh mục dự án (DB thật + fixture)."""
     overviews: list[dict[str, Any]] = []
 
-    # 1. Thêm dự án VLand Future Riverside từ DB thật (40 căn)
+    # 1. Dự án THẬT từ DB: tên lấy từ bảng `projects`, số căn mở bán đếm theo bảng `units`.
+    #    Không gán vị trí/mô tả/khuyến mãi cho dự án khi DB không có dữ liệu đó.
+    project_rows = (await db.scalars(select(ProjectModel))).all()
+    project_names = {p.project_id: p.project_name for p in project_rows}
     db_units = (await db.scalars(select(UnitModel))).all()
-    if db_units:
-        vlf_available = [u for u in db_units if u.status == "AVAILABLE"]
-        price_from = min([u.listed_price_before_tax_vnd for u in vlf_available]) if vlf_available else 2_860_000_000
+    db_project_ids = list(dict.fromkeys(u.project_id for u in db_units))
+    for pid in db_project_ids:
+        group = [u for u in db_units if u.project_id == pid]
+        available = [u for u in group if u.status == "AVAILABLE"]
+        price_from = min([u.listed_price_before_tax_vnd for u in available]) if available else None
         overviews.append({
             "project": {
-                "project_id": "PROJECT-VLF-001",
-                "name": "VLand Future Riverside",
-                "location": "Văn Giang, Hưng Yên (Kết nối Vành đai 3.5 & Cao tốc HN - HP)",
-                "description": "Tổ hợp căn hộ sinh thái cao cấp ven sông, tiện ích 5 sao chuẩn resort, công viên ven sông 3ha.",
-                "handover_time": "Quý IV/2027",
+                "project_id": pid,
+                "name": project_names.get(pid) or pid,
+                "location": "",
+                "description": "",
+                "handover_time": "",
             },
-            "active_policy": {
-                "policy_id": "POL-2026-EARLY",
-                "policy_version": 1,
-                "content_sha256": "3e23cf6329e46939fc9f6ab43a9b6c039f60bc9f9f83a45c38bc35718dfb5722",
-            },
-            "promotions": [
-                {"title": "Chiết khấu thanh toán sớm 95% (8.0%)", "section": "Điều 1"},
-                {"title": "Hỗ trợ lãi suất 0% trong 24 tháng", "section": "Điều 2"},
-                {"title": "Gói quà tặng nội thất cao cấp 200tr", "section": "Điều 3"},
-            ],
-            "available_units": len(vlf_available),
+            "active_policy": None,
+            "promotions": [],
+            "available_units": len(available),
             "price_from_vnd": price_from,
         })
 
-    # 2. Các dự án fixture khác (The Zen Park, VLandFuture Sapphire)
+    # 2. Dự án chỉ có trong fixture (DB chưa có căn nào ⇒ vẫn hiện cho demo/khách xem).
     for proj in PROJECTS_DATA:
         pid = proj["project_id"]
+        if pid in db_project_ids:
+            continue
         units = [u for u in UNITS_DATA if u["project_id"] == pid and u["status"] == "AVAILABLE"]
         price_from = min([u["listed_price_before_tax_vnd"] for u in units]) if units else None
         overviews.append({
@@ -294,18 +291,16 @@ async def get_units(
         stmt = stmt.where(UnitModel.project_id == project_id)
 
     db_units = (await db.scalars(stmt)).all()
-    converted_db_units = [_unit_model_to_dict(u) for u in db_units]
+    project_rows = (await db.scalars(select(ProjectModel))).all()
+    project_names = {p.project_id: p.project_name for p in project_rows}
+    converted_db_units = [_unit_model_to_dict(u, project_names.get(u.project_id)) for u in db_units]
 
-    # Nếu chỉ tìm dự án trong fixture
-    if project_id and project_id in ("THE_ZEN_PARK", "VLANDFUTURE_SAPPHIRE"):
-        return [u for u in UNITS_DATA if u["project_id"] == project_id]
-
-    # Nếu tìm PROJECT-VLF-001 hoặc có căn trong DB
-    if project_id == "PROJECT-VLF-001":
-        return converted_db_units
-
-    # Mặc định (Tất cả): Ghép cả DB units thật và fixture
-    return converted_db_units + [u for u in UNITS_DATA if u["project_id"] != "PROJECT-VLF-001"]
+    scoped_fixture = [
+        u for u in UNITS_DATA if not project_id or project_id in ("ALL", "") or u["project_id"] == project_id
+    ]
+    # Cùng một luật gộp với lớp Copilot: DB là nguồn chính, fixture chỉ bù dự án DB chưa có
+    # (trước đây API trả 40 căn DB + 4 căn fixture = 45 dòng, và Sale nhìn thấy căn demo trong giỏ thật).
+    return merge_units(converted_db_units, scoped_fixture)
 
 
 @router.post("/auth/login", response_model=AuthSessionSchema)

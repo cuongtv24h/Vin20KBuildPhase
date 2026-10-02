@@ -228,7 +228,8 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
             )
         summary = (
             f"Căn {unit['unit_code']} — {grounding.project_name(unit.get('project_id'))}: "
-            f"{unit.get('bedrooms')}PN, {unit.get('area_m2')}m², {unit.get('view')}, "
+            f"{unit.get('bedrooms')}PN, {inventory_funnel.area_text(unit.get('area_m2'))}, "
+            f"{str(unit.get('view') or '').strip() or 'chưa có dữ liệu hướng/view'}, "
             f"giá niêm yết trước thuế {grounding.format_vnd(unit.get('listed_price_before_tax_vnd'))}, "
             f"trạng thái {unit.get('status')}."
         )
@@ -245,7 +246,7 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
             "policy_id": "CATALOG-UNITS",
             "section": f"Căn {u['unit_code']}",
             "quote": (
-                f"{u.get('bedrooms')}PN · {u.get('area_m2')}m² · "
+                f"{u.get('bedrooms')}PN · {inventory_funnel.area_text(u.get('area_m2'))} · "
                 f"{grounding.format_vnd(u.get('listed_price_before_tax_vnd'))} · {u.get('status')}"
             ),
             "source": "CANONICAL_CATALOG",
@@ -748,7 +749,8 @@ async def soan_tin_tu_van(ma_can: str = "", ten_khach: str = "", noi_dung_chinh:
     ]
     if unit:
         parts.append(
-            f"Căn {unit['unit_code']} có {unit.get('bedrooms')}PN, {unit.get('area_m2')}m², "
+            f"Căn {unit['unit_code']} có {unit.get('bedrooms')}PN, "
+            f"{inventory_funnel.area_text(unit.get('area_m2'))}, "
             f"giá niêm yết trước thuế {grounding.format_vnd(unit.get('listed_price_before_tax_vnd'))}."
         )
     if noi_dung_chinh.strip():

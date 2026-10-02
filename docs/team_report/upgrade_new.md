@@ -1187,6 +1187,72 @@ sửa kỳ vọng), B (sửa code cho trung thực + bóc tên dự án — đ�
 `CSBH-ZEN-2026-V2.0` để demo đúng năng lực time-travel) được trình bày kèm đánh giá được/mất trong
 `docs/team_report/copilot_sale_scenarios.md` §5.2, chờ người dùng chốt.
 
+### 16.5e Đợt 19 (2026-10-03) — Bảng giỏ hàng, con số "44 căn" và tên dự án không có trong DB
+
+**Người dùng báo ba nhóm việc** (kèm ảnh chụp một câu trả lời của Copilot):
+
+1. Bảng căn hộ hiển thị **lệch** và **thiếu cột `Dự án`, `Phòng ngủ`**; màn hình PC rộng nên có thêm
+   **số tầng**, **hướng**; màn hình nhỏ hiện ít cột hơn.
+2. Bỏ dòng chữ **"Enter để gửi · Ctrl+Enter để xuống dòng"** trên giao diện (phím tắt giữ nguyên).
+3. Kiểm tra số liệu: vì sao câu trả lời nói **"44 căn"** khi DB chỉ có **40**, và vì sao có
+   **"VLand Future Riverside"** khi DB chỉ ghi **The Zen Park** và **VLandFuture Sapphire**.
+
+#### Nguyên nhân gốc — lần theo code, không đoán
+
+| # | Hiện tượng | Nguyên nhân thật | Vị trí |
+|---|---|---|---|
+| a | "44 căn" | `grounding.list_units()` **cộng thẳng** 40 căn đọc từ DB với 4 căn fixture còn trống ⇒ 44. Dải giá "từ 2,5 tỷ" cũng là giá **căn fixture** (ZEN-A-0803) lẫn vào giỏ thật | `src/agents/copilot/grounding.py`, `src/api/endpoints/catalog.py` (`/units`, `/public/projects`) |
+| b | "VLand Future Riverside" | Tên dự án **gán cứng** ở 3 tầng: lớp đọc DB (`_fetch_db_units` gán `project_name = "VLand Future Riverside"` cho **mọi** dòng), API catalog (`_unit_model_to_dict`), và UI (`Rổ hàng căn hộ nổi bật — VLand Future Riverside`, badge CRM, mục chọn dự án `P-001`) | `grounding.py`, `catalog.py`, `SalesWorkspacePage.tsx`, `LeadInboxPage.tsx` |
+| c | Cột `Diện tích` sai số | `_unit_model_to_dict` **suy diễn** diện tích theo loại căn (2BR → 72.0m², 3BR → 98.5m²) và gán "tháp"/"view" theo tiền tố mã căn — DB không hề lưu các trường này | `catalog.py`, `grounding.py` |
+| d | Bảng thiếu cột / lệch hàng | Bảng trong câu trả lời do **LLM tự viết lại** từ Observation: model bỏ bớt cột và có thể viết thiếu ô ⇒ lệch cột; UI lại không có lưới an toàn khi hàng thiếu ô | `reply_format.py` (không dựng bảng), `inventory_funnel.py`, `FormattedAiMessage.tsx` |
+| e | Dòng gợi ý phím | Chuỗi tĩnh trong khối trạng thái TTS (dùng chung một `<span>` với "Đang tự đọc câu trả lời mới") | `SalesWorkspacePage.tsx` |
+| f | Rổ hàng nổi bật (card) | Card hardcode 4 căn `R-02.02 / R-03.05 / R-05.01 / R-01.08` — căn **không tồn tại** trong dữ liệu vận hành; bấm "Báo giá căn này" là tạo báo giá cho căn ma | `SalesWorkspacePage.tsx` |
+
+#### Đã sửa
+
+- **Một luật gộp duy nhất** (`src/contracts/units.py` → `merge_units`): DB là nguồn chính; fixture chỉ bù
+  cho dự án **DB chưa có dữ liệu**; khử trùng theo mã căn. Dùng chung cho cả lớp Copilot và API catalog
+  (`/units`, `/public/projects`) nên không còn chỗ nào cộng trùng. Giỏ hàng trên máy có DB 40 căn: **40**
+  (trước là 44/45).
+- **Tên dự án lấy từ bảng `projects`** (JOIN trong `_fetch_db_units`, `project_name` ưu tiên dữ liệu DB);
+  dự án lạ thì trả về **chính mã dự án**, không bịa tên. `PROJECT-VLF-001` chỉ còn là dự án fixture, không
+  tự sinh ra trong danh mục.
+- **Bỏ mọi suy diễn số liệu**: `area_m2` không có trong DB ⇒ trả `0.0` và giao diện in `—`; bỏ hẳn
+  map diện tích theo loại căn và nhãn "tháp/view" theo tiền tố mã căn. Ánh xạ `unit_type → số phòng ngủ`
+  giữ lại vì đó là ánh xạ nghiệp vụ ("3BR" = 3 phòng ngủ), đặt ở `src/contracts/units.py` để hai tầng dùng chung.
+- **Bảng giỏ hàng do máy dựng** (`inventory_funnel`): cột cơ bản **Mã căn · Dự án · Phòng ngủ · Diện tích ·
+  Giá niêm yết (trước thuế)**, cộng **cột mở rộng cho màn hình rộng** `Tầng*`, `Hướng / view*` (dấu `*` là
+  dấu máy đọc, UI ẩn ở màn hình nhỏ bằng `hidden xl:table-cell`). `graph._ensure_units_table` **chèn/thay**
+  bảng chuẩn vào câu trả lời sau khi gắn mỏ neo ⇒ model không thể làm mất cột hay lệch hàng.
+- **UI chống lệch cột**: mọi hàng được bù/cắt về đúng số cột tiêu đề (`alignRow`) nên dữ liệu cũ đã lưu
+  cũng không còn bị đẩy lệch.
+- **Bỏ dòng gợi ý phím** (giữ nguyên hành vi Enter/Ctrl+Enter), đổi placeholder ô chat thành "Ra lệnh cho Copilot…".
+- **Card rổ hàng + form khách + form báo giá** đọc từ `/units` thật; CRM không còn ghi cứng dự án `P-001`
+  / căn `R-02.02`; badge tiêu đề và mục chọn dự án lấy theo danh mục thật.
+
+#### Kiểm chứng (chạy thật trong sandbox)
+
+- `pytest -q` → **657 passed** (+21 ca mới: `test_catalog_real_inventory.py` 5, `test_units.py` 6,
+  `test_copilot_basket_data_integrity.py` 10).
+- **Postgres tạm 40 căn / 2 dự án** (đúng dữ liệu vận hành): `grounding.list_units()` = **40**,
+  `/api/v1/units` = **40**, `/api/v1/public/projects` = 2 dự án với tên thật, `available_units` 20/18 (2 căn
+  SOLD không tính), không còn chuỗi "Riverside", `PROJECT-VLF-001` trả 0 căn.
+- `ruff check src/ tests/` sạch. Frontend: `npm test` → **70 ca** (api-client 14, ui 17, mock-server 39),
+  `tsc -b apps/internal` 0 lỗi, build nội bộ OK.
+- `scripts/run_copilot_eval.py` (34 câu vàng): tool **100%** · citation **100%** · bịa **0.0%** · cổng phân khúc ĐẠT.
+- Bộ kịch bản Sale: **47/51** câu tính điểm (trước 46) · tool 100% · citation 100% · bịa 0.0% · các cổng ĐẠT;
+  câu còn thiếu từ khoá là `RONG-04` (lỗ hổng đã biết, câu hỏi phân khúc 4 ngủ không tồn tại).
+
+#### Nói thẳng phần chưa làm được
+
+- **DB vận hành không lưu `diện tích` và `hướng`** (bảng `units` chỉ có mã căn, dự án, loại căn, tầng, giá,
+  ngày bàn giao, trạng thái). Vì vậy hai cột này hiện in `—` cho căn đọc từ DB, và cột hướng in `—` cho mọi
+  căn. Muốn có số thật phải **thêm cột + nạp dữ liệu** (việc này cần quyền ghi DB, chưa làm ở đây).
+- **Chưa kiểm bằng trình duyệt** (sandbox không có Chromium): cột mở rộng ở PC rộng / ẩn ở màn hình nhỏ mới
+  xác nhận ở mức mã + typecheck + build + unit test của lớp tiện ích.
+- Ảnh chụp của người dùng **không có trong sandbox** nên phần "bảng lệch" được xử lý theo nguyên nhân code
+  (model tự viết lại bảng + UI không canh số cột), không phải theo ảnh.
+
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
 - `pytest -q` → **633 passed** (572 → 633; thêm 5 file test: `test_copilot_anchors.py` 12 ca,
@@ -1206,6 +1272,9 @@ sửa kỳ vọng), B (sửa code cho trung thực + bóc tên dự án — đ�
 
 Giỏ đang mở bán có **4 căn**: ZEN-A-0803 (1PN, 2,5 tỷ) · ZEN-A-1205 (2PN, 4,2 tỷ) · SAP-01-2204 (2PN, 5,8 tỷ)
 · ZEN-B-1502 (3PN, 6,1 tỷ). Phân khúc 3PN: **1 căn**; lọc 3PN ≤ 2 tỷ: **0 căn**.
+
+*(Cập nhật đợt 19: đây là số của **fixture canonical** — máy sandbox không có DB vận hành. Trên VM có DB
+thật, giỏ hàng lấy từ DB và fixture chỉ bù cho dự án DB chưa có; số căn vì vậy là số của DB, không phải 4.)*
 
 Với **2 tỷ vốn tự có** cho ZEN-B-1502 (HĐMB 6,832 tỷ): tỷ lệ **29,3%**, mức tối thiểu theo phương án vay
 **31,8% ≈ 2,1716 tỷ** ⇒ **thiếu 171,6 triệu**. Lưu ý: bản "câu trả lời mong muốn" trong ví dụ của người dùng

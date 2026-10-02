@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { isNumericCell, splitGluedTables, stripCellEmphasis } from './markdownTables'
+import {
+  alignRow,
+  isNumericCell,
+  isWideColumn,
+  splitGluedTables,
+  stripCellEmphasis,
+  stripColumnMark,
+} from './markdownTables'
 
 const GLUED =
   'Em đã lọc giỏ hàng The Zen Park: hiện có **3 căn** đáp ứng. ' +
@@ -51,5 +58,38 @@ describe('ô bảng', () => {
     expect(isNumericCell('3PN')).toBe(false)
     expect(isNumericCell('ZEN-B-0803')).toBe(false)
     expect(isNumericCell('Mã căn')).toBe(false)
+  })
+})
+
+describe('cột mở rộng cho màn hình rộng', () => {
+  it('nhận diện và bóc dấu * của cột mở rộng', () => {
+    expect(isWideColumn('Tầng*')).toBe(true)
+    expect(isWideColumn('Hướng / view*')).toBe(true)
+    expect(isWideColumn('Mã căn')).toBe(false)
+    expect(isWideColumn('Dự án')).toBe(false)
+    expect(stripColumnMark('Tầng*')).toBe('Tầng')
+    expect(stripColumnMark('Hướng / view*')).toBe('Hướng / view')
+    expect(stripColumnMark('Mã căn')).toBe('Mã căn')
+  })
+
+  it('cột cơ bản không bị coi là cột mở rộng', () => {
+    // Tránh nhầm với ô in đậm `**…**` còn sót trong tiêu đề.
+    expect(isWideColumn('Giá niêm yết (trước thuế)')).toBe(false)
+    expect(isWideColumn('**')).toBe(false)
+  })
+})
+
+describe('alignRow', () => {
+  it('bù ô trống khi hàng thiếu ô (chống lệch cột)', () => {
+    expect(alignRow(['A', '2PN'], 4)).toEqual(['A', '2PN', '', ''])
+  })
+
+  it('cắt ô thừa khi hàng nhiều hơn tiêu đề', () => {
+    expect(alignRow(['A', 'B', 'C'], 2)).toEqual(['A', 'B'])
+  })
+
+  it('giữ nguyên hàng đã đúng số cột', () => {
+    const row = ['A', 'B', 'C']
+    expect(alignRow(row, 3)).toBe(row)
   })
 })

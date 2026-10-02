@@ -40,6 +40,7 @@ import {
   useCreateLead,
   useUpdateLead,
   useDeleteLead,
+  useProjectOverviews,
 } from '@pricepolicy/api-client/hooks'
 import { MoneyText } from '@pricepolicy/ui/components/common/MoneyText'
 import { EmptyState, PageHeader, QueryState } from '@pricepolicy/ui/components/common/PageStates'
@@ -83,6 +84,8 @@ import { cn } from '@pricepolicy/ui/lib/utils'
 export function LeadInboxPage() {
   const leadsQuery = useLeads()
   const createLeadMutation = useCreateLead()
+  // Danh mục dự án THẬT — hồ sơ khách phải gắn vào một dự án có trong DB, không ghi cứng mã dự án cũ.
+  const projectsQuery = useProjectOverviews()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -99,8 +102,10 @@ export function LeadInboxPage() {
     customer_name: '',
     customer_phone: '',
     customer_segment: 'NEW_CUSTOMER',
-    project_id: 'P-001',
-    preferred_unit_code: 'R-02.02',
+    // Dự án chốt theo danh mục thật khi mở form (xem executeCreate); mã căn để trống vì
+    // 'R-02.02' không tồn tại trong giỏ hàng vận hành.
+    project_id: '',
+    preferred_unit_code: '',
     bedrooms: 2,
     own_funds_vnd: 1500000000,
     monthly_capacity_vnd: 25000000,
@@ -124,7 +129,10 @@ export function LeadInboxPage() {
       return
     }
     try {
-      const created = await createLeadMutation.mutateAsync(newForm)
+      const created = await createLeadMutation.mutateAsync({
+        ...newForm,
+        project_id: newForm.project_id || projectsQuery.data?.[0]?.project.project_id || undefined,
+      })
       toast.success('Đã thêm khách hàng mới vào CRM', created.customer?.full_name || created.customer_name)
       setIsCreateOpen(false)
       setParams({ id: created.dossier_id })
@@ -132,8 +140,8 @@ export function LeadInboxPage() {
         customer_name: '',
         customer_phone: '',
         customer_segment: 'NEW_CUSTOMER',
-        project_id: 'P-001',
-        preferred_unit_code: 'R-02.02',
+        project_id: '',
+        preferred_unit_code: '',
         bedrooms: 2,
         own_funds_vnd: 1500000000,
         monthly_capacity_vnd: 25000000,
@@ -190,8 +198,9 @@ export function LeadInboxPage() {
             <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
               CRM Quản trị khách hàng
             </h1>
+            {/* Badge cũ ghi cứng "VLand Future Riverside" — dự án không có trong dữ liệu vận hành. */}
             <Badge variant="outline" className="border-primary/30 text-primary bg-primary/10 text-xs">
-              VLand Future Riverside
+              Danh mục dự án theo dữ liệu vận hành
             </Badge>
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
@@ -350,7 +359,7 @@ export function LeadInboxPage() {
               const custName = d.customer?.full_name || d.customer_name || 'Khách hàng'
               const phone = d.customer?.phone || d.customer_phone_masked || '090***'
               const temp = d.temperature || d.lead_temperature || 'WARM'
-              const unit = d.constraints?.preferred_unit_code || d.preferred_unit_code || d.unit_code || 'R-02.02'
+              const unit = d.constraints?.preferred_unit_code || d.preferred_unit_code || d.unit_code || '—'
               const funds = d.constraints?.own_funds_vnd || 0
               const segment = d.constraints?.customer_segment || d.customer_segment || d.segment || 'NEW_CUSTOMER'
 
@@ -817,7 +826,7 @@ function CustomerCrmEditor({
                 value={preferredUnit}
                 onChange={(e) => setPreferredUnit(e.target.value)}
                 className="mt-1 h-8 text-xs"
-                placeholder="R-02.02, R-05.01..."
+                placeholder="ZEN-A-1205, SAP-01-2204..."
               />
             </div>
             <div>

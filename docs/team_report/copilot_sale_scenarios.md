@@ -51,7 +51,7 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 | GIO-01 | Giỏ hàng còn căn 3 ngủ nào không em? | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `3PN` · sạch ghi chú nội bộ | Ca cơ bản nhất: lọc phân khúc phải nêu rõ phạm vi 'riêng phân khúc 3PN' và ra BẢNG (P1.5), không dính câu văn (P1.5b). |
 | GIO-02 | Liệt kê giúp anh toàn bộ căn đang mở bán | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `toàn giỏ đang mở bán` · sạch ghi chú nội bộ | 4 căn: bảng 4 dòng, dòng đầu là ZEN-A-0803 2,5 tỷ. Phạm vi phải ghi 'toàn giỏ'. |
 | GIO-03 | Còn căn 2 ngủ nào không em? | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `2PN`, `ZEN-A-1205`, `SAP-01-2204` · sạch ghi chú nội bộ | Phân khúc 2PN có 2 căn — kiểm luôn P1.5 với nhiều dòng. |
-| GIO-04 | Cho anh thông tin căn SAP-01-2204 | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `SAP-01-2204`, `81.0m²`, `5.800.000.000 ₫` · sạch ghi chú nội bộ | Tra theo mã căn: giá niêm yết trước thuế 5,8 tỷ, 81m², dự án VLandFuture Sapphire. |
+| GIO-04 | Cho anh thông tin căn SAP-01-2204 | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `SAP-01-2204`, `81m²`, `5.800.000.000 ₫` · sạch ghi chú nội bộ | Tra theo mã căn: giá niêm yết trước thuế 5,8 tỷ, 81m², dự án VLandFuture Sapphire. |
 | GIO-05 | Căn nào rẻ nhất trong giỏ hàng? | một trong: `tra_cuu_gio_hang` · phải có: `ZEN-A-0803`, `2.500.000.000 ₫` · sạch ghi chú nội bộ | Câu so sánh giá: phải nêu đúng căn rẻ nhất, không được trả cả giỏ rồi để Sale tự tìm. |
 | GIO-06 | Còn căn nào dưới 3 tỷ không em? | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `ZEN-A-0803` · sạch ghi chú nội bộ | Lọc theo trần giá: chỉ ZEN-A-0803 (1PN, 2,5 tỷ) khớp. Giá niêm yết trước thuế — KHÔNG tự trộn giá gồm VAT. |
 | GIO-07 · chỉ LLM | Giỏ hàng The Zen Park còn căn nào? | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `The Zen Park` · sạch ghi chú nội bộ | **(chỉ chạy ở chế độ LLM)** Lọc theo TÊN DỰ ÁN: lớp tất định không bóc tên dự án thành tham số `du_an` (chỉ LLM làm được) — offline trả cả 4 căn. Lọc theo dự án: chỉ 3 căn The Zen Park, KHÔNG kéo SAP-01-2204 của Sapphire vào. |
@@ -180,13 +180,13 @@ Máy kiểm được hình thức và từ khoá; **văn phong và tính "gửi 
 
 | Chỉ số | Kết quả |
 |---|---|
-| Câu tính điểm | **46 / 51** (6 câu lỗ hổng đã biết, 7 câu chỉ chạy ở chế độ LLM) |
+| Câu tính điểm | **47 / 51** (5 câu lỗ hổng đã biết, 7 câu chỉ chạy ở chế độ LLM) |
 | Gọi đúng tool | **100%** |
 | Citation đúng | **100%** |
 | Bịa số liệu | **0.0%** |
 | Cổng phân khúc (P3.2) | **ĐẠT** |
 | Cổng nội dung/hình thức | **ĐẠT** |
-| p95 độ trễ | 8 ms |
+| p95 độ trễ | 7 ms |
 
 ## 5. Việc cần xử lý
 

@@ -10,6 +10,8 @@
  * - `splitGluedTables`: tách bảng dính về đúng dòng của nó.
  * - `stripCellEmphasis`: bỏ `**` trong ô bảng (bảng vốn đã có kẻ ô).
  * - `isNumericCell`: nhận diện ô số để canh phải, dễ so sánh theo cột.
+ * - `alignRow`: bù/cắt ô cho khớp số cột tiêu đề (chống lệch cột).
+ * - `isWideColumn` / `stripColumnMark`: cột mở rộng cho màn hình rộng (đánh dấu `*` trong tiêu đề).
  */
 
 const DIVIDER_CELL = ':?-{2,}:?'
@@ -132,4 +134,30 @@ export function stripCellEmphasis(cell: string): string {
 /** Ô số (tiền, phần trăm, diện tích) → canh phải và dùng chữ số đều nhau cho dễ so sánh. */
 export function isNumericCell(cell: string): boolean {
   return NUMBER_CELL_RE.test(stripCellEmphasis(cell))
+}
+
+/**
+ * Cột **mở rộng**: backend đánh dấu bằng `*` ở cuối tiêu đề (xem `TABLE_HEADERS_WIDE` trong
+ * `src/agents/copilot/inventory_funnel.py`). Các cột này chỉ hiện ở màn hình rộng (PC) — màn hình nhỏ
+ * ẩn đi để bảng không bị bóp chữ.
+ */
+export function isWideColumn(header: string): boolean {
+  const text = header.trim()
+  return text.length > 1 && text.endsWith('*') && !text.endsWith('**')
+}
+
+/** Bóc dấu `*` đánh dấu cột mở rộng trước khi in tiêu đề ra màn hình. */
+export function stripColumnMark(header: string): string {
+  const text = header.trim()
+  return isWideColumn(text) ? text.slice(0, -1).trim() : text
+}
+
+/**
+ * Bù/cắt ô để **mọi hàng đúng số cột của tiêu đề** — chống hiện tượng lệch cột khi model (hoặc dữ liệu
+ * cũ đã lưu) viết thiếu/thừa một ô trong hàng.
+ */
+export function alignRow(cells: string[], width: number): string[] {
+  if (width <= 0 || cells.length === width) return cells
+  if (cells.length > width) return cells.slice(0, width)
+  return [...cells, ...Array.from({ length: width - cells.length }, () => '')]
 }

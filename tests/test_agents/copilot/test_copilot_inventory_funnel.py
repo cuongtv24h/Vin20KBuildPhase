@@ -97,11 +97,53 @@ def _units(n: int) -> list[dict]:
     ]
 
 
+#: Tiêu đề bảng giỏ hàng theo chốt R19: 5 cột cơ bản + 2 cột mở rộng (đánh dấu `*`, chỉ hiện ở PC rộng).
+BASKET_HEADER = (
+    "| Mã căn | Dự án | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) | Tầng* | Hướng / view* |"
+)
+
+
 def test_single_unit_is_still_a_table() -> None:
     """Chốt P1.5 (cập nhật): có căn cần liệt kê ⇒ luôn dạng bảng, không liệt kê dòng."""
     rendered = inventory_funnel.render_matches(_units(1))
-    assert rendered.splitlines()[0] == "| Mã căn | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) |"
-    assert rendered.splitlines()[2].startswith("| U-0 | 2PN | 70m² |")
+    assert rendered.splitlines()[0] == BASKET_HEADER
+    assert rendered.splitlines()[2].startswith("| U-0 | The Zen Park | 2PN | 70m² | 1.000.000.000 ₫ |")
+
+
+def test_table_has_project_and_bedroom_columns_in_data_rows() -> None:
+    """Chốt R19: `Dự án` và `Phòng ngủ` không được thiếu, và ô phải có dữ liệu thật của căn đó."""
+    rendered = inventory_funnel.render_matches(_units(2))
+    header_cells = [c.strip() for c in rendered.splitlines()[0].strip("|").split("|")]
+    assert header_cells[:5] == ["Mã căn", "Dự án", "Phòng ngủ", "Diện tích", "Giá niêm yết (trước thuế)"]
+    assert header_cells[5:] == ["Tầng*", "Hướng / view*"], "cột mở rộng phải mang dấu *"
+    row_cells = [c.strip() for c in rendered.splitlines()[3].strip("|").split("|")]
+    assert len(row_cells) == len(header_cells), "mọi hàng đúng số cột của tiêu đề (chống lệch bảng)"
+    assert row_cells[1] == "The Zen Park", "cột Dự án lấy tên dự án thật, không để trống"
+    assert row_cells[2] == "2PN"
+
+
+def test_missing_area_and_view_render_as_dash_not_invented() -> None:
+    """DB vận hành không lưu diện tích/hướng ⇒ in `—`, tuyệt đối không suy diễn theo loại căn."""
+    unit = {
+        "unit_code": "G-03.02",
+        "bedrooms": 3,
+        "area_m2": 0.0,
+        "floor": 3,
+        "view": "",
+        "listed_price_before_tax_vnd": 6_320_000_000,
+        "status": "AVAILABLE",
+        "project_id": "THE_ZEN_PARK",
+    }
+    cells = [c.strip() for c in inventory_funnel.table_row(unit).strip("|").split("|")]
+    assert cells == [
+        "G-03.02",
+        "The Zen Park",
+        "3PN",
+        "—",
+        "6.320.000.000 ₫",
+        "Tầng 3",
+        "—",
+    ]
 
 
 def test_two_units_also_use_table() -> None:
@@ -120,7 +162,7 @@ def test_many_units_use_table() -> None:
 def test_whole_basket_uses_table_and_scope_label() -> None:
     payload = json.loads(tra_cuu_gio_hang.invoke({}))
     assert "toàn giỏ đang mở bán" in payload["summary"]
-    assert "| Mã căn | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) |" in payload["summary"]
+    assert BASKET_HEADER in payload["summary"]
 
 
 # ─── P1.2 — chỉ mốc tổng quan vốn tự có ────────────────────────────────────────────

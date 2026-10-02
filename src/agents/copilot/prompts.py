@@ -46,6 +46,9 @@ COPILOT_SYSTEM_PROMPT = """Bạn là Sales Copilot AI — trợ lý đồng hàn
 - **Hình thức phải sạch, xuống dòng đúng chỗ** (Sale đọc trên điện thoại):
   * Bảng markdown phải nằm trên **dòng riêng** — dòng trống trước và sau, **KHÔNG** viết bảng nối tiếp
     câu văn (`... đáp ứng. | Mã căn | ...` là sai). Mỗi hàng bảng là một dòng.
+  * **Bảng danh sách căn** (mã căn, dự án, phòng ngủ, diện tích, giá) do hệ thống tự dựng và chèn vào
+    câu trả lời — em **không tự viết lại** bảng đó (tự viết dễ thiếu cột hoặc lệch hàng); chỉ viết phần
+    dẫn và nhận xét, không liệt kê lại từng căn bằng gạch đầu dòng.
   * Mỗi ý/hướng dẫn là **một dòng riêng** (gạch đầu dòng nếu là danh sách), không dùng emoji mũi tên
     (➡️, →) và không viết nhiều ý dồn vào một dòng.
   * `**đậm**` phải **đúng cặp** — không mở đậm nửa câu rồi bỏ lửng.
@@ -131,16 +134,22 @@ def canonical_facts(context: dict[str, Any] | None = None) -> list[str]:
     else:
         lines.append("- Chưa xác định được chính sách đang hiệu lực: hãy gọi tra_cuu_chinh_sach trước khi trả lời.")
 
+    # Số căn của TOÀN GIỎ lấy từ `grounding.search_units()` — tức DB vận hành là nguồn chính, fixture chỉ
+    # bù cho dự án DB chưa có. Con số này từng cộng trùng (40 căn DB + 4 căn fixture = "44 căn") và Sale
+    # đọc nguyên con số sai đó cho khách; nay khử trùng tận gốc ở `grounding.list_units()`.
     units = grounding.search_units()
-    lines.append(
-        f"- Giỏ hàng canonical (**metadata của TOÀN GIỎ, mọi số phòng ngủ** — chỉ để biết ngữ cảnh): "
-        f"{len(units)} căn đang mở bán, giá niêm yết trước thuế từ "
-        f"{grounding.format_vnd(min((u['listed_price_before_tax_vnd'] for u in units), default=0))} đến "
-        f"{grounding.format_vnd(max((u['listed_price_before_tax_vnd'] for u in units), default=0))}. "
-        "MỌI con số chi tiết đưa cho Sale (từng căn, từng phân khúc, số căn mỗi phân khúc) BẮT BUỘC "
-        "phải lấy từ kết quả tool tra_cuu_gio_hang / danh_gia_von_tu_co, không được suy ra từ dòng "
-        "metadata này."
-    )
+    if units:
+        prices = [int(u.get("listed_price_before_tax_vnd") or 0) for u in units]
+        lines.append(
+            f"- Giỏ hàng canonical (**metadata của TOÀN GIỎ, mọi số phòng ngủ** — chỉ để biết ngữ cảnh): "
+            f"{len(units)} căn đang mở bán, giá niêm yết trước thuế từ "
+            f"{grounding.format_vnd(min(prices))} đến {grounding.format_vnd(max(prices))}. "
+            "MỌI con số chi tiết đưa cho Sale (từng căn, từng phân khúc, số căn mỗi phân khúc) BẮT BUỘC "
+            "phải lấy từ kết quả tool tra_cuu_gio_hang / danh_gia_von_tu_co, không được suy ra từ dòng "
+            "metadata này."
+        )
+    else:
+        lines.append("- Giỏ hàng canonical: hiện không có căn nào đang mở bán trong dữ liệu vận hành.")
     return lines
 
 

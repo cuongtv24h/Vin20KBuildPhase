@@ -47,6 +47,7 @@ import {
   useQuotes,
   usePolicies,
   useProjectOverviews,
+  useUnits,
   useCopilotTurn,
   useCopilotConversations,
   useCopilotConversation,
@@ -394,6 +395,10 @@ function SmartCustomerCard({
   const [funds, setFunds] = useState<number>(initialData?.own_funds_vnd || initialData?.funds || 1500000000)
   const [notes, setNotes] = useState(initialData?.needs_summary || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Dự án mặc định = dự án THẬT đầu tiên trong danh mục (trước đây ghi cứng `P-001` — mã dự án
+  // không tồn tại trong DB, khiến hồ sơ khách gắn vào một dự án ma).
+  const projectsQuery = useProjectOverviews()
+  const defaultProjectId = initialData?.project_id || projectsQuery.data?.[0]?.project.project_id
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -405,7 +410,7 @@ function SmartCustomerCard({
         customer_phone: phone.trim() || '0900000000',
         customer_segment: 'NEW_CUSTOMER',
         temperature: 'HOT',
-        project_id: 'P-001',
+        project_id: defaultProjectId,
         preferred_unit_code: unit.trim() || null,
         own_funds_vnd: Number(funds) || 1500000000,
         monthly_capacity_vnd: 25000000,
@@ -453,7 +458,7 @@ function SmartCustomerCard({
             <Input
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
-              placeholder="R-02.02 (không bắt buộc)"
+              placeholder="Mã căn có trong giỏ hàng (không bắt buộc)"
               className="h-8 text-xs mt-1"
             />
           </div>
@@ -521,16 +526,22 @@ function SmartQuoteCard({
   const [unitCode, setUnitCode] = useState(initialData?.unit_code || '')
   const [scenario, setScenario] = useState(initialData?.scenario || 'PA-SOM')
 
-  const unitPrices: Record<string, { price: number; type: string; area: number }> = {
-    'R-02.02': { price: 4655200000, type: '2BR', area: 72.5 },
-    'R-03.05': { price: 5280000000, type: '2BR+', area: 84.2 },
-    'R-05.01': { price: 6450000000, type: '3BR', area: 104.8 },
-    'R-01.08': { price: 2890000000, type: '1BR', area: 49.6 },
-  }
+  // Danh mục căn lấy từ giỏ hàng THẬT (`/units`) — trước đây là map cứng 4 căn R-02.02… không tồn tại
+  // trong dữ liệu vận hành, Sale chọn xong lại ra một báo giá cho căn không có thật.
+  const unitsQuery = useUnits()
+  const availableUnits = useMemo(
+    () =>
+      (unitsQuery.data ?? [])
+        .filter((u) => u.status === 'AVAILABLE')
+        .slice()
+        .sort((a, b) => a.listed_price_before_tax_vnd - b.listed_price_before_tax_vnd),
+    [unitsQuery.data],
+  )
 
-  const selectedUnit = unitCode ? unitPrices[unitCode] || null : null
-  const discountAmount = selectedUnit && scenario === 'PA-SOM' ? Math.round(selectedUnit.price * 0.08) : 0
-  const finalEstimate = selectedUnit ? selectedUnit.price - discountAmount : 0
+  const selectedUnit = unitCode ? availableUnits.find((u) => u.unit_code === unitCode) || null : null
+  const listPrice = selectedUnit?.listed_price_before_tax_vnd ?? 0
+  const discountAmount = selectedUnit && scenario === 'PA-SOM' ? Math.round(listPrice * 0.08) : 0
+  const finalEstimate = selectedUnit ? listPrice - discountAmount : 0
 
   return (
     <Card className="w-full max-w-[95%] border-primary/40 bg-primary/[0.02] shadow-sm">
@@ -555,10 +566,13 @@ function SmartQuoteCard({
               className="h-8 w-full mt-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium text-foreground outline-none"
             >
               <option value="">— Chọn căn hộ —</option>
-              <option value="R-02.02">R-02.02 (2BR · 72.5m² · 4,65 tỷ)</option>
-              <option value="R-03.05">R-03.05 (2BR+ · 84.2m² · 5,28 tỷ)</option>
-              <option value="R-05.01">R-05.01 (3BR · 104.8m² · 6,45 tỷ)</option>
-              <option value="R-01.08">R-01.08 (1BR · 49.6m² · 2,89 tỷ)</option>
+              {availableUnits.map((u) => (
+                <option key={u.unit_code} value={u.unit_code}>
+                  {u.unit_code} ({u.project_name}
+                  {u.bedrooms > 0 ? ` · ${u.bedrooms}PN` : ''}
+                  {u.area_m2 ? ` · ${u.area_m2}m²` : ''} · {formatVnd(u.listed_price_before_tax_vnd)})
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -580,7 +594,7 @@ function SmartQuoteCard({
           <div className="rounded-lg border border-border/80 bg-muted/30 p-2.5 space-y-1.5 text-[11px]">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Giá niêm yết (gồm VAT):</span>
-              <span className="font-semibold text-foreground">{formatVnd(selectedUnit.price)}</span>
+              <span className="font-semibold text-foreground">{formatVnd(listPrice)}</span>
             </div>
             {discountAmount > 0 && (
               <div className="flex justify-between text-emerald-600 font-medium">
@@ -721,17 +735,36 @@ function SmartScenarioCompareCard({
   )
 }
 
+/** Nhãn trạng thái căn theo dữ liệu vận hành (không còn nhãn demo "GIỮ CHỖ 24H"). */
+const UNIT_STATUS_LABEL: Record<string, { label: string; className: string }> = {
+  AVAILABLE: { label: 'CÒN TRỐNG', className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
+  RESERVED: { label: 'ĐANG GIỮ CHỖ', className: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+  SOLD: { label: 'ĐÃ BÁN', className: 'bg-slate-500/10 text-slate-600 border-slate-500/30' },
+}
+
+/**
+ * Rổ hàng đọc trực tiếp từ API `/units` (DB vận hành + fixture của dự án DB chưa có).
+ *
+ * Trước đây card này hardcode 4 căn `R-02.02 / R-03.05 / R-05.01 / R-01.08` của dự án
+ * "VLand Future Riverside" — căn và dự án không tồn tại trong dữ liệu vận hành, Sale bấm "Báo giá căn này"
+ * là tạo báo giá cho căn không có thật. Nay: chỉ hiện căn có trong dữ liệu, tên dự án lấy từ dữ liệu,
+ * và ghi rõ nguồn.
+ */
 function SmartUnitsCard({
   onSelectUnit,
 }: {
   onSelectUnit: (unitCode: string) => void
 }) {
-  const units = [
-    { code: 'R-02.02', type: '2BR - 2WC', area: 72.5, dir: 'Đông Nam', price: '4.655.200.000 ₫', status: 'CÒN TRỐNG', badgeColor: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
-    { code: 'R-03.05', type: '2BR+1 - 2WC', area: 84.2, dir: 'Nam (view sông)', price: '5.280.000.000 ₫', status: 'CÒN TRỐNG', badgeColor: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
-    { code: 'R-05.01', type: '3BR - 2WC', area: 104.8, dir: 'Đông Bắc (góc)', price: '6.450.000.000 ₫', status: 'GIỮ CHỖ 24H', badgeColor: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
-    { code: 'R-01.08', type: '1BR+1 - 1WC', area: 49.6, dir: 'Tây Nam', price: '2.890.000.000 ₫', status: 'CÒN TRỐNG', badgeColor: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
-  ]
+  const unitsQuery = useUnits()
+  const units = useMemo(
+    () =>
+      (unitsQuery.data ?? [])
+        .filter((u) => u.status === 'AVAILABLE')
+        .slice()
+        .sort((a, b) => a.listed_price_before_tax_vnd - b.listed_price_before_tax_vnd)
+        .slice(0, 6),
+    [unitsQuery.data],
+  )
 
   return (
     <Card className="w-full max-w-[98%] border-sky-500/40 bg-sky-500/[0.02] shadow-sm">
@@ -739,40 +772,58 @@ function SmartUnitsCard({
         <CardTitle className="text-xs font-semibold text-sky-900 dark:text-sky-300 flex items-center justify-between">
           <span className="flex items-center gap-2">
             <Home className="h-4 w-4 text-sky-600" />
-            Rổ hàng căn hộ nổi bật — VLand Future Riverside
+            Rổ hàng căn hộ đang mở bán
           </span>
           <Badge variant="outline" className="text-[10px] border-sky-500/30 text-sky-700 dark:text-sky-400 bg-sky-500/10">
-            Live Inventory
+            {unitsQuery.isLoading ? 'Đang tải…' : `${units.length} căn còn trống`}
           </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-3 space-y-2 text-xs">
+        {unitsQuery.isError && (
+          <p className="text-[11px] text-destructive">
+            Không tải được giỏ hàng — anh/chị thử lại sau hoặc hỏi Copilot "Tra cứu rổ hàng căn hộ".
+          </p>
+        )}
+        {!unitsQuery.isLoading && !unitsQuery.isError && units.length === 0 && (
+          <p className="text-[11px] text-muted-foreground">Dữ liệu vận hành chưa có căn nào đang mở bán.</p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {units.map((u) => (
-            <div
-              key={u.code}
-              className="flex items-center justify-between rounded-lg border border-border bg-card p-2.5 hover:border-primary/50 transition-colors"
-            >
-              <div className="space-y-0.5 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-foreground text-xs">{u.code}</span>
-                  <Badge variant="outline" className={cn('text-[9px]', u.badgeColor)}>{u.status}</Badge>
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  {u.type} · {u.area} m² · Hướng {u.dir}
-                </div>
-                <div className="font-semibold text-primary text-xs">{u.price}</div>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-[11px] shrink-0 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground ml-2"
-                onClick={() => onSelectUnit(u.code)}
+          {units.map((u) => {
+            const status = UNIT_STATUS_LABEL[u.status] ?? {
+              label: u.status,
+              className: 'bg-muted text-muted-foreground border-border',
+            }
+            return (
+              <div
+                key={u.unit_code}
+                className="flex items-center justify-between rounded-lg border border-border bg-card p-2.5 hover:border-primary/50 transition-colors"
               >
-                Báo giá căn này
-              </Button>
-            </div>
-          ))}
+                <div className="space-y-0.5 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-foreground text-xs">{u.unit_code}</span>
+                    <Badge variant="outline" className={cn('text-[9px]', status.className)}>{status.label}</Badge>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground truncate">
+                    {u.project_name}
+                    {u.bedrooms > 0 ? ` · ${u.bedrooms}PN` : ''}
+                    {u.floor ? ` · Tầng ${u.floor}` : ''}
+                    {/* DB vận hành chưa lưu diện tích/hướng ⇒ hiện "—", không suy diễn từ loại căn. */}
+                    {` · ${u.area_m2 ? `${u.area_m2} m²` : '—'}`}
+                  </div>
+                  <div className="font-semibold text-primary text-xs">{formatVnd(u.listed_price_before_tax_vnd)}</div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px] shrink-0 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground ml-2"
+                  onClick={() => onSelectUnit(u.unit_code)}
+                >
+                  Báo giá căn này
+                </Button>
+              </div>
+            )
+          })}
         </div>
       </CardContent>
     </Card>
@@ -843,7 +894,9 @@ export function SalesWorkspacePage() {
     customer_phone: '',
     customer_segment: 'NEW_CUSTOMER',
     temperature: 'HOT',
-    project_id: 'P-001',
+    // Để rỗng: khi mở form, Select tự chọn dự án thật đầu tiên trong danh mục; lúc gửi sẽ chốt
+    // đúng dự án đó thay vì ghi cứng một mã dự án không có trong DB.
+    project_id: '',
     preferred_unit_code: '',
     own_funds_vnd: 1500000000,
     monthly_capacity_vnd: 25000000,
@@ -2037,7 +2090,6 @@ export function SalesWorkspacePage() {
           </span>
           <div>
             <span className="font-display text-xs font-bold tracking-wide">Trợ lý Copilot AI</span>
-            <span className="ml-2 text-[11px] text-muted-foreground hidden sm:inline">VLand Future Riverside</span>
           </div>
           {/* Nút Lịch sử nằm bên trái, cạnh tiêu đề: khung lịch sử mặc định ẩn, bấm đây mới mở. */}
           <Button
@@ -2247,9 +2299,11 @@ export function SalesWorkspacePage() {
                         >
                           <Copy className="h-3 w-3" /> Copy cho khách
                         </Button>
-                        <span className="text-[10px] text-muted-foreground">
-                          {ttsEffective?.auto_speak ? 'Đang tự đọc câu trả lời mới' : 'Enter để gửi · Ctrl+Enter để xuống dòng'}
-                        </span>
+                        {/* Gợi ý phím Enter/Ctrl+Enter đã bỏ theo yêu cầu — chỉ còn trạng thái tự đọc.
+                            Phím tắt vẫn giữ nguyên (Enter gửi, Ctrl+Enter xuống dòng). */}
+                        {ttsEffective?.auto_speak && (
+                          <span className="text-[10px] text-muted-foreground">Đang tự đọc câu trả lời mới</span>
+                        )}
                       </div>
                     </div>
                     {/* Ghi chú kiểm duyệt nội bộ (chốt P2.4): tách khỏi nội dung trả lời, hiện ở
@@ -3065,7 +3119,7 @@ export function SalesWorkspacePage() {
                 }}
                 rows={1}
                 aria-label="Nhập yêu cầu cho trợ lý Copilot"
-                placeholder="Ra lệnh cho Copilot… (Enter: gửi · Ctrl+Enter: xuống dòng)"
+                placeholder="Ra lệnh cho Copilot…"
                 className="max-h-24 flex-1 resize-none rounded-xl border border-input bg-background px-3.5 py-2 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
               {/* Nhập bằng giọng nói: bật là nghe liên tục (rảnh tay) cho tới khi bấm dừng. */}
@@ -4086,7 +4140,10 @@ export function SalesWorkspacePage() {
                 showToast('Vui lòng nhập số điện thoại')
                 return
               }
-              executeCustomerCreation(customerForm)
+              executeCustomerCreation({
+                ...customerForm,
+                project_id: customerForm.project_id || projects[0]?.project.project_id || undefined,
+              })
             }}
             className="space-y-3.5 py-1 text-xs"
           >
@@ -4159,7 +4216,7 @@ export function SalesWorkspacePage() {
               <div className="space-y-1">
                 <Label className="text-xs font-medium">Dự án quan tâm</Label>
                 <Select
-                  value={customerForm.project_id || 'P-001'}
+                  value={customerForm.project_id || projects[0]?.project.project_id || ''}
                   onValueChange={(val) => setCustomerForm({ ...customerForm, project_id: val })}
                 >
                   <SelectTrigger className="h-8 text-xs">
@@ -4173,7 +4230,10 @@ export function SalesWorkspacePage() {
                         </SelectItem>
                       ))
                     ) : (
-                      <SelectItem value="P-001">VLand Future Riverside</SelectItem>
+                      // Không hardcode tên dự án: dự án hiển thị phải có thật trong danh mục.
+                      <SelectItem value="__none" disabled>
+                        Chưa tải được danh mục dự án
+                      </SelectItem>
                     )}
                   </SelectContent>
                 </Select>
@@ -4187,7 +4247,7 @@ export function SalesWorkspacePage() {
                   id="cust-unit"
                   value={customerForm.preferred_unit_code || ''}
                   onChange={(e) => setCustomerForm({ ...customerForm, preferred_unit_code: e.target.value })}
-                  placeholder="Ví dụ: R-02.02, R-08.15"
+                  placeholder="Ví dụ: ZEN-A-1205"
                   className="h-8 text-xs font-mono"
                 />
               </div>

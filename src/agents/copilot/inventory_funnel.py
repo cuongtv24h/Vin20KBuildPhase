@@ -26,8 +26,20 @@ from typing import Any
 
 from src.agents.copilot import grounding
 
-#: Cột bảng rút gọn theo chốt P1.5: đúng 4 cột, tên cột do người dùng chốt.
-TABLE_HEADERS = ("Mã căn", "Phòng ngủ", "Diện tích", "Giá niêm yết (trước thuế)")
+#: Cột **cơ bản** — hiện trên mọi khổ màn hình (chốt R19: `Dự án` và `Phòng ngủ` bắt buộc có mặt).
+TABLE_HEADERS = ("Mã căn", "Dự án", "Phòng ngủ", "Diện tích", "Giá niêm yết (trước thuế)")
+
+#: Cột **mở rộng** — chỉ hiện ở màn hình rộng (PC ≥ 1280px). Giao diện nhận biết bằng dấu `*` ở cuối
+#: tiêu đề (xem `WIDE_COLUMN_MARK`) và ẩn cột đó ở màn hình nhỏ. Cột hẹp trên mobile nhờ vậy không bị bóp.
+#: Cột hướng: DB vận hành **chưa có** cột hướng; dữ liệu canonical chỉ có `view` (hướng nhìn).
+#: Vì vậy tiêu đề ghi rõ "Hướng / view" — không gán nhãn hướng cho một trường view.
+TABLE_HEADERS_WIDE = ("Tầng", "Hướng / view")
+
+#: Dấu đánh vào tiêu đề cột mở rộng — lớp hiển thị bóc dấu này trước khi in ra.
+WIDE_COLUMN_MARK = "*"
+
+#: Ô không có dữ liệu: in gạch dài thay vì số 0 hay số suy diễn (DB vận hành chưa lưu diện tích/hướng).
+EMPTY_CELL = "—"
 
 
 @dataclass
@@ -122,22 +134,54 @@ def next_steps(bedrooms: int, budget_vnd: int | None = None) -> list[str]:
     ]
 
 
+def area_text(value: Any) -> str:
+    """Diện tích dạng `98.2m²`; DB không lưu diện tích ⇒ `—` (không suy diễn theo loại căn)."""
+    try:
+        area = float(value)
+    except (TypeError, ValueError):
+        return EMPTY_CELL
+    if area <= 0:
+        return EMPTY_CELL
+    text = f"{area:.2f}".rstrip("0").rstrip(".")
+    return f"{text}m²"
+
+
+def table_row(unit: dict[str, Any]) -> str:
+    """Một dòng bảng: đúng thứ tự và đúng số cột của `TABLE_HEADERS` + `TABLE_HEADERS_WIDE`."""
+    bedrooms_raw = unit.get("bedrooms")
+    if bedrooms_raw is None:
+        bedrooms_text = EMPTY_CELL
+    elif int(bedrooms_raw) == 0:
+        bedrooms_text = "Studio"
+    else:
+        bedrooms_text = f"{int(bedrooms_raw)}PN"
+    floor = unit.get("floor")
+    view = str(unit.get("view") or "").strip()
+    project = grounding.project_name(unit.get("project_id")) or EMPTY_CELL
+    cells = [
+        str(unit.get("unit_code") or EMPTY_CELL),
+        project,
+        bedrooms_text,
+        area_text(unit.get("area_m2")),
+        grounding.format_vnd(unit.get("listed_price_before_tax_vnd")),
+        f"Tầng {floor}" if floor else EMPTY_CELL,
+        view or EMPTY_CELL,
+    ]
+    return "| " + " | ".join(cells) + " |"
+
+
 def units_table(units: list[dict[str, Any]]) -> str:
-    """Bảng markdown rút gọn theo chốt P1.5: Mã căn · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế)."""
+    """Bảng markdown giỏ hàng — **máy dựng**, không để LLM tự viết lại (chống lệch cột/mất cột).
+
+    Cột cơ bản: Mã căn · Dự án · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế).
+    Cột mở rộng (PC rộng): Tầng · Hướng — tiêu đề mang dấu `*`, lớp hiển thị ẩn ở màn hình nhỏ.
+    """
     if not units:
         return ""
-    header = "| " + " | ".join(TABLE_HEADERS) + " |"
-    divider = "|" + "|".join(["---"] * len(TABLE_HEADERS)) + "|"
-    rows = [
-        "| {code} | {bedrooms}PN | {area}m² | {price} |".format(
-            code=u.get("unit_code"),
-            bedrooms=u.get("bedrooms"),
-            area=u.get("area_m2"),
-            price=grounding.format_vnd(u.get("listed_price_before_tax_vnd")),
-        )
-        for u in units
-    ]
-    return "\n".join([header, divider, *rows])
+    headers = list(TABLE_HEADERS) + [f"{h}{WIDE_COLUMN_MARK}" for h in TABLE_HEADERS_WIDE]
+    header = "| " + " | ".join(headers) + " |"
+    divider = "|" + "|".join(["---"] * len(headers)) + "|"
+    return "\n".join([header, divider, *(table_row(u) for u in units)])
 
 
 def render_matches(units: list[dict[str, Any]]) -> str:
@@ -180,12 +224,17 @@ def render_empty_funnel(
 
 
 __all__ = [
+    "EMPTY_CELL",
     "TABLE_HEADERS",
+    "TABLE_HEADERS_WIDE",
+    "WIDE_COLUMN_MARK",
     "SegmentStats",
     "bedroom_histogram",
     "next_steps",
     "render_empty_funnel",
+    "area_text",
     "render_matches",
+    "table_row",
     "segment_stats",
     "segment_summary_line",
     "softest_unit_line",

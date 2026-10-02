@@ -1,6 +1,13 @@
 import { useMemo, type ReactNode } from 'react'
 import { cn } from '@pricepolicy/ui/lib/utils'
-import { isNumericCell, splitGluedTables, stripCellEmphasis } from '@pricepolicy/ui/lib/markdownTables'
+import {
+  alignRow,
+  isNumericCell,
+  isWideColumn,
+  splitGluedTables,
+  stripCellEmphasis,
+  stripColumnMark,
+} from '@pricepolicy/ui/lib/markdownTables'
 
 /** Một mỏ neo `[n]` trong câu trả lời (máy tự chèn — xem `src/agents/copilot/anchors.py`). */
 export interface AiAnchor {
@@ -117,7 +124,9 @@ function parseMarkdownBlocks(rawText: string): Block[] {
         const headers = parseRow(tableLines[0])
         // Bỏ qua hàng phân cách |--|--| nếu có
         const dataRows = tableLines.slice(1).filter((l) => !/^\|[\s\-:|]+\|$/.test(l))
-        const rows = dataRows.map(parseRow)
+        // Hàng thiếu/thừa ô (model viết ẩu hoặc dữ liệu cũ) vẫn phải khớp số cột tiêu đề, nếu không
+        // cả bảng bị đẩy lệch sang phải.
+        const rows = dataRows.map((line) => alignRow(parseRow(line), headers.length))
 
         blocks.push({
           type: 'table',
@@ -218,9 +227,14 @@ function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNo
                 {block.headers.map((h, hi) => (
                   <th
                     key={hi}
-                    className={cn('px-2.5 py-1.5 whitespace-nowrap', isNumericCell(h) && 'text-right')}
+                    className={cn(
+                      'px-2.5 py-1.5 whitespace-nowrap',
+                      isNumericCell(stripColumnMark(h)) && 'text-right',
+                      // Cột mở rộng (Tầng, Hướng/view) chỉ hiện từ màn hình rộng trở lên.
+                      isWideColumn(h) && 'hidden xl:table-cell',
+                    )}
                   >
-                    {render(h)}
+                    {render(stripColumnMark(h))}
                   </th>
                 ))}
               </tr>
@@ -235,6 +249,8 @@ function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNo
                         'px-2.5 py-1.5',
                         // Canh phải + chữ số đều nhau cho cột tiền/diện tích dễ so sánh theo cột.
                         isNumericCell(cell) ? 'text-right whitespace-nowrap tabular-nums' : 'align-top',
+                        // Ẩn cùng cột với tiêu đề ở màn hình nhỏ.
+                        isWideColumn(block.headers[ci] ?? '') && 'hidden xl:table-cell',
                       )}
                     >
                       {render(stripCellEmphasis(cell))}

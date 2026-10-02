@@ -215,6 +215,51 @@ class IntentResultLike:
     intent: str
 
 
+#: Dòng bảng markdown.
+_TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def _units_table_from_observations(observations: list[dict[str, Any]]) -> str:
+    """Bảng giỏ hàng do MÁY dựng, lấy từ kết quả `tra_cuu_gio_hang` (chốt R19).
+
+    LLM chỉ viết văn xuôi; bảng (cột, thứ tự cột, từng ô) lấy nguyên từ observation nên không thể
+    thiếu cột `Dự án`/`Phòng ngủ` hay lệch hàng do model viết lại.
+    """
+    table = ""
+    for obs in observations:
+        if obs.get("tool") != "tra_cuu_gio_hang":
+            continue
+        lines = [line.strip() for line in str(obs.get("summary") or "").splitlines() if line.strip()]
+        block = [line for line in lines if _TABLE_LINE_RE.match(line)]
+        if len(block) >= 2:
+            table = "\n".join(block)  # observation cuối cùng có bảng là bảng mới nhất
+    return table
+
+
+def _ensure_units_table(text: str, table: str) -> str:
+    """Bảo đảm câu trả lời liệt kê căn có ĐÚNG bảng giỏ hàng do máy dựng.
+
+    - Chưa có bảng nào ⇒ chèn vào cuối (chốt R16: liệt kê căn là phải có bảng).
+    - Có bảng giỏ hàng nhưng model tự viết lại (thiếu cột/lệch hàng) ⇒ thay bằng bảng chuẩn.
+    - Có bảng khác (chính sách, dòng tiền…) ⇒ giữ nguyên và thêm bảng giỏ hàng.
+    """
+    if not table:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if _TABLE_LINE_RE.match(line)), None)
+    if start is None:
+        return text.rstrip() + "\n\n" + table
+    end = start
+    while end < len(lines) and _TABLE_LINE_RE.match(lines[end]):
+        end += 1
+    existing = "\n".join(line.strip() for line in lines[start:end])
+    if "Mã căn" not in existing:
+        return text.rstrip() + "\n\n" + table
+    if existing == table:
+        return text
+    return "\n".join([*lines[:start], *table.splitlines(), *lines[end:]])
+
+
 def _finalize(
     raw_text: str,
     observations: list[dict[str, Any]],
@@ -350,6 +395,10 @@ def _finalize(
     # chỉ còn nhắc khi con số thật sự không có nguồn nào để trỏ tới.
     anchored = anchors.annotate_reply(text, citations, question=question)
     text = anchored.text
+
+    # Bảng giỏ hàng do MÁY dựng (chốt R19): chèn/thay **sau** mỏ neo để ô bảng không bị dính `[n]`
+    # (mỏ neo trong từng ô làm bảng rối; phần văn xuôi phía trên đã mang đủ mỏ neo).
+    text = _ensure_units_table(text, _units_table_from_observations(observations))
 
     # Hình thức (bảng không được dính câu văn, mỗi ý một dòng, canh cột) — cũng do MÁY lo, áp sau cùng
     # để không phá mỏ neo `[n]` vừa chèn. Hàm idempotent nên áp lại vẫn an toàn.

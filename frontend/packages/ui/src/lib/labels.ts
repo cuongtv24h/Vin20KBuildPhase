@@ -149,6 +149,8 @@ export const CONSTRAINT_LABEL: Record<keyof CustomerConstraints, string> = {
 export const PROJECT_LABEL: Record<string, string> = {
   THE_ZEN_PARK: 'The Zen Park',
   VLANDFUTURE_SAPPHIRE: 'VLandFuture Sapphire',
+  // Nhãn của dự án demo cũ (không có trong bảng `projects` của DB vận hành). Giữ lại chỉ để
+  // dữ liệu cũ hiển thị đúng tên đã lưu; danh mục dự án thật lấy từ API, không lấy từ đây.
   'PROJECT-VLF-001': 'VLand Future Riverside',
 }
 

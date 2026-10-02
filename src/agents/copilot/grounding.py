@@ -16,6 +16,7 @@ from datetime import date
 from typing import Any
 
 from src.api.endpoints.catalog import POLICIES_DATA, UNITS_DATA
+from src.contracts.units import BEDROOMS_BY_UNIT_TYPE, merge_units
 
 
 def normalize(text: str) -> str:
@@ -107,9 +108,10 @@ def find_rules_by_keyword(keyword: str, project_id: str | None = None) -> list[t
 logger = logging.getLogger(__name__)
 
 _cached_db_units: list[dict[str, Any]] | None = None
-
+_cached_db_project_names: dict[str, str] = {}
 
 def _fetch_db_units() -> list[dict[str, Any]]:
+    """Đọc giỏ hàng THẬT từ DB (bảng `units` nối `projects`) — chỉ lấy trường có thật."""
     global _cached_db_units
     if _cached_db_units is not None:
         return _cached_db_units
@@ -120,40 +122,32 @@ def _fetch_db_units() -> list[dict[str, Any]]:
 
         settings = get_settings()
         db_url = settings.database_url.replace("+asyncpg", "")
+        if not db_url.startswith(("postgres://", "postgresql://")):
+            # SQLite (mặc định khi chạy local/test) không có bảng `units` thật ⇒ dùng fixture, không log lỗi.
+            return []
         with psycopg.connect(db_url, connect_timeout=3) as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT unit_code, project_id, floor_number, unit_type, listed_price_before_tax_vnd, status
-                    FROM units;
+                    SELECT u.unit_code, u.project_id, p.project_name, u.floor_number,
+                           u.unit_type, u.listed_price_before_tax_vnd, u.status
+                    FROM units u
+                    LEFT JOIN projects p ON p.project_id = u.project_id;
                 """)
                 rows = cur.fetchall()
-                bedrooms_map = {"STUDIO": 0, "1BR": 1, "2BR": 2, "3BR": 3, "SHOPHOUSE": 0}
-                area_map = {"STUDIO": 35.0, "1BR": 48.5, "2BR": 72.0, "3BR": 98.5, "SHOPHOUSE": 135.0}
-                units = []
-                for row in rows:
-                    uc, pid, fl, ut, price, st = row
-                    block = (
-                        "Tháp Riverside (R)"
-                        if uc.startswith("R-")
-                        else ("Tháp Garden (G)" if uc.startswith("G-") else "Khối đế Shophouse")
-                    )
-                    view = (
-                        "View trực diện sông Sài Gòn"
-                        if uc.startswith("R-")
-                        else ("View công viên & hồ cảnh quan" if uc.startswith("G-") else "Mặt tiền đại lộ thương mại")
-                    )
+                units: list[dict[str, Any]] = []
+                for unit_code, project_id, project_name, floor_number, unit_type, price, status in rows:
+                    name = str(project_name or "").strip() or str(project_id or "")
+                    if project_id:
+                        _cached_db_project_names[str(project_id)] = name
                     units.append(
                         {
-                            "unit_code": uc,
-                            "project_id": pid,
-                            "project_name": "VLand Future Riverside",
-                            "block": block,
-                            "floor": fl,
-                            "bedrooms": bedrooms_map.get(ut, 2),
-                            "area_m2": area_map.get(ut, 70.0),
-                            "view": view,
+                            "unit_code": unit_code,
+                            "project_id": project_id,
+                            "project_name": name,
+                            "floor": floor_number,
+                            "bedrooms": BEDROOMS_BY_UNIT_TYPE.get(str(unit_type or "").upper(), 0),
                             "listed_price_before_tax_vnd": price,
-                            "status": st,
+                            "status": status,
                         }
                     )
                 _cached_db_units = units
@@ -164,10 +158,12 @@ def _fetch_db_units() -> list[dict[str, Any]]:
 
 
 def list_units() -> list[dict[str, Any]]:
-    db_units = _fetch_db_units()
-    if db_units:
-        return db_units + [u for u in UNITS_DATA if u.get("project_id") != "PROJECT-VLF-001"]
-    return list(UNITS_DATA)
+    """Giỏ hàng đang dùng: **DB thật là nguồn chính**, fixture chỉ bù cho dự án DB chưa có.
+
+    Lỗi cũ: cộng thẳng DB (40 căn) với fixture (4 căn) ⇒ giỏ hàng báo 44 căn, và Sale đọc thấy căn demo
+    lẫn căn thật. Quy tắc gộp nằm ở `src.contracts.units.merge_units` để API cũng dùng đúng một luật.
+    """
+    return merge_units(_fetch_db_units(), UNITS_DATA)
 
 
 def find_unit(unit_code: str | None) -> dict[str, Any] | None:
@@ -202,10 +198,19 @@ def search_units(
 
 
 def project_name(project_id: str | None) -> str:
+    """Tên dự án: ưu tiên tên THẬT đọc từ DB, rồi tới nhãn fixture, cuối cùng trả chính mã dự án.
+
+    Không bịa tên dự án: dự án chỉ có trong DB sẽ hiện đúng tên trong bảng `projects`.
+    """
+    key = str(project_id or "")
+    if key in _cached_db_project_names:
+        return _cached_db_project_names[key]
     mapping = {
         "THE_ZEN_PARK": "The Zen Park",
         "VLANDFUTURE_SAPPHIRE": "VLandFuture Sapphire",
+        # Dự án VLF cũ chỉ còn trong catalog fixture (không có bảng `projects` tương ứng) — giữ để
+        # tài liệu/demo cũ không vỡ, nhưng hỏi DB trước nên tên thật luôn thắng.
         "PROJECT-VLF-001": "VLand Future Riverside",
     }
-    return mapping.get(str(project_id), str(project_id or "VLandFuture"))
+    return mapping.get(key, key or "VLandFuture")
 

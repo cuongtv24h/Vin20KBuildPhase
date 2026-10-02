@@ -88,7 +88,7 @@
       "expect_no_internal_notes": true,
       "must_contain": [
         "SAP-01-2204",
-        "81.0m²",
+        "81m²",
         "5.800.000.000 ₫"
       ],
       "notes": "Tra theo mã căn: giá niêm yết trước thuế 5,8 tỷ, 81m², dự án VLandFuture Sapphire."
