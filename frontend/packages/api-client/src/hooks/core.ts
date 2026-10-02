@@ -20,6 +20,7 @@ export const queryKeys = {
   copilotConversation: (conversationId: string) => ['copilot', 'conversation', conversationId] as const,
   llmProviders: ['admin', 'llm', 'providers'] as const,
   llmUsage: ['admin', 'llm', 'usage'] as const,
+  ttsSettings: ['settings', 'tts'] as const,
 }
 
 /**

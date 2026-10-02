@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Plus, RefreshCw, Trash2, Zap } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Mic, Plus, RefreshCw, Trash2, Volume2, Zap } from 'lucide-react'
 import { useState } from 'react'
 
 import type { LlmProvider, LlmProviderPayload } from '@pricepolicy/api-client/contracts'
@@ -9,7 +9,9 @@ import {
   useLlmUsageRecords,
   useLlmUsageSummary,
   useTestLlmProvider,
+  useTtsSettings,
   useUpdateLlmProvider,
+  useUpdateTtsSettings,
 } from '@pricepolicy/api-client/hooks'
 import { Badge } from '@pricepolicy/ui/components/ui/badge'
 import { Button } from '@pricepolicy/ui/components/ui/button'
@@ -729,6 +731,212 @@ export function LlmUsageTab() {
       <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         <ExternalLink className="h-3 w-3" />
         Cần đổi khoá hay thêm model? Sang tab “Nhà cung cấp LLM” để khai báo — không cần chỉnh ENV.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Tab 4 — Giọng đọc câu trả lời Copilot (TTS).
+ *
+ * Vì sao ở đây: Sale cần **nghe** câu trả lời (đang dẫn khách, đang lái xe). Tab này là chỗ Admin
+ * quyết định giọng nào dùng chung cho cả công ty, xem đơn giá từng nhà cung cấp và tình trạng khoá —
+ * tất cả bằng dữ liệu thật từ `/api/v1/settings/tts`, không phải bảng giá chép tay trong tài liệu.
+ */
+export function TtsTab() {
+  const { data, isLoading, isError, refetch } = useTtsSettings()
+  const update = useUpdateTtsSettings()
+
+  const provider = data?.catalog.find((c) => c.provider === (data?.default.provider ?? 'browser'))
+  const save = async (payload: Record<string, unknown>) => {
+    try {
+      await update.mutateAsync({ scope: 'default', ...payload })
+      toast.success('Đã lưu giọng đọc dùng chung')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Không lưu được giọng đọc')
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex items-start gap-2">
+            <Volume2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <div className="text-sm">
+              <p className="font-medium">Copilot đọc câu trả lời thành tiếng</p>
+              <p className="text-xs text-muted-foreground">
+                Mặc định dùng giọng có sẵn trên máy nhân viên (0 đồng, không cần khoá). Khi chọn nhà cung cấp
+                trả phí, cả công ty đọc cùng một giọng — chi phí quy theo đơn giá bên dưới và tính theo ký tự
+                thực đọc. Mỗi nhân viên vẫn tự chỉnh giọng riêng cho mình trong workspace nếu muốn.
+              </p>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="flex h-24 items-center justify-center text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : isError || !data ? (
+            <p className="text-sm text-destructive">Không tải được thiết lập giọng đọc.</p>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Nhà cung cấp dùng chung</Label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    value={data.default.provider}
+                    onChange={(e) => {
+                      const next = data.catalog.find((c) => c.provider === e.target.value)
+                      void save({ provider: e.target.value, voice: next?.voices[0]?.code ?? 'vi-VN', model: next?.default_model ?? '' })
+                    }}
+                  >
+                    {data.catalog.map((c) => (
+                      <option key={c.provider} value={c.provider}>
+                        {c.label} — {c.mode === 'browser' ? 'miễn phí' : `${c.price_per_1m_chars.toLocaleString('vi-VN')} ${c.currency}/1M ký tự`}
+                        {c.mode === 'api' && !c.api_key_configured ? ' (chưa có khoá)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Giọng đọc dùng chung</Label>
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    value={data.default.voice}
+                    onChange={(e) => void save({ voice: e.target.value })}
+                  >
+                    {(provider?.voices ?? []).map((v) => (
+                      <option key={v.code} value={v.code}>
+                        {v.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Tốc độ đọc: {data.default.speed.toFixed(2)}×</Label>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={2}
+                    step={0.05}
+                    className="w-full"
+                    value={data.default.speed}
+                    onChange={(e) => void save({ speed: Number(e.target.value) })}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Giới hạn ký tự mỗi lượt đọc</Label>
+                  <Input
+                    type="number"
+                    min={50}
+                    max={5000}
+                    value={data.default.max_chars_per_turn}
+                    onChange={(e) => void save({ max_chars_per_turn: Number(e.target.value) })}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Câu trả lời dài hơn sẽ chỉ đọc phần đầu — vừa đỡ tốn tiền vừa không bắt khách chờ.
+                  </p>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={data.default.auto_speak}
+                  onChange={(e) => void save({ auto_speak: e.target.checked })}
+                />
+                Tự đọc mỗi câu trả lời mới (mặc định cho nhân viên, ai cũng tắt được cho riêng mình)
+              </label>
+
+              <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted/40 p-3 text-xs">
+                <span>
+                  Chi phí tối đa mỗi lượt đọc:{' '}
+                  <strong>
+                    {data.cost_hint.cost.toLocaleString('vi-VN', { maximumFractionDigits: 4 })} {data.cost_hint.currency}
+                  </strong>{' '}
+                  cho {data.cost_hint.chars} ký tự
+                </span>
+                <span className="text-muted-foreground">
+                  · Giọng {data.effective.voice} được đánh giá: {data.feedback_summary.up} ổn /{' '}
+                  {data.feedback_summary.down} chưa ổn
+                  {data.feedback_summary.satisfaction != null
+                    ? ` (${Math.round(data.feedback_summary.satisfaction * 100)}% hài lòng)`
+                    : ''}
+                </span>
+                <Button variant="ghost" size="sm" className="ml-auto h-7 px-2" onClick={() => refetch()}>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Nhà cung cấp TTS &amp; đơn giá</CardTitle>
+          <CardDescription>
+            Đơn giá là giá niêm yết của nhà cung cấp, kèm mốc kiểm chứng — đối chiếu lại trước khi quyết toán.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nhà cung cấp</TableHead>
+                <TableHead className="text-right">Đơn giá / 1M ký tự</TableHead>
+                <TableHead className="w-[130px]">Khoá API</TableHead>
+                <TableHead className="w-[120px]">Kiểm chứng</TableHead>
+                <TableHead>Ghi chú</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data?.catalog ?? []).map((c) => (
+                <TableRow key={c.provider}>
+                  <TableCell>
+                    <div className="font-medium">{c.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {c.mode === 'browser' ? 'Đọc tại trình duyệt' : c.default_model}
+                      {c.voices.length ? ` · ${c.voices.length} giọng` : ''}
+                      {c.supports_streaming ? ' · có streaming' : ''}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right text-sm">
+                    {c.price_per_1m_chars === 0
+                      ? 'Miễn phí'
+                      : `${c.price_per_1m_chars.toLocaleString('vi-VN')} ${c.currency}`}
+                  </TableCell>
+                  <TableCell>
+                    {c.mode === 'browser' ? (
+                      <span className="text-xs text-muted-foreground">Không cần</span>
+                    ) : c.api_key_configured ? (
+                      <Badge className="bg-emerald-600 text-[10px] hover:bg-emerald-700">Đã có</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-amber-600">
+                        Chưa có
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{c.verified_at || '—'}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{c.price_note || c.note}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Mic className="h-3 w-3" />
+        Chi tiết phương án kỹ thuật (đọc tại trình duyệt vs gọi API TTS, chi phí, cách nối endpoint tổng hợp
+        audio): <code>docs/team_report/tts_integration_plan.md</code>. Lựa chọn riêng của từng nhân viên nằm
+        trong workspace ở nút “Giọng đọc”.
       </p>
     </div>
   )

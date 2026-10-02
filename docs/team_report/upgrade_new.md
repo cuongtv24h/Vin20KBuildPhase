@@ -342,7 +342,63 @@ hồ sơ cũ và **mọi API ADMIN đều 403 dù đã đăng nhập đúng**. N
 
 ---
 
-## 9. Còn lại (nói thẳng, không hứa quá)
+## 9. Đợt 6 (2026-10-02) — Phím tắt gửi tin & Copilot đọc câu trả lời (TTS)
+
+Hai việc người dùng yêu cầu trực tiếp. Phím tắt là **sửa hành vi**; TTS là **năng lực mới**, nên phần
+TTS được chia rõ: cái gì chạy được hôm nay, và cái gì cần chốt ngân sách/chính sách dữ liệu mới nối.
+
+### 9.1 Enter = gửi, Ctrl/Cmd + Enter = xuống dòng
+
+| Trước | Sau |
+| :--- | :--- |
+| `Enter` xuống dòng, `Ctrl/Cmd + Enter` gửi | **`Enter` gửi ngay**, `Ctrl/Cmd + Enter` chèn dòng mới tại vị trí con trỏ (giữ nguyên vùng chọn bị thay thế) |
+
+Chi tiết đã xử lý để không sinh lỗi mới:
+
+- Menu lệnh gạch chéo mở thì `Enter` **chọn lệnh** (người dùng đang chọn trong danh sách, chưa gửi) —
+  giữ nguyên hành vi cũ, tránh gửi nhầm khi đang gõ `/baogia`.
+- `Shift + Enter` cũng xuống dòng (thói quen phổ biến).
+- Placeholder và dòng gợi ý dưới câu trả lời đổi thành “Enter để gửi · Ctrl+Enter để xuống dòng”.
+
+### 9.2 Copilot đọc câu trả lời thành tiếng
+
+Đã chạy được (không cần khoá, không cần ngân sách):
+
+| Hạng mục | Chi tiết |
+| :--- | :--- |
+| Đọc từng câu trả lời | Nút **Đọc** dưới mỗi bong bóng trả lời; bấm lần hai = dừng (barge-in) |
+| Tự đọc câu trả lời mới | Công tắc trong hộp thoại **Giọng đọc** ở header workspace (chế độ rảnh tay) |
+| Dọn văn bản trước khi đọc | Bỏ markdown/citation/emoji, ngắt “(Điều 4, Khoản 2b)” — không đọc cả dấu sao |
+| Chọn nhà cung cấp & giọng | `GET/PUT /api/v1/settings/tts`: danh mục 7 nhà cung cấp kèm đơn giá niêm yết, mã giọng tiếng Việt, cờ “đã có khoá” (không bao giờ trả khoá) |
+| Phân quyền | Hồ sơ riêng của từng nhân viên (`scope=user`) thắng mặc định; **mặc định dùng chung chỉ ADMIN/MANAGER** đổi được — một Sale không đổi giọng cho 20k người |
+| Đo chi phí | `cost_hint` quy từ đơn giá × ký tự, cắt theo trần ký tự/lượt; UI nói trước “tối đa X USD/lượt” |
+| Chọn giọng theo dữ liệu | 👍/👎 ngay trong hộp thoại → `POST /settings/tts/feedback` → tỉ lệ hài lòng theo từng giọng |
+| Admin nhìn thấy | Tab **Giọng đọc (TTS)** trong `admin_cp`: chọn giọng dùng chung, xem bảng giá + tình trạng khoá + mức hài lòng |
+| Máy chưa có giọng tiếng Việt | Báo rõ “Máy này chưa có giọng tiếng Việt…” thay vì im lặng đọc sai tiếng |
+
+**Chưa nối (nói thẳng):** endpoint tổng hợp audio (`POST /api/v1/tts/speak`) và cache audio. Hiện audio do
+**trình duyệt** tổng hợp (0 đồng, giọng tuỳ máy), nên khi chọn nhà cung cấp trả phí thì UI báo đúng là
+“chưa nối endpoint tổng hợp audio — đang đọc bằng giọng máy”. Hợp đồng API, bảng giá, bài toán chi phí
+theo quy mô và các câu hỏi cần chốt (ngân sách, dữ liệu có được ra ngoài) nằm ở
+`docs/team_report/tts_integration_plan.md`.
+
+### 9.3 Kiểm chứng đợt 6 (chạy thật)
+
+| Lệnh / kịch bản | Kết quả |
+| :--- | :--- |
+| `.venv/bin/python -m pytest -q` | **535 passed** (đợt 5: 526; +9 test TTS) |
+| `cd frontend && npm test` | **38/38 passed** (đợt 5: 33; +5 test TTS) |
+| `cd frontend && npx tsc -b apps/internal` | **exit 0** |
+| `cd frontend && npm run lint` | **0 error**, 124 warning (không tăng) |
+| Smoke mock: `GET /api/v1/settings/tts` | `browser` / `vi-VN` / chi phí **0 USD**; danh mục 4 nhà cung cấp kèm giá + cờ khoá |
+| Smoke mock: Sale `PUT scope=user` sang Google | nhận `vi-VN-Wavenet-A`, `cost_hint` = **0,0024 USD** cho 600 ký tự |
+| Smoke mock: Sale `PUT scope=default` | **403** kèm hướng dẫn; MANAGER đổi được → `viettel` / `hn_female_ngochuyen` |
+| Smoke mock: 👍/👎 giọng đọc | `feedback_summary` = 1 ổn / 1 chưa ổn → **50% hài lòng** |
+| Kiểm tra hàm đọc (Node, không có Web Speech) | trả `ok=false` + lý do rõ ràng; `toSpeakableText()` bỏ markdown/citation/emoji đúng mong đợi |
+
+---
+
+## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
    Trang `/admin/copilot-quality` đã trả lời được "chất lượng đang lên hay xuống, kém ở đâu".
@@ -350,6 +406,11 @@ hồ sơ cũ và **mọi API ADMIN đều 403 dù đã đăng nhập đúng**. N
    khỏi prompt khi nó đã được sửa — cả hai cần thêm dữ liệu thật mới đáng làm.
 2. **Critic chưa gọi LLM sửa lời**: hiện critic *phát hiện + nhắc*, không tự viết lại. Đã có cờ `COPILOT_CRITIC=1` để bật một lượt sửa, nhưng **cố ý để mặc định TẮT** vì nhân đôi độ trễ. Từ đợt 5 đã có tab **Chi phí & hiệu năng** (§8.3) để đo cái giá đó trước khi bật — việc còn lại là chạy thử vài ngày rồi quyết định.
 3. **Trôi hợp đồng mock vs backend (TD-4.1)** mới xử lý ở tầng type (`QuoteCreateOutcome`) và ở lớp benchmark/cổng ban hành (§6.2 — nay hai bên trả cùng shape); triệt để thì mock-server nên đổi sang **201 đồng bộ** cho khớp backend thật, và `POST /policies/publish` của backend thật nên trả `PolicyDocument` như type frontend đang khai.
-4. **124 cảnh báo oxlint** còn lại: chủ yếu `no-unused-vars` ở `LeadInboxPage`, `PolicyListPage`… — dọn tiếp là việc cơ học, không rủi ro (đợt 5 không làm phát sinh cảnh báo mới).
-5. **Cache tool hiện trong-một-lượt** (theo phiên chat). Cache xuyên lượt/TTL cần thêm khoá theo `transaction_date` + chính sách hiệu lực để không trả dữ liệu cũ — nên làm cùng lúc với dashboard chi phí.
-6. **Eval mới chạy offline tất định** (không cần API key). Muốn đo chất lượng LLM thật thì chạy `python scripts/run_copilot_eval.py --mode llm` khi có `OPENAI_API_KEY`; bộ ngưỡng CI hiện bám chế độ offline để phù hợp môi trường không có key.
+4. **Audio TTS đang do trình duyệt tổng hợp**: nghe được ngay nhưng giọng tuỳ máy và không đo được chi phí.
+   Bước kế tiếp là `POST /api/v1/tts/speak` + cache + ghi chi phí vào `llm_usage.jsonl` (hợp đồng đã chốt
+   trong `tts_integration_plan.md` §7). Trước khi nối cần chốt: ngân sách/tháng, dữ liệu hội thoại có được
+   gửi ra nhà cung cấp nước ngoài không, và có cần nhân bản giọng thương hiệu không (§6 tài liệu đó).
+   Chưa làm: che PII trước khi đọc (SĐT/email khách) và bản tóm tắt để đọc cho câu trả lời dài.
+5. **124 cảnh báo oxlint** còn lại: chủ yếu `no-unused-vars` ở `LeadInboxPage`, `PolicyListPage`… — dọn tiếp là việc cơ học, không rủi ro (đợt 5 không làm phát sinh cảnh báo mới).
+6. **Cache tool hiện trong-một-lượt** (theo phiên chat). Cache xuyên lượt/TTL cần thêm khoá theo `transaction_date` + chính sách hiệu lực để không trả dữ liệu cũ — nên làm cùng lúc với dashboard chi phí.
+7. **Eval mới chạy offline tất định** (không cần API key). Muốn đo chất lượng LLM thật thì chạy `python scripts/run_copilot_eval.py --mode llm` khi có `OPENAI_API_KEY`; bộ ngưỡng CI hiện bám chế độ offline để phù hợp môi trường không có key.

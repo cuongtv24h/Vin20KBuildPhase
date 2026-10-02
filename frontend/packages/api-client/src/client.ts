@@ -54,6 +54,10 @@ import type {
   ReauthRequest,
   RulesTestReport,
   SendMessageCommand,
+  TtsFeedbackPayload,
+  TtsFeedbackResponse,
+  TtsSettingsPayload,
+  TtsSettingsResponse,
   UnitSnapshot,
   UpdateUserPayload,
 } from './contracts'
@@ -258,5 +262,15 @@ export const api = {
       call<LlmUsageSummary>('llmUsageSummary', {}, { query: { days }, signal }),
     usageRecords: (limit = 50, signal?: AbortSignal) =>
       call<LlmUsageRecordsResponse>('llmUsageRecords', {}, { query: { limit }, signal }),
+  },
+
+  /** Đọc câu trả lời Copilot (TTS): thiết lập giọng đọc + phản hồi chất lượng giọng. */
+  tts: {
+    settings: (signal?: AbortSignal) => call<TtsSettingsResponse>('ttsSettings', {}, { signal }),
+    updateSettings: (body: TtsSettingsPayload, o: CommandOptions = {}) =>
+      call<TtsSettingsResponse>('ttsSettingsUpdate', {}, { json: body, ...o }),
+    /** Ai cũng gửi được (kèm danh tính trong token) — dữ liệu để chọn giọng theo thực tế. */
+    feedback: (body: TtsFeedbackPayload, o: CommandOptions = {}) =>
+      call<TtsFeedbackResponse>('ttsFeedback', {}, { json: body, ...o }),
   },
 }

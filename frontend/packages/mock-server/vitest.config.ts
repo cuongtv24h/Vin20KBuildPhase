@@ -14,5 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // Mỗi test đi qua nhiều lượt HTTP thật + độ trễ mô phỏng của mock (flags.time_scale), nên 5s mặc
+    // định của vitest là quá sát: test "nguồn ENV → DB" cần 4 test con (login, khởi tạo ADMIN, CRUD)
+    // và từng chạm trần 5s khi máy chậm. 20s là mức an toàn, không che giấu test treo thật.
+    testTimeout: 20_000,
   },
 })

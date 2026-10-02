@@ -28,6 +28,9 @@ import {
   Search,
   ChevronRight,
   History,
+  Volume2,
+  Square,
+  Mic,
   PanelLeftClose,
   PanelLeftOpen,
   Trash2,
@@ -48,6 +51,9 @@ import {
   useCopilotConversation,
   useAppendCopilotTurnSync,
   useDeleteCopilotConversation,
+  useTtsSettings,
+  useUpdateTtsSettings,
+  useTtsVoiceFeedback,
 } from '@pricepolicy/api-client/hooks'
 import type {
   LeadDossier,
@@ -81,6 +87,7 @@ import { SlashCommandPalette } from '@pricepolicy/ui/components/common/SlashComm
 import { filterCommands, type SlashCommand } from '@pricepolicy/ui/lib/slashCommands'
 import { CopilotContextChips } from '@pricepolicy/ui/components/common/CopilotContextChips'
 import { formatVnd } from '@pricepolicy/ui/lib/format'
+import { speakText, stopSpeaking, isSpeechSupported, listLocalVoices } from '@pricepolicy/ui/lib/speech'
 import { OBJECTIVE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
 import { cn } from '@pricepolicy/ui/lib/utils'
 
@@ -923,6 +930,109 @@ export function SalesWorkspacePage() {
     setConversationId(nextId)
     setFailedTurn(null)
     if (nextId) setHistoryOpen(true)
+  }
+
+  // ── Đọc câu trả lời thành tiếng (TTS) ────────────────────────────────────────
+  // Giọng đọc lấy từ server (/settings/tts) để mọi máy trong công ty đọc cùng một giọng khi
+  // Admin cấu hình nhà cung cấp; chưa cấu hình thì đọc bằng giọng trình duyệt (0 đồng).
+  const ttsSettings = useTtsSettings()
+  const updateTtsSettings = useUpdateTtsSettings()
+  const sendVoiceFeedback = useTtsVoiceFeedback()
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false)
+  const [localVoices, setLocalVoices] = useState<Array<{ code: string; label: string }>>([])
+  const tts = ttsSettings.data
+  const ttsEffective = tts?.effective
+  const ttsProvider = tts?.catalog.find((c) => c.provider === ttsEffective?.provider)
+  /** Nhà cung cấp trả phí nhưng chưa nối endpoint tổng hợp audio → vẫn đọc bằng giọng máy. */
+  const usesBrowserVoice = !ttsProvider || ttsProvider.mode === 'browser'
+
+  useEffect(() => {
+    if (!isSpeechSupported()) return
+    let alive = true
+    void listLocalVoices().then((voices) => {
+      if (alive) setLocalVoices(voices)
+    })
+    return () => {
+      alive = false
+      stopSpeaking()
+    }
+  }, [])
+
+  /** Đọc một câu trả lời; bấm lần hai (hoặc câu khác) thì dừng/đổi câu. */
+  const handleSpeak = (id: string, text: string) => {
+    if (speakingId === id) {
+      stopSpeaking()
+      setSpeakingId(null)
+      return
+    }
+    if (!ttsEffective?.enabled) {
+      showToast('Tính năng đọc thành tiếng đang tắt — bật trong “Giọng đọc”.')
+      return
+    }
+    const result = speakText(text, {
+      voice: ttsEffective.voice,
+      speed: ttsEffective.speed,
+      maxChars: ttsEffective.max_chars_per_turn,
+      onEnd: () => setSpeakingId((cur) => (cur === id ? null : cur)),
+      onError: (reason) => {
+        setSpeakingId(null)
+        showToast(reason)
+      },
+    })
+    if (result.ok) {
+      setSpeakingId(id)
+      if (result.reason) showToast(result.reason)
+      if (usesBrowserVoice && ttsProvider && ttsProvider.mode === 'api') {
+        showToast(`Chưa nối endpoint tổng hợp audio của ${ttsProvider.label} — đang đọc bằng giọng máy.`)
+      }
+    } else {
+      setSpeakingId(null)
+    }
+  }
+
+  /** Tự đọc mỗi câu trả lời mới khi Sale bật chế độ rảnh tay. */
+  useEffect(() => {
+    if (!ttsEffective?.auto_speak || !ttsEffective.enabled) return
+    const last = [...messages].reverse().find((m) => m.type === 'agent' && (m.text || '').trim())
+    if (!last || last.id === speakingId) return
+    const result = speakText(last.text || '', {
+      voice: ttsEffective.voice,
+      speed: ttsEffective.speed,
+      maxChars: ttsEffective.max_chars_per_turn,
+      onEnd: () => setSpeakingId((cur) => (cur === last.id ? null : cur)),
+      onError: () => setSpeakingId(null),
+    })
+    if (result.ok) setSpeakingId(last.id)
+    // Cố ý chỉ phụ thuộc vào câu trả lời cuối + thiết lập: không đọc lại khi gõ phím.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, ttsEffective?.auto_speak, ttsEffective?.enabled, ttsEffective?.voice, ttsEffective?.speed])
+
+  /** Lưu lựa chọn giọng đọc (mặc định hệ thống cần ADMIN/MANAGER — server chặn). */
+  const saveTts = async (payload: Record<string, unknown>, scope: 'user' | 'default' = 'user') => {
+    try {
+      await updateTtsSettings.mutateAsync({ scope, ...payload })
+      showToast(scope === 'default' ? 'Đã lưu giọng đọc dùng chung' : 'Đã lưu giọng đọc của anh/chị')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Không lưu được thiết lập giọng đọc')
+    }
+  }
+
+  /** Phản hồi giọng vừa đọc — dữ liệu để chọn giọng theo thực tế thay vì cảm tính. */
+  const rateVoice = async (rating: 1 | -1) => {
+    if (!ttsEffective) return
+    try {
+      await sendVoiceFeedback.mutateAsync({
+        rating,
+        provider: ttsEffective.provider,
+        voice: ttsEffective.voice,
+        conversation_id: conversationId,
+        reason: rating === -1 ? 'Sale chê giọng đọc trong workspace' : undefined,
+      })
+      showToast(rating === 1 ? 'Cảm ơn anh/chị đã xác nhận giọng đọc' : 'Đã ghi nhận — Admin sẽ xem lại giọng đọc')
+    } catch {
+      showToast('Không gửi được phản hồi giọng đọc')
+    }
   }
 
   const handleDeleteConversation = async (id: string) => {
@@ -1782,6 +1892,16 @@ export function SalesWorkspacePage() {
         <div className="flex items-center gap-2">
           <Button
             size="sm"
+            variant={ttsEffective?.auto_speak ? 'default' : 'outline'}
+            onClick={() => setVoicePickerOpen(true)}
+            title="Chọn giọng đọc câu trả lời"
+            className="h-7 gap-1.5 text-xs"
+          >
+            <Volume2 className="h-3.5 w-3.5" />
+            {ttsEffective?.auto_speak ? 'Tự đọc' : 'Giọng đọc'}
+          </Button>
+          <Button
+            size="sm"
             variant="outline"
             onClick={() => setHistoryOpen((v) => !v)}
             title={historyOpen ? 'Ẩn lịch sử hội thoại' : 'Hiện lịch sử hội thoại'}
@@ -1903,6 +2023,31 @@ export function SalesWorkspacePage() {
                           onOpen={(citation) => setEvidenceDetail(citationToEvidence(citation))}
                         />
                       )}
+                      <div className="mt-1.5 flex items-center gap-2 border-t border-border/60 pt-1.5">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={cn(
+                            'h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground',
+                            speakingId === m.id && 'text-primary',
+                          )}
+                          title={speakingId === m.id ? 'Dừng đọc' : 'Đọc câu trả lời thành tiếng'}
+                          onClick={() => handleSpeak(m.id, m.text || '')}
+                        >
+                          {speakingId === m.id ? (
+                            <>
+                              <Square className="h-3 w-3" /> Dừng đọc
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="h-3 w-3" /> Đọc
+                            </>
+                          )}
+                        </Button>
+                        <span className="text-[10px] text-muted-foreground">
+                          {ttsEffective?.auto_speak ? 'Đang tự đọc câu trả lời mới' : 'Enter để gửi · Ctrl+Enter để xuống dòng'}
+                        </span>
+                      </div>
                     </div>
                     {/* Suggested actions pills */}
                     {m.suggested_actions && m.suggested_actions.length > 0 && (
@@ -2656,10 +2801,20 @@ export function SalesWorkspacePage() {
                   setSlashOpen(next.startsWith('/'))
                 }}
                 onKeyDown={(e) => {
-                  // Enter = xuống dòng. Gửi = Ctrl/Cmd + Enter hoặc nút Gửi.
+                  // Enter = gửi nhanh. Ctrl/Cmd + Enter = xuống dòng (soạn câu nhiều dòng).
+                  // Ngoại lệ: khi menu lệnh gạch chéo đang mở, Enter để CHỌN lệnh — người dùng
+                  // đang chọn trong danh sách chứ chưa gửi.
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault()
-                    handleSendChatMessage()
+                    const el = e.currentTarget
+                    const start = el.selectionStart ?? inputVal.length
+                    const end = el.selectionEnd ?? start
+                    const next = `${inputVal.slice(0, start)}\n${inputVal.slice(end)}`
+                    setInputVal(next)
+                    requestAnimationFrame(() => {
+                      el.selectionStart = el.selectionEnd = start + 1
+                    })
+                    return
                   }
                   // Điều hướng menu gạch chéo bằng bàn phím (↑/↓/Enter/Esc).
                   if (slashOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
@@ -2669,10 +2824,17 @@ export function SalesWorkspacePage() {
                         ? (idx + 1) % Math.max(filteredCommands.length, 1)
                         : (idx - 1 + filteredCommands.length) % Math.max(filteredCommands.length, 1),
                     )
+                    return
                   }
-                  if (slashOpen && e.key === 'Enter' && !e.ctrlKey && !e.metaKey && filteredCommands[slashIndex]) {
+                  if (slashOpen && e.key === 'Enter' && !e.shiftKey && filteredCommands[slashIndex]) {
                     e.preventDefault()
                     handleExecuteSlash(filteredCommands[slashIndex].cmd)
+                    return
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSendChatMessage()
+                    return
                   }
                   if (e.key === 'Escape') {
                     e.preventDefault()
@@ -2681,7 +2843,7 @@ export function SalesWorkspacePage() {
                 }}
                 rows={1}
                 aria-label="Nhập yêu cầu cho trợ lý Copilot"
-                placeholder="Ra lệnh cho Copilot… (Enter: xuống dòng · Ctrl+Enter: gửi)"
+                placeholder="Ra lệnh cho Copilot… (Enter: gửi · Ctrl+Enter: xuống dòng)"
                 className="max-h-24 flex-1 resize-none rounded-xl border border-input bg-background px-3.5 py-2 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
               {copilot.streaming ? (
@@ -3884,6 +4046,147 @@ export function SalesWorkspacePage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================= GIỌNG ĐỌC CÂU TRẢ LỜI (TTS) ================= */}
+      <Dialog open={voicePickerOpen} onOpenChange={setVoicePickerOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Volume2 className="h-5 w-5" /> Giọng đọc câu trả lời
+            </DialogTitle>
+            <DialogDescription>
+              Copilot đọc câu trả lời thành tiếng để anh/chị không phải rời mắt khỏi khách. Mặc định dùng
+              giọng có sẵn trên máy (0 đồng); khi Admin khai báo nhà cung cấp TTS, cả công ty đọc cùng một giọng.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm">
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+              <span>
+                <span className="block font-medium">Tự đọc mỗi câu trả lời mới</span>
+                <span className="block text-xs text-muted-foreground">
+                  Chế độ rảnh tay — tiện khi đang dẫn khách xem căn hộ.
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={Boolean(ttsEffective?.auto_speak)}
+                onChange={(e) => void saveTts({ auto_speak: e.target.checked })}
+              />
+            </label>
+
+            <div className="space-y-1.5">
+              <Label>Nhà cung cấp giọng đọc</Label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={ttsEffective?.provider ?? 'browser'}
+                onChange={(e) => {
+                  const provider = tts?.catalog.find((c) => c.provider === e.target.value)
+                  void saveTts({
+                    provider: e.target.value,
+                    voice: provider?.voices[0]?.code ?? 'vi-VN',
+                    model: provider?.default_model ?? '',
+                  })
+                }}
+              >
+                {(tts?.catalog ?? []).map((c) => (
+                  <option key={c.provider} value={c.provider}>
+                    {c.label}
+                    {c.mode === 'api' ? (c.api_key_configured ? ' — đã có khoá' : ' — chưa có khoá') : ' — miễn phí'}
+                  </option>
+                ))}
+              </select>
+              {ttsProvider && (
+                <p className="text-[11px] text-muted-foreground">
+                  {ttsProvider.price_per_1m_chars > 0
+                    ? `Đơn giá ${ttsProvider.price_per_1m_chars.toLocaleString('vi-VN')} ${ttsProvider.currency}/1 triệu ký tự · kiểm chứng ${ttsProvider.verified_at}`
+                    : 'Không phát sinh chi phí.'}{' '}
+                  {ttsProvider.mode === 'api' && !ttsProvider.api_key_configured
+                    ? 'Cần khai báo khoá cho nhà cung cấp này trước khi dùng.'
+                    : ''}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Giọng đọc</Label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                value={ttsEffective?.voice ?? ''}
+                onChange={(e) => void saveTts({ voice: e.target.value })}
+              >
+                {(ttsProvider?.voices ?? []).map((v) => (
+                  <option key={v.code} value={v.code}>
+                    {v.label}
+                  </option>
+                ))}
+                {localVoices.map((v) => (
+                  <option key={`local-${v.code}`} value={v.code}>
+                    {v.label} (trên máy này)
+                  </option>
+                ))}
+              </select>
+              {localVoices.length === 0 && (
+                <p className="text-[11px] text-amber-600">
+                  Máy này chưa có giọng tiếng Việt — cài trong Cài đặt hệ thống để nghe đúng tiếng Việt.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Tốc độ đọc: {ttsEffective?.speed?.toFixed(2) ?? '1.00'}×</Label>
+              <input
+                type="range"
+                min={0.5}
+                max={2}
+                step={0.05}
+                value={ttsEffective?.speed ?? 1}
+                onChange={(e) => void saveTts({ speed: Number(e.target.value) })}
+                className="w-full"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 p-3 text-xs">
+              <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => handleSpeak('preview', 'Dạ, chính sách đang hiệu lực là CSBH The Zen Park, chiết khấu thanh toán sớm 3 phần trăm.')}>
+                <Mic className="h-3.5 w-3.5" /> Nghe thử
+              </Button>
+              <span className="text-muted-foreground">
+                Chi phí tối đa mỗi lượt đọc:{' '}
+                <strong>
+                  {tts ? `${tts.cost_hint.cost.toLocaleString('vi-VN', { maximumFractionDigits: 4 })} ${tts.cost_hint.currency}` : '—'}
+                </strong>
+                {tts && tts.cost_hint.chars > 0 ? ` cho ${tts.cost_hint.chars} ký tự` : ''}
+              </span>
+              <span className="ml-auto flex items-center gap-1">
+                <span className="text-muted-foreground">Giọng này ổn không?</span>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe ổn" onClick={() => void rateVoice(1)}>
+                  👍
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe chưa ổn" onClick={() => void rateVoice(-1)}>
+                  👎
+                </Button>
+              </span>
+            </div>
+
+            {tts?.feedback_summary.total ? (
+              <p className="text-[11px] text-muted-foreground">
+                Giọng này được đánh giá: {tts.feedback_summary.up} ổn / {tts.feedback_summary.down} chưa ổn
+                {tts.feedback_summary.satisfaction != null
+                  ? ` (${Math.round(tts.feedback_summary.satisfaction * 100)}% hài lòng)`
+                  : ''}
+                .
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoicePickerOpen(false)}>
+              Đóng
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

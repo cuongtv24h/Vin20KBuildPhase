@@ -488,6 +488,52 @@ class UserModel(Base):
         return True
 
 
+class TTSSettingsModel(Base):
+    """Thiết lập đọc câu trả lời Copilot (Text-to-Speech) — Admin đặt mặc định, Sale ghi đè riêng.
+
+    Vì sao có bảng này thay vì hằng số trong code: 20k Sale cần đổi giọng/tốc độ đọc mà không cần
+    deploy; ngược lại không thể để mỗi người âm thầm đổi giọng cho toàn hệ thống. Nên `scope` là
+    khoá chính: `default` (toàn hệ thống, ghi bởi ADMIN/MANAGER) hoặc `user:<user_id>` (sở thích
+    riêng của từng nhân viên). Khi đọc, hệ thống lấy hồ sơ người dùng trước, không có thì lấy mặc định.
+
+    `provider` trỏ tới danh mục trong `src/services/tts_providers.py` (`browser` là miễn phí và luôn
+    sẵn sàng). Khoá API của nhà cung cấp TTS **không** lưu ở đây.
+    """
+
+    __tablename__ = "tts_settings"
+
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True, default="default")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    auto_speak: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="browser")
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    voice: Mapped[str] = mapped_column(String(64), nullable=False, default="vi-VN")
+    speed: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    max_chars_per_turn: Mapped[int] = mapped_column(Integer, nullable=False, default=600)
+    updated_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class TTSFeedbackModel(Base):
+    """Phản hồi về giọng đọc (nghe ổn hay không) — vòng lặp để chọn giọng phù hợp thực tế.
+
+    Không đo "hay/dở" bằng cảm tính người viết code: ghi lại lượt nghe, giọng nào, ai nghe, khen/chê
+    và lý do (đã cắt bớt, bỏ ký tự điều khiển) để báo cáo chọn giọng dựa trên dữ liệu.
+    """
+
+    __tablename__ = "tts_feedback"
+
+    feedback_id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: f"TTSFB-{uuid.uuid4().hex[:10]}")
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    voice: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: 1 = nghe ổn, -1 = nghe chưa ổn.
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class LLMProviderModel(Base):
     """Nhà cung cấp LLM do Admin khai báo trong giao diện (không phải sửa .env).
 

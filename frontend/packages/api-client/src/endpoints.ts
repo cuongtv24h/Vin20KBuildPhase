@@ -113,6 +113,11 @@ export const ENDPOINTS = {
   llmProviderTest: def({ method: 'POST', path: '/admin/llm/providers/{provider_id}/test', source: 'PROPOSED', auth: ['ADMIN'] }),
   llmUsageSummary: def({ method: 'GET', path: '/admin/llm/usage/summary', source: 'PROPOSED', auth: ['ADMIN'] }),
   llmUsageRecords: def({ method: 'GET', path: '/admin/llm/usage/records', source: 'PROPOSED', auth: ['ADMIN'] }),
+
+  // Đọc câu trả lời Copilot (TTS) — thiết lập dùng chung/riêng + phản hồi giọng đọc (mọi nhân viên)
+  ttsSettings: def({ method: 'GET', path: '/settings/tts', source: 'PROPOSED', auth: 'staff' }),
+  ttsSettingsUpdate: def({ method: 'PUT', path: '/settings/tts', source: 'PROPOSED', auth: 'staff' }),
+  ttsFeedback: def({ method: 'POST', path: '/settings/tts/feedback', source: 'PROPOSED', auth: 'staff' }),
 } as const
 
 export type EndpointName = keyof typeof ENDPOINTS

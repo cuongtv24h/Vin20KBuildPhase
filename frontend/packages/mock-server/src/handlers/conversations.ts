@@ -31,8 +31,6 @@ onReset(() => {
   seq = 0
 })
 
-const nowIso = () => new Date().toISOString()
-
 const titleFrom = (text: string) => {
   const clean = text.replace(/\s+/g, ' ').trim()
   if (!clean) return 'Cuộc trò chuyện mới'

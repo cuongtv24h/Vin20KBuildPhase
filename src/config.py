@@ -27,6 +27,23 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     llm_max_retries: int = Field(default=1, ge=0, le=10)
 
+    # Text-to-Speech (đọc câu trả lời Copilot) — giá trị khởi tạo từ ENV,
+    # thiết lập trong DB/UI sẽ đè lên khi có.
+    tts_provider: str = ""
+    tts_model: str = ""
+    tts_voice: str = ""
+    tts_speed: float = 1.0
+    tts_enabled: bool = True
+    tts_auto_speak: bool = False
+    tts_max_chars_per_turn: int = 600
+    #: Khoá của các nhà cung cấp TTS không dùng chung OPENAI_API_KEY.
+    google_application_credentials: str = ""
+    azure_speech_key: str = ""
+    azure_speech_region: str = "southeastasia"
+    viettel_tts_token: str = ""
+    vbee_token: str = ""
+    fpt_tts_api_key: str = ""
+
     # Fallback LLM 1
     fallback_openai_api_key: str | None = Field(
         default=None,

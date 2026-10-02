@@ -70,7 +70,7 @@ import { toast } from '@pricepolicy/ui/state/toastStore'
 import { cn } from '@pricepolicy/ui/lib/utils'
 
 import { useSessionStore } from '@/auth/sessionStore'
-import { LlmProvidersTab, LlmUsageTab } from './LlmAdminTabs'
+import { LlmProvidersTab, LlmUsageTab, TtsTab } from './LlmAdminTabs'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Trang Quản trị Hệ thống (Admin CP)
@@ -550,7 +550,7 @@ function AdminUsersTab() {
 //     · Nhà cung cấp LLM (tự khai báo API key, đơn giá) — không cần sửa ENV
 //     · Chi phí & hiệu năng (đo token, độ trễ, chi phí mỗi lượt gọi)
 // ─────────────────────────────────────────────────────────────────────────────
-type AdminTab = 'users' | 'providers' | 'usage'
+type AdminTab = 'users' | 'providers' | 'usage' | 'tts'
 
 function AdminUserManagementDashboard() {
   const [tab, setTab] = useState<AdminTab>('users')
@@ -559,6 +559,7 @@ function AdminUserManagementDashboard() {
     { id: 'users', label: 'Người dùng & phân quyền', hint: 'Tài khoản, vai trò, khởi tạo' },
     { id: 'providers', label: 'Nhà cung cấp LLM', hint: 'API key + đơn giá, không cần sửa ENV' },
     { id: 'usage', label: 'Chi phí & hiệu năng', hint: 'Token, độ trễ, chi phí mỗi lượt gọi' },
+    { id: 'tts', label: 'Giọng đọc (TTS)', hint: 'Copilot đọc câu trả lời: nhà cung cấp, giọng, đơn giá' },
   ]
 
   return (
@@ -600,6 +601,7 @@ function AdminUserManagementDashboard() {
       {tab === 'users' && <AdminUsersTab />}
       {tab === 'providers' && <LlmProvidersTab />}
       {tab === 'usage' && <LlmUsageTab />}
+      {tab === 'tts' && <TtsTab />}
     </div>
   )
 }
