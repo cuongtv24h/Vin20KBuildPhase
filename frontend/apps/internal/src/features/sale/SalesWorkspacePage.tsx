@@ -31,6 +31,7 @@ import {
   Volume2,
   Square,
   Mic,
+  MicOff,
   PanelLeftClose,
   PanelLeftOpen,
   Trash2,
@@ -85,6 +86,18 @@ import { EmptyState, ErrorState, LoadingState, QueryState } from '@pricepolicy/u
 import { FormattedAiMessage } from '@pricepolicy/ui/components/common/FormattedAiMessage'
 import { CitationChips, ReasoningTrace } from '@pricepolicy/ui/components/common/ReasoningTrace'
 import { SlashCommandPalette } from '@pricepolicy/ui/components/common/SlashCommandPalette'
+import {
+  ACTIVE_CONVERSATION_STORAGE_KEY,
+  copilotChatStore,
+  useCopilotChatConversationId,
+  useCopilotChatMessages,
+} from '@pricepolicy/api-client/copilotChatState'
+import {
+  SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE,
+  createSpeechToText,
+  isSpeechToTextSupported,
+  type SpeechToTextController,
+} from '@pricepolicy/ui/lib/speech'
 import { filterCommands, type SlashCommand } from '@pricepolicy/ui/lib/slashCommands'
 import { CopilotContextChips } from '@pricepolicy/ui/components/common/CopilotContextChips'
 import { formatVnd } from '@pricepolicy/ui/lib/format'
@@ -287,9 +300,6 @@ type StreamItemType =
   | 'smart_units_browse'
   | 'smart_compose_message'
   | 'reasoning'
-
-/** ID cuộc hội thoại Copilot đang mở — giữ qua các lần đổi trang trong cùng phiên trình duyệt. */
-const ACTIVE_CONVERSATION_STORAGE_KEY = 'copilot.activeConversationId'
 
 const storedConversationId = () => {
   try {
@@ -863,8 +873,9 @@ export function SalesWorkspacePage() {
     setCopilotUnit(preferred)
   }, [selectedLead?.dossier_id, selectedLead?.constraints?.preferred_unit_code])
 
-  // Chat Stream State
-  const [messages, setMessages] = useState<StreamItem[]>([])
+  // Chat Stream State — nằm trong store ngoài component (xem `copilotChatState.ts`): đổi trang
+  // sang Báo giá rồi quay lại vẫn còn nguyên hội thoại, F5 cũng không mất.
+  const [messages, setMessages] = useCopilotChatMessages<StreamItem>()
   const [inputVal, setInputVal] = useState('')
   const [slashOpen, setSlashOpen] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
@@ -895,7 +906,7 @@ export function SalesWorkspacePage() {
 
   // ── Lịch sử hội thoại Copilot (lỗi P1 "đổi trang là mất hội thoại") ──────────
   // Nguồn sự thật là server: mở lại trang thì nạp lại đúng cuộc đang dở thay vì bắt đầu trắng.
-  const [conversationId, setConversationId] = useState<string | null>(() => storedConversationId())
+  const [conversationId, setConversationId] = useCopilotChatConversationId()
   // Mặc định ẨN khung lịch sử cho gọn màn hình chat; Sale bấm nút "Lịch sử" mới mở.
   const [historyOpen, setHistoryOpen] = useState(false)
   /** Chỉ nạp lại khung chat khi đổi cuộc — không đè lên lượt đang gõ. */
@@ -906,25 +917,31 @@ export function SalesWorkspacePage() {
   const deleteConversation = useDeleteCopilotConversation()
   const pendingQuestionsRef = useRef<Record<string, string>>({})
 
+  /**
+   * `reloadNonce` tăng mỗi lần người dùng **chủ động mở lại** một cuộc (bấm vào lịch sử) — nhờ đó
+   * bấm lại đúng cuộc đang mở vẫn nạp lại nội dung mới nhất, thay vì im lặng không làm gì.
+   */
+  const [reloadNonce, setReloadNonce] = useState(0)
+  const reloadNonceRef = useRef(0)
+  reloadNonceRef.current = reloadNonce
+
   useEffect(() => {
     if (!conversationId) {
-      // Cuộc mới: chỉ dọn khung chat một lần cho mỗi lần "làm mới".
-      if (loadedConversationRef.current !== null) {
-        loadedConversationRef.current = null
-        setMessages([])
-        copilot.reset()
-      }
+      // Phiên mới (chưa có id): KHÔNG xoá khung chat — nội dung đang gõ nằm trong store và phải
+      // sống tiếp khi người dùng đổi trang quay lại. Chỉ đánh dấu là chưa nạp từ server.
+      loadedConversationRef.current = null
       return
     }
     const detail = conversation.data
     if (!detail || detail.conversation_id !== conversationId) return
-    if (loadedConversationRef.current === conversationId) return
-    loadedConversationRef.current = conversationId
+    const stamp = `${conversationId}#${reloadNonce}`
+    if (loadedConversationRef.current === stamp) return
+    loadedConversationRef.current = stamp
     setMessages(chatItemsFromConversation(detail.messages ?? []))
     copilot.reset()
     scrollChatToEnd()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ nạp khi đổi cuộc/ có dữ liệu mới lần đầu
-  }, [conversationId, conversation.data])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ nạp khi đổi cuộc/ có dữ liệu mới
+  }, [conversationId, conversation.data, reloadNonce])
 
   /**
    * Không mở được cuộc cũ: 404 (đã bị xoá / của nhân viên khác) thì quên id đang nhớ để lần sau
@@ -944,12 +961,40 @@ export function SalesWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy khi lỗi đổi
   }, [conversationId, conversation.error])
 
-  /** Đổi cuộc: lưu lựa chọn rồi để effect trên nạp nội dung từ server. */
-  const openConversation = (nextId: string | null) => {
+  /**
+   * Mở phiên chat mới: khung chat trống, cuộc cũ đã nằm trong lịch sử (ghi tự động sau mỗi lượt).
+   * Chặn khi trợ lý đang trả lời — đổi phiên giữa chừng sẽ làm mất lượt đang chạy.
+   */
+  const startNewChatSession = () => {
+    if (copilot.streaming) {
+      showToast('Trợ lý đang trả lời — anh/chị đợi một chút rồi mở phiên mới.')
+      return
+    }
+    copilotChatStore.setConversationId(null)
+    rememberConversationId(null)
+    loadedConversationRef.current = null
+    setFailedTurn(null)
+    copilot.reset()
+    setInputVal('')
+    setHistoryOpen(false)
+    inputTextAreaRef.current?.focus()
+    showToast('Đã mở phiên chat mới. Cuộc vừa rồi vẫn nằm trong Lịch sử.')
+  }
+
+  /**
+   * Đổi cuộc: lưu lựa chọn, đưa nội dung đã đọc vào khung chat ngay (cache trong store), rồi để
+   * effect trên thay bằng bản mới nhất từ server.
+   *
+   * Bấm lại **đúng cuộc đang mở** cũng phải nạp lại (`reloadNonce`) — trước đây thao tác này không
+   * làm gì cả, nên người dùng bấm vào lịch sử mà không thấy gì xảy ra.
+   */
+  const openConversation = (nextId: string | null, opts: { force?: boolean } = {}) => {
+    const sameConversation = nextId === conversationId
     rememberConversationId(nextId)
     setConversationId(nextId)
     setFailedTurn(null)
     if (nextId) setHistoryOpen(true)
+    if (nextId && (sameConversation || opts.force)) setReloadNonce((n) => n + 1)
   }
 
   // ── Đọc câu trả lời thành tiếng (TTS) ────────────────────────────────────────
@@ -1062,9 +1107,21 @@ export function SalesWorkspacePage() {
       showToast('Không xoá được cuộc hội thoại — anh thử lại giúp em')
       return
     }
+    copilotChatStore.forget(id)
     if (id === conversationId) openConversation(null)
   }
 
+
+  // ── Nhập câu hỏi bằng giọng nói ("rảnh tay", Web Speech API) ─────────────────
+  // Chrome/Edge/Cốc Cốc có sẵn, 0 đồng. Bật là nghe liên tục: nói xong một câu, trình duyệt tự
+  // nghe lại cho tới khi Sale bấm dừng — Sale không phải chạm máy giữa các câu.
+  const sttSupported = useMemo(() => isSpeechToTextSupported(), [])
+  const [sttListening, setSttListening] = useState(false)
+  const sttRef = useRef<SpeechToTextController | null>(null)
+  /** Phần văn bản đã chốt trước khi bật micro — chữ đang nói được ghép vào sau phần này. */
+  const sttBaseRef = useRef('')
+  const showToastRef = useRef<(message: string) => void>(() => undefined)
+  const inputValRef = useRef('')
 
   // Copilot Composer State
   const [draftContent, setDraftContent] = useState(
@@ -1088,6 +1145,45 @@ export function SalesWorkspacePage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const inputTextAreaRef = useRef<HTMLTextAreaElement>(null)
+  inputValRef.current = inputVal
+
+  useEffect(() => {
+    if (!sttSupported) return
+    const controller = createSpeechToText({
+      lang: 'vi-VN',
+      continuous: true,
+      // Chữ tạm hiện ngay trong ô nhập để Sale thấy máy đang nghe đúng.
+      onPartial: (text) => setInputVal(`${sttBaseRef.current}${text}`.trimStart()),
+      onFinal: (text) => {
+        sttBaseRef.current = `${sttBaseRef.current}${text} `.replace(/\s+/g, ' ')
+        setInputVal(sttBaseRef.current.trimStart())
+      },
+      onStateChange: setSttListening,
+      onError: (message) => showToastRef.current(message),
+    })
+    sttRef.current = controller
+    return () => {
+      controller.stop()
+      sttRef.current = null
+    }
+  }, [sttSupported])
+
+  /** Bật/tắt micro. Trình duyệt không hỗ trợ (Safari/Firefox) thì nói rõ thay vì im lặng. */
+  const toggleVoiceInput = () => {
+    const controller = sttRef.current
+    if (!controller?.supported) {
+      showToast(SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE)
+      return
+    }
+    if (controller.isListening()) {
+      controller.stop()
+      showToast('Đã dừng nghe. Anh/chị kiểm tra lại câu hỏi rồi bấm gửi.')
+      return
+    }
+    sttBaseRef.current = inputValRef.current ? `${inputValRef.current.trim()} ` : ''
+    controller.start()
+    showToast('Đang nghe… anh/chị nói câu hỏi; bấm micro lần nữa để dừng.')
+  }
 
   const showToast = (text: string) => {
     setToastMessage(text)
@@ -1095,6 +1191,8 @@ export function SalesWorkspacePage() {
       setToastMessage((cur) => (cur === text ? null : cur))
     }, 3200)
   }
+  // Bộ nhận dạng giọng nói được tạo một lần trong effect, cần gọi được hàm mới nhất.
+  showToastRef.current = showToast
 
   // Đặt câu hỏi mẫu vào chat input và focus (dùng chung cho các nút "Hỏi agent")
   const askAgent = (question: string) => {
@@ -1154,15 +1252,22 @@ export function SalesWorkspacePage() {
   }
 
   // Initialize Morning Briefing on Mount
+  // LƯU Ý (lỗi thật đã gặp): đây từng là `setMessages([...])` trần trong effect deps rỗng, nên mỗi lần
+  // quay lại trang Trợ lý là nó **ghi đè** hội thoại vừa khôi phục bằng đúng một tin chào — một phần
+  // của triệu chứng "đổi trang là mất hết đoạn chat". Nay chỉ chào khi phiên chat còn trống.
   useEffect(() => {
     const time = new Date().toTimeString().slice(0, 5)
-    setMessages([
-      {
-        id: 'msg-greeting',
-        type: 'welcome',
-        time,
-      },
-    ])
+    setMessages((prev) =>
+      prev.length > 0
+        ? prev
+        : [
+            {
+              id: 'msg-greeting',
+              type: 'welcome',
+              time,
+            },
+          ],
+    )
     scrollChatToEnd()
   }, [])
 
@@ -1268,7 +1373,9 @@ export function SalesWorkspacePage() {
         if (!conversationId && detail.conversation_id) {
           rememberConversationId(detail.conversation_id)
           setConversationId(detail.conversation_id)
-          loadedConversationRef.current = detail.conversation_id
+          // Nội dung đã hiển thị chính là nội dung server vừa lưu → không cần nạp lại và không
+          // được làm rơi mất các thẻ tương tác (confirm/stepper) chỉ có ở phía client.
+          loadedConversationRef.current = `${detail.conversation_id}#${reloadNonceRef.current}`
         }
       })
     }
@@ -1923,6 +2030,18 @@ export function SalesWorkspacePage() {
               </Badge>
             )}
           </Button>
+          {/* Phiên chat mới — luôn hiện, không nằm trong khung lịch sử (trước đây chỉ có nút "Mới"
+              bên trong khung lịch sử nên Sale không biết có chức năng này). */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={startNewChatSession}
+            title="Mở phiên chat mới (hội thoại hiện tại đã được lưu vào lịch sử)"
+            className="h-7 gap-1.5 text-xs"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Phiên chat mới
+          </Button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -2012,13 +2131,13 @@ export function SalesWorkspacePage() {
         )}
 
         {/* ----- AGENT CONVERSATION (MAIN) ----- */}
-        <section className="flex min-w-0 flex-1 flex-col bg-background">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
           {/* Chat Stream Messages */}
           <div
             role="log"
             aria-live="polite"
             aria-label="Hội thoại với trợ lý Copilot"
-            className="flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth"
+            className="min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth"
           >
             {messages.map((m) => {
               if (m.type === 'user') {
@@ -2696,7 +2815,7 @@ export function SalesWorkspacePage() {
           </div>
 
           {/* Bottom Chat Command Bar */}
-          <div className="relative shrink-0 border-t border-border bg-card p-3 shadow-xs">
+          <div className="sticky bottom-0 z-10 relative shrink-0 border-t border-border bg-card p-3 shadow-xs">
             {/* Smart Action Chips (Natural Sale Commands) */}
             {/* Ngữ cảnh Copilot (P-07): chỉ gắn theo KHÁCH HÀNG — 1 khách có thể mua nhiều căn,
                 căn hộ sẽ được Copilot tự nhận diện từ nội dung câu lệnh */}
@@ -2866,6 +2985,26 @@ export function SalesWorkspacePage() {
                 placeholder="Ra lệnh cho Copilot… (Enter: gửi · Ctrl+Enter: xuống dòng)"
                 className="max-h-24 flex-1 resize-none rounded-xl border border-input bg-background px-3.5 py-2 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
+              {/* Nhập bằng giọng nói: bật là nghe liên tục (rảnh tay) cho tới khi bấm dừng. */}
+              <Button
+                type="button"
+                size="sm"
+                variant={sttListening ? 'default' : 'outline'}
+                onClick={toggleVoiceInput}
+                disabled={copilot.streaming}
+                className={cn('h-9 px-3', sttListening && 'animate-pulse')}
+                title={
+                  !sttSupported
+                    ? SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE
+                    : sttListening
+                      ? 'Đang nghe — bấm để dừng'
+                      : 'Nói để nhập câu hỏi (rảnh tay)'
+                }
+                aria-label={sttListening ? 'Dừng nhập bằng giọng nói' : 'Nhập bằng giọng nói'}
+                aria-pressed={sttListening}
+              >
+                {sttListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              </Button>
               {copilot.streaming ? (
                 <Button
                   type="button"

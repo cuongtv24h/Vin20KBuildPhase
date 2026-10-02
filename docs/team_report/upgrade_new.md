@@ -935,6 +935,98 @@ kiểm tra như ở bảng trên; nếu đúng thì **đổi khoá mới** và c
 
 ---
 
+---
+
+## 15. Đợt 13 (2026-10-02) — Sáu việc người dùng nêu trực tiếp: mất hội thoại khi đổi trang, bấm lịch sử không ra, F5 mới hiện, thiếu "Phiên chat mới", ô nhập bị che, nút rảnh tay (Micro)
+
+### 15.1 Người dùng báo gì (nguyên văn, gộp ý)
+
+1. "Khi đang chat với Agent… chuyển qua trang khác như báo giá rồi quay lại trang Trợ Lý, mọi đoạn chat trước biến mất."
+2. "Lịch sử có lưu giữ đoạn chat, nhưng nhấn vào không ra."
+3. "Nếu nhấn F5 thì đoạn lịch sử cũ mới load ra."
+4. "Chưa có chức năng Phiên Chat mới."
+5. Chat dài, kéo lên xem tin phía trên thì **ô nhập bị ẩn**: "làm đóng khung Khung chat luôn hiển thị vị trí ở dưới, không bị che khuất."
+6. "Bổ sung nút rảnh tay (Micro)… nói và chuyển hóa thành văn bản… Nếu không phức tạp thì có thể triển khai luôn."
+
+Sáu mục này là **yêu cầu cụ thể**, nên đợt này được triển khai (khác với câu hỏi tìm hiểu — xem nguyên tắc ở cuối tài liệu).
+
+### 15.2 Nguyên nhân gốc — tìm được 4 lỗi thật, không chỉ 6 biểu hiện
+
+| # | Biểu hiện | Nguyên nhân gốc trong mã |
+|---|---|---|
+| 1 | Đổi trang là mất hội thoại | `messages` là `useState` **cục bộ** trong `SalesWorkspacePage`; đổi trang ⇒ component unmount ⇒ mất sạch. Hội thoại chỉ nằm trong RAM. **Thêm một thủ phạm phụ chỉ lộ ra khi vá mục 1:** effect "Morning Briefing" gọi `setMessages([...])` trần trong effect deps rỗng ⇒ mỗi lần quay lại trang là **ghi đè** hội thoại vừa khôi phục bằng đúng 1 tin chào. |
+| 2 | Bấm vào mục Lịch sử không ra gì | Hai lỗi cộng lại: (a) effect tải hội thoại bị **deps theo `conversationId`** nhưng nhánh `conversationId === null` vẫn `setMessages(greeting)`; (b) React Query có `staleTime: 15s` ⇒ cuộc vừa tạo/vừa xem nằm trong cache "còn tươi", bấm lại **không refetch** và không có gì để hiển thị. |
+| 3 | F5 mới load ra | F5 làm mất cache RAM; lúc đó effect mount lại chạy đúng đường tải ⇒ hiện. Đây chính là mục 1–2 nhìn từ phía khác. |
+| 4 | Chưa có Phiên chat mới | Đúng là chưa có. Cách duy nhất để "sang cuộc mới" là xoá cuộc đang mở — vừa mất dữ liệu vừa không rõ ràng. |
+| 5 | Ô nhập bị che khi chat dài | `StaffLayout` dùng `flex min-h-screen` cho khung, nhưng `<main>` lại `h-screen`; dưới ngưỡng `lg` có thêm header di động `h-14` ⇒ **tài liệu cao hơn khung nhìn 56px**, ô nhập bị đẩy khỏi vùng thấy được thay vì bị "ghim" trong khung chat. Trong trang chat cũng thiếu chuỗi `min-h-0` nên vùng cuộn không co lại được. |
+| 6 | Chưa có Micro | Window Speech Recognition (`vi-VN`) không cần backend, không cần API key ⇒ chi phí bằng 0, đúng điều kiện "nếu không phức tạp". |
+
+### 15.3 Đã sửa
+
+**Lưu hội thoại ra ngoài component (mục 1, 2, 3, 4)** — file mới
+`frontend/packages/api-client/src/copilotChatState.ts`:
+
+* Kho trạng thái phiên chat (`sessionStorage`, không phải RAM): `createCopilotChatStore({ storage?, initialConversationId? })`
+  với `subscribe/getSnapshot/setConversationId/setItems/hydrate/assignConversationId/forget/cachedItems/reset`.
+* Snapshot: `{ conversationId, items, pendingItems }`. Khoá lưu: `copilot.chatSession.v1` (nội dung) + `copilot.activeConversationId` (id đang mở).
+* Ca khó đã xử lý — **id về muộn**: người dùng gửi tin đầu khi cuộc chưa có id, rồi chuyển trang trước khi backend trả id. Khi đó nội dung được **giữ tạm** (`pendingItems`); id về muộn được **ghi vào cache dưới id đó**, không "cướp" màn hình đang mở và **không mất nội dung**.
+* `hydrate(id, items)` chỉ thay khung chat đang xem nếu `id === conversationId` (bấm mở cuộc cũ ⇒ hiện ngay; cache của cuộc khác thì lấy từ `cachedItems`).
+* JSON hỏng ⇒ về phiên trống, không ném lỗi. Giới hạn 60 mục **chỉ áp cho bản lưu tạm** (`sessionStorage`) — khung chat đang xem không bị cắt, phiên dài xem được đủ.
+* Hook: `useCopilotChatSession`, `useCopilotChatMessages`, `useCopilotChatConversationId` — thay trực tiếp `useState` cũ nên mọi chỗ đang đọc/ghi `messages` không phải sửa theo.
+
+**Nối vào trang Trợ lý** — `frontend/apps/internal/src/features/sale/SalesWorkspacePage.tsx`:
+
+* `messages`/`conversationId` nay đọc từ kho; effect tải hội thoại đặt khoá `${conversationId}#${reloadNonce}` và **không còn xoá khung chat khi `conversationId === null`**.
+* `openConversation(id, { force })` ⇒ bấm lại đúng cuộc đang mở vẫn tải lại (đếm `reloadNonce`), gỡ đúng lỗi "bấm không ra" do cache tươi 15s.
+* Xoá cuộc ⇒ gọi `copilotChatStore.forget(id)` (không để cache mồ côi).
+* Nhịp ghi lượt đầu `assignConversationId` được đánh dấu vào `loadedConversationRef` — **thẻ/smart-card chỉ có ở client** không bị mất khi lượt chat được lưu lần đầu.
+* Thêm `startNewChatSession()` + nút **"Phiên chat mới"** nằm cạnh nút "Lịch sử" (bấm khi đang trả lời thì từ chối và báo lý do, tránh mất phần đang stream). Nút luôn hiện, không phải chờ có cuộc cũ.
+* Effect "Morning Briefing" nay chỉ chào khi **khung chat còn trống** (`setMessages(prev => prev.length > 0 ? prev : [greeting])`) — nếu không thì việc khôi phục hội thoại ở mục 1 sẽ bị chính nó ghi đè lại.
+
+**Ghim ô nhập trong khung chat (mục 5)** — `frontend/apps/internal/src/components/layout/StaffLayout.tsx`:
+
+* Khung gốc: `isWorkspace ? 'h-dvh overflow-hidden' : 'min-h-screen'` (chỉ trang workspace mới ghim theo chiều cao khung nhìn; các trang khác giữ nguyên hành vi cũ).
+* `aside h-dvh`, `header shrink-0`, `main min-h-0 flex-1 overflow-hidden p-0` — phá đúng chuỗi `min-h-0` làm vùng cuộn không co được.
+* Trong trang chat: `<section>` và vùng cuộn thêm `min-h-0`; thanh soạn tin `sticky bottom-0 z-10` ⇒ **luôn nằm dưới cùng khung chat**, không bị đẩy khỏi màn hình khi lịch sử dài.
+
+**Nút rảnh tay — Micro (mục 6)** — `frontend/packages/ui/src/lib/speech.ts` (nối tiếp phần TTS đợt 6):
+
+* `getSpeechRecognitionCtor()`, `isSpeechToTextSupported()`, `SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE`;
+* `createSpeechToText({ lang='vi-VN', continuous=true, interimResults=true, onPartial, onFinal, onStateChange, onError })` → `{ supported, start, stop, isListening }`.
+* **Rảnh tay thật**: `continuous` + tự khởi động lại sau 250 ms khi trình duyệt tự `onend`, cho tới khi người dùng bấm dừng ⇒ nói một mạch không phải bấm lại từng câu.
+* Chữ tạm hiện ngay trong ô nhập để Sale thấy máy nghe đúng; câu chốt được nối vào nội dung đang có, **không ghi đè** chữ đã gõ.
+* Lỗi được dịch sang tiếng Việt thay vì im lặng: `not-allowed`/`service-not-allowed` (chưa cấp quyền micro), `audio-capture` (không thấy micro), `network`; `no-speech`/`aborted` thì bỏ qua (không làm phiền). Trình duyệt không hỗ trợ (Safari/Firefox) ⇒ nút báo rõ thay vì bấm không có gì xảy ra.
+* Nút micro nằm trong thanh soạn tin: `aria-pressed`, đổi `Mic`/`MicOff`, nhấp nháy khi đang nghe, **bị khoá trong lúc Agent đang trả lời** để tránh trộn chữ vào câu trả lời.
+
+### 15.4 Kiểm chứng (chạy thật trong sandbox)
+
+* Bộ test mới cho hai thư viện (`vitest`, môi trường `node`):
+  * `frontend/packages/api-client/src/copilotChatState.test.ts` — **10 ca**: sống qua unmount/remount, F5 (dựng lại từ sessionStorage), bấm lịch sử có cache, không ghi đè cuộc khác, phiên mới rỗng, id về muộn (giữ `pendingItems`), khoá id đang mở, JSON hỏng, phát tín hiệu cho listener.
+  * `frontend/packages/ui/src/lib/speech.test.ts` — **6 ca**: trình duyệt không hỗ trợ, tự khởi động lại, `stop()` chặn khởi động lại, `not-allowed` ra tiếng Việt, tách chữ tạm/chữ chốt, `no-speech` im lặng.
+* `cd frontend && npm test` ⇒ **api-client 10/10 · ui 6/6 · mock-server 39/39** (55 ca, 6 file).
+* `npx tsc -b apps/internal` ⇒ 0 lỗi. `npm run lint` ⇒ **126 cảnh báo, 0 lỗi** (giảm 1 so với trước do `StaffLayout` hết cảnh báo `location` toàn cục).
+* Backend: `556 passed` (không đổi — đợt này không đụng backend), `ruff check src/ tests/` sạch.
+* `npm run build -w @pricepolicy/internal` chạy thật: bundle chứa `Phiên chat mới`, `Đang nghe`, `whitespace-pre-line`; CSS có `h-dvh` ⇒ xác nhận phần ghim ô nhập vào tới bản dựng, không chỉ ở mã nguồn.
+
+### 15.5 Trên VM cần xác nhận (không có trình duyệt trong sandbox)
+
+Kịch bản bấm tay, nên chạy sau khi deploy (Ctrl+Shift+R để bỏ bundle cũ):
+
+1. Chat 2–3 lượt → sang *Báo giá* → quay lại *Trợ lý* ⇒ **hội thoại còn nguyên** (điểm 1).
+2. Mở *Lịch sử* → bấm một cuộc cũ ⇒ **hiện ngay**, không cần F5 (điểm 2). Bấm lại chính cuộc đang mở ⇒ vẫn tải lại.
+3. F5 ⇒ cuộc đang mở vẫn đó (điểm 3).
+4. Bấm **Phiên chat mới** ⇒ khung chat trống, cuộc cũ vẫn nằm trong Lịch sử (điểm 4).
+5. Chat dài (hoặc thu nhỏ cửa sổ) → cuộn lên đầu ⇒ **ô nhập vẫn nằm dưới cùng khung chat**, không bị che; header/nút không nhảy (điểm 5).
+6. Bấm Micro (Chrome/Edge, trang HTTPS) → lần đầu hiện xin quyền micro → nói "Khách hỏi phí công chứng hợp đồng thuê nhà" ⇒ chữ hiện dần trong ô nhập, nói tiếp không phải bấm lại; bấm lần nữa để dừng (điểm 6). Từ chối quyền ⇒ phải thấy thông báo tiếng Việt, không im lặng.
+
+### 15.6 Micro — nói thẳng về chi phí và giới hạn
+
+* **Không tốn tiền, không cần backend, không cần API key**: dùng bộ nhận dạng có sẵn của trình duyệt. Vì vậy đợt này triển khai luôn theo đúng điều kiện người dùng nêu.
+* **Đánh đổi đã biết, ghi rõ trong mã**: trên Chrome/Edge, đoạn ghi âm được gửi tới dịch vụ nhận dạng của Google để chuyển thành chữ (không phải xử lý tại máy). Nếu phòng pháp chế không cho phép dữ liệu khách hàng rời máy, cần phương án khác — **không phải việc đợt này**.
+* **Chỉ chạy trên Chrome/Edge (và một phần Safari); Firefox không có** ⇒ nút báo "trình duyệt chưa hỗ trợ" và vẫn gõ tay bình thường.
+* Bản này **chỉ một chiều: nói → chữ**. Chiều ngược lại (Agent đọc câu trả lời) đã có ở đợt 6 (TTS, có đường tự đọc khi được bật).
+* Muốn chất lượng cao hơn nữa (thuật ngữ bảo hiểm, tên riêng, tự sửa câu) thì cần dịch vụ STT trả phí phía server — để **thảo luận**, chưa triển khai.
+
 ## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.

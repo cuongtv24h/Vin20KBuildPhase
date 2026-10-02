@@ -82,6 +82,8 @@ export function StaffLayout() {
     }
   }
 
+  const location = useLocation()
+
   const nav = (
     <nav className="flex flex-col gap-0.5">
       {items.map((item) => {
@@ -151,9 +153,16 @@ export function StaffLayout() {
     </div>
   )
 
+  // Trang Trợ lý Copilot tự cuộn bên trong (khung chat + thanh nhập cố định): phải khoá chiều cao
+  // đúng bằng khung nhìn. Nếu không, trên màn hình có thanh header 56px (dưới lg) tổng chiều cao
+  // vượt khung nhìn → cả trang cuộn → cuộn lên xem tin cũ là thanh nhập bị đẩy khỏi màn hình.
+  const isWorkspace = location.pathname.startsWith('/sale/workspace')
+
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 lg:block">{sidebar}</aside>
+    <div className={cn('flex bg-background', isWorkspace ? 'h-dvh overflow-hidden' : 'min-h-screen')}>
+      <aside className={cn('hidden w-60 shrink-0 lg:block', isWorkspace ? 'h-dvh' : 'sticky top-0 h-screen')}>
+        {sidebar}
+      </aside>
 
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
@@ -163,7 +172,7 @@ export function StaffLayout() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur lg:hidden">
           <button type="button" aria-label="Mở menu" onClick={() => setMobileOpen(true)} className="rounded-md p-1.5 hover:bg-muted">
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -172,8 +181,8 @@ export function StaffLayout() {
         </header>
         <main
           className={cn(
-            location.pathname.startsWith('/sale/workspace')
-              ? 'flex flex-1 flex-col h-screen overflow-hidden p-0'
+            isWorkspace
+              ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-0'
               : 'mx-auto w-full max-w-[1320px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8'
           )}
         >
