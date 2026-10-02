@@ -24,7 +24,18 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from src.agents.copilot import anchors, commands, critic, feedback, grounding, intents, memory, planner, verifier
+from src.agents.copilot import (
+    anchors,
+    commands,
+    critic,
+    feedback,
+    grounding,
+    intents,
+    memory,
+    planner,
+    reply_format,
+    verifier,
+)
 from src.agents.copilot.prompts import build_system_prompt, canonical_facts
 from src.agents.copilot.tools import COPILOT_TOOLS, TOOLS_BY_NAME
 from src.agents.tools.guardrails import scan_output_leakage, scan_prompt_injection
@@ -277,6 +288,12 @@ def _finalize(
     # Prompt đã dặn không nhắc lệnh gạch chéo, nhưng model vẫn có thể nhắc — chặn ở output.
     text = commands.strip_command_mentions(text)
 
+    # Tên tool/tham số nội bộ (ví dụ `gia_toi_da_vnd = 0`) là chuyện kỹ thuật — Sale không được thấy,
+    # khách càng không. Dọn ở lớp tất định, trước khi kiểm chứng số liệu để con số rác không bị tính.
+    text, leaked_names = reply_format.strip_internal_names(text)
+    if leaked_names:
+        logger.warning("Đã dọn tên nội bộ lọt vào câu trả lời: %s", sorted(set(leaked_names)))
+
     if not text:
         text = "Em đã ghi nhận yêu cầu. Anh/chị cần em làm rõ thêm bước nào không ạ?"
 
@@ -302,6 +319,10 @@ def _finalize(
     # chỉ còn nhắc khi con số thật sự không có nguồn nào để trỏ tới.
     anchored = anchors.annotate_reply(text, citations, question=question)
     text = anchored.text
+
+    # Hình thức (bảng không được dính câu văn, mỗi ý một dòng, canh cột) — cũng do MÁY lo, áp sau cùng
+    # để không phá mỏ neo `[n]` vừa chèn. Hàm idempotent nên áp lại vẫn an toàn.
+    text = reply_format.normalize_markdown(text)
 
     # Critic vòng 2 (P2): chỉ soi lượt quan trọng — câu có số tiền/ưu đãi hoặc câu soạn tin, tuân thủ.
     # Kết quả trả về ở trường `critique` (UI hiển thị banner riêng) — **không** chèn thêm câu vào nội

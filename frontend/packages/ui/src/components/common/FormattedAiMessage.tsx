@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { cn } from '@pricepolicy/ui/lib/utils'
+import { isNumericCell, splitGluedTables, stripCellEmphasis } from '@pricepolicy/ui/lib/markdownTables'
 
 /** Một mỏ neo `[n]` trong câu trả lời (máy tự chèn — xem `src/agents/copilot/anchors.py`). */
 export interface AiAnchor {
@@ -58,7 +59,8 @@ type Block =
 
 function parseMarkdownBlocks(rawText: string): Block[] {
   if (!rawText) return []
-  const lines = rawText.split(/\r?\n/)
+  // Bảng dính câu văn (model viết ẩu, hoặc dữ liệu cũ đã lưu) → tách về đúng dòng trước khi phân tích.
+  const lines = splitGluedTables(rawText).split(/\r?\n/)
   const blocks: Block[] = []
   let i = 0
 
@@ -214,7 +216,10 @@ function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNo
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left font-semibold text-muted-foreground">
                 {block.headers.map((h, hi) => (
-                  <th key={hi} className="px-2.5 py-1.5 whitespace-nowrap">
+                  <th
+                    key={hi}
+                    className={cn('px-2.5 py-1.5 whitespace-nowrap', isNumericCell(h) && 'text-right')}
+                  >
                     {render(h)}
                   </th>
                 ))}
@@ -224,8 +229,15 @@ function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNo
               {block.rows.map((row, ri) => (
                 <tr key={ri} className="transition-colors hover:bg-muted/20">
                   {row.map((cell, ci) => (
-                    <td key={ci} className="px-2.5 py-1.5">
-                      {render(cell)}
+                    <td
+                      key={ci}
+                      className={cn(
+                        'px-2.5 py-1.5',
+                        // Canh phải + chữ số đều nhau cho cột tiền/diện tích dễ so sánh theo cột.
+                        isNumericCell(cell) ? 'text-right whitespace-nowrap tabular-nums' : 'align-top',
+                      )}
+                    >
+                      {render(stripCellEmphasis(cell))}
                     </td>
                   ))}
                 </tr>

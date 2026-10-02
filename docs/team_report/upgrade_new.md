@@ -1087,12 +1087,35 @@ bấm là chạy ngay: *"Xem bảng tính vay chi tiết cho căn 3 ngủ (ngân
 đang mở bán"*, *"Mở rộng sang căn 2PN+1 (ngân sách 2 tỷ)"*. Đã bổ sung từ khoá nhận diện để câu từ chip
 được hiểu đúng (kèm chốt bảo vệ: câu có "dòng tiền / bảng tính vay / báo giá" vẫn đi đường tính chi tiết).
 
+### 16.5b Bổ sung cùng ngày — hình thức câu trả lời & chống lộ tên nội bộ
+
+Người dùng dán **câu trả lời thật** (chế độ LLM) và nêu hai lỗi: (1) hình thức chưa hợp lý — bảng bị
+viết dính vào câu văn nên không xuống hàng, không thành cột, lại còn emoji mũi tên và `**đậm**` mở
+nửa câu; (2) **`gia_toi_da_vnd = 0` lọt vào văn bản** — Sale không được thấy chuyện kỹ thuật, khách
+càng không.
+
+| Mã | Việc | Cách làm |
+|---|---|---|
+| P1.5b | Bảng phải nằm riêng dòng, mỗi hàng một dòng, có dòng trống trước/sau | Module mới `src/agents/copilot/reply_format.py::normalize_markdown()`: dò hàng phân cách để biết **số cột**, rồi cắt dòng theo đúng số cột — tách được cả bảng viết dính một dòng, kể cả trường hợp tiêu đề dính còn hàng phân cách ở dòng dưới. Áp ở cuối `_finalize`, sau khi chèn mỏ neo. Hàm **idempotent** |
+| P1.5b | Bỏ emoji mũi tên, đậm rác, canh lại cột | Mũi tên đầu dòng → gạch đầu dòng; `** **` → khoảng trắng (không để hai chữ dính nhau); `**` trong ô bảng bị bỏ (bảng đã có kẻ ô); đậm lẻ (mở nửa câu) → bỏ hết `**` trên dòng đó thay vì để dấu sao rác hiện ra |
+| P1.5b | Canh cột ở phía hiển thị | `frontend/packages/ui/src/lib/markdownTables.ts` + `FormattedAiMessage`: ô số (tiền, %, m²) **canh phải**, `tabular-nums`, không ngắt dòng giá; ô chữ canh trên. Lớp này còn **tách bảng dính cho dữ liệu cũ đã lưu** — câu trả lời cũ trong lịch sử cũng hiển thị đúng |
+| P2.5 | Tên tool/tham số nội bộ không được xuất hiện | `reply_format.py::strip_internal_names()`: bỏ ngoặc chỉ chứa tham số (`(gia_toi_da_vnd = 0, …)`), bỏ `ten_tham_so = giá_trị`, đổi tên tool thành cách nói nghiệp vụ (`tinh_phuong_an_thanh_toan` → "phương án thanh toán chi tiết"), dọn mọi `snake_case` còn sót + giới từ lơ lửng. Có **ghi log** danh sách đã dọn để biết model rò rỉ gì mà chỉnh prompt, không im lặng che đi |
+| — | Giảm từ gốc | `prompts.py` thêm luật hình thức (bảng trên dòng riêng, mỗi ý một dòng, không emoji mũi tên, `**` đúng cặp) và luật **cấm nhắc tên tool/trường nội bộ**, kể cả kể lể tham số đã truyền |
+
+**Kiểm chứng đúng ví dụ người dùng gửi:** câu trả lời hỏng được đưa nguyên văn vào test
+(`tests/test_agents/copilot/test_copilot_reply_format.py`, 14 ca) — sau khi qua lớp chuẩn hoá, bảng ra
+đúng 5 dòng 4 cột, không còn dòng nào vừa chữ vừa ô bảng, `➡️` thành gạch đầu dòng, `gia_toi_da_vnd`
+biến mất; test khẳng định thêm hàm **idempotent** (áp lại không đổi — dùng được cho dữ liệu cũ) và bảng
+đã đúng định dạng thì **không bị sửa**. Một ca tích hợp chạy qua `_finalize` thật để chắc hai lớp này
+nằm đúng chỗ trong đường đi của câu trả lời.
+
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
-- `pytest -q` → **601 passed** (572 → 601; thêm 3 file test: `test_copilot_anchors.py` 12 ca,
-  `test_copilot_inventory_funnel.py` 15 ca, +2 ca trong `test_copilot_answer_clarity.py`).
+- `pytest -q` → **615 passed** (572 → 615; thêm 4 file test: `test_copilot_anchors.py` 12 ca,
+  `test_copilot_inventory_funnel.py` 15 ca, `test_copilot_reply_format.py` 14 ca, +2 ca trong
+  `test_copilot_answer_clarity.py`).
 - `ruff check src/ tests/ scripts/` → sạch. `npm run lint` → **126 cảnh báo, 0 lỗi**.
-- Frontend: `npm test` → api-client **14**, ui **6**, mock-server **39** (59 tổng); `tsc -b apps/internal` 0 lỗi;
+- Frontend: `npm test` → api-client **14**, ui **12**, mock-server **39** (65 tổng); `tsc -b apps/internal` 0 lỗi;
   build nội bộ OK.
 - `scripts/run_copilot_eval.py` (34 câu vàng): tool **100%** · citation **100%** · **bịa 0.0%** ·
   **cổng phân khúc ĐẠT**.
