@@ -16,7 +16,8 @@ export const usePublishPolicy = () =>
   })
 
 /** Chạy Formula Regression Benchmark — mỗi lần bấm là một lần chạy mới. */
-export const useRunBenchmark = () => useCommand((_run: number, key) => api.evaluation.runBenchmark({ idempotencyKey: key }))
+export const useRunBenchmark = () =>
+  useCommand((_run: number, key) => api.evaluation.runBenchmark({}, { idempotencyKey: key }))
 
 // ─── Admin CP Hooks ──────────────────────────────────────────────────────────
 

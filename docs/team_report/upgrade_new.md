@@ -212,18 +212,35 @@ Yêu cầu: (a) đã có khu **benchmark/kiểm thử chất lượng** chưa; (
 
 - **Đã nhất quán ở phần chạy được:** mỗi lần ban hành đều **chạy lại 17 ca golden trên engine thật**, có mã lần chạy làm bằng chứng,
   và bản ghi ban hành gắn với kết quả đó → không còn cảnh "duyệt xong không biết công thức còn đúng không".
-- **Nói thẳng phần chưa tự động:** bộ golden fixture đang **khoá cứng theo `POL-2026-VLF-GEN v2.6`** (`DEFAULT_POLICY_REF`).
-  Văn bản mới sẽ được gắn nhãn `policy_alignment = DRIFT` + check `GOLDEN_ALIGNMENT` mức **WARN** ("chưa có bộ ca vàng riêng") —
-  hệ thống báo đúng sự thật chứ không giả vờ đã kiểm chứng văn bản mới. Muốn hết DRIFT thì phải **soạn bộ ca vàng cho văn bản đó**
-  (hiện là việc thủ công của Policy Admin + TechLead; chưa tự sinh từ văn bản).
-- **Giới hạn đã biết:** lịch sử lần chạy nằm **in-memory** (mất khi restart) ở cả backend thật lẫn mock.
+- **Bộ golden đối chiếu đúng nghĩa nào?** (làm rõ sau câu hỏi review) Bộ 17 ca vàng **không phải** cấu hình đang chạy của hệ thống:
+  nó là *bộ đề kiểm tra* (input + kết quả kỳ vọng, khoá cứng) dùng để phát hiện hồi quy công thức.
+  **Engine tính giá chạy thật KHÔNG đọc bộ này** — nó đọc văn bản chính sách *đang hiệu lực* theo `transaction_date`
+  (`resolve_active_policy`: `status=PUBLISHED` + trong dải `effective_from..effective_to`) và tính từ điều khoản của văn bản đó.
+  Nên **ban hành văn bản mới KHÔNG bị áp sai tỷ lệ cũ** — đã kiểm chứng bằng thực nghiệm (mục dưới).
+- **Vì sao vẫn gắn `DRIFT`:** bộ vàng khoá cứng theo `POL-2026-VLF-GEN v2.6` (`DEFAULT_POLICY_REF`); văn bản mới *chưa có đề riêng*
+  nên nó chỉ chứng minh được "engine không hồi quy", **không** chứng minh được "con số của văn bản mới đúng".
+  Hệ thống nói thẳng điều đó (`GOLDEN_ALIGNMENT` = WARN, `policy_alignment` = DRIFT) thay vì báo xanh giả.
+- **Thực nghiệm đã chạy (mock, đúng luồng `PolicyDetailPage`):** giao dịch `2026-11-15` khi `CSBH-ZEN-2027-V4.0` còn DRAFT
+  → quote `ABSTAINED` + `POLICY_NOT_FOUND` ("không có chính sách hiệu lực") — **không lấy trộm số của v2.6**;
+  sau khi POLICY_ADMIN ban hành v4.0 → cùng giao dịch đó chạy bình thường, `policy_snapshot_ref` = `CSBH-ZEN-2027-V4.0 v4.0`,
+  tổng chiết khấu **10.5%** (1.5% cư dân + **9.0%** thanh toán sớm theo văn bản mới), `risk_flag` GREEN.
+  Cùng lúc đó benchmark vẫn **17/17** nhưng gắn `DRIFT` + WARN `GOLDEN_ALIGNMENT` — đúng chủ ý: 17/17 nghĩa là
+  *"engine không hồi quy"*, **không** nghĩa là *"văn bản mới đã được kiểm chứng"*.
+- **Đã thêm để cảnh báo có ích hơn:** WARN giờ liệt kê luôn **tỷ lệ chưa có ca vàng** của văn bản mới
+  (ví dụ v4.0 → `tỷ lệ chưa có ca vàng: 9.0%`), để Policy Admin biết chính xác phải soạn thêm ca nào.
+  Mock `runBenchmark` cũng nhận `policy_id/policy_version` như API thật (trước đó mock bỏ qua, ghi nhầm văn bản golden).
+- **Muốn hết DRIFT:** phải **soạn bộ ca vàng cho văn bản đó** (input + số kỳ vọng do nghiệp vụ chốt) — hiện là việc thủ công,
+  chưa tự sinh từ văn bản. Đây là quy trình đúng: máy không được phép tự nghĩ ra "số đúng" rồi tự chấm điểm chính mình.
+- **Giới hạn đã biết:** lịch sử lần chạy nằm **in-memory** (mất khi restart) ở cả backend thật lẫn mock;
+  backend thật còn trả `POST /policies/publish` khác shape mock (mock trả PolicyDocument, thật trả PublishPolicyResponse).
 
 ### 6.4 Kiểm chứng đợt 4 (chạy thật)
 
 | Lệnh / kịch bản | Kết quả |
 | :--- | :--- |
-| `.venv/bin/python -m pytest -q` | **503 passed** (trước 498; +5 test mới cho contract + cổng) |
+| `.venv/bin/python -m pytest -q` | **503 passed** |
 | `cd frontend && npm test` | **25/25 passed** (trước 24) |
+| Thực nghiệm văn bản mới (mock, mục 6.3) | 15/11/2026 khi v4.0 DRAFT → **ABSTAINED** `POLICY_NOT_FOUND`; sau ban hành → **10.5%** (1.5% + 9.0%), `risk_flag` GREEN; benchmark vẫn 17/17 + **DRIFT** |
 | `cd frontend && npx tsc -b apps/internal apps/customer` | **exit 0** |
 | `cd frontend && npx oxlint` | **0 error**, 124 warning (không tăng) |
 | `npm run build -w @pricepolicy/internal` | build thành công |

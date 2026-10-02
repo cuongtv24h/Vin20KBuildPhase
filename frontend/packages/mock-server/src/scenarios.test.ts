@@ -496,6 +496,10 @@ describe('Policy Admin', () => {
     expect(run.golden_policy_ref).toBe('POL-2026-VLF-GEN v2.6')
     expect(run.policy_alignment).toBe('MATCH')
     expect(run.cases.every((c) => c.status === 'PASSED')).toBe(true)
+    // Văn bản mới: bộ vàng vẫn 17/17 nhưng phải nói thẳng là chưa phủ văn bản này (DRIFT).
+    const onNewPolicy = await api.evaluation.runBenchmark({ policy_id: 'CSBH-ZEN-2027-V4.0', policy_version: 'v4.0' })
+    expect(onNewPolicy.passed).toBe(17)
+    expect(onNewPolicy.policy_alignment).toBe('DRIFT')
   })
 
   it('Cổng trước ban hành gắn bằng chứng kiểm thử và cảnh báo lệch bộ ca vàng', async () => {
@@ -507,9 +511,12 @@ describe('Policy Admin', () => {
     const gate = await api.policies.testRules(draft.policy_id)
     expect(gate.regression).toEqual({ passed: 17, total: 17 })
     expect(gate.benchmark_run_id).toBeTruthy()
-    // Văn bản mới chưa có bộ ca vàng riêng → cảnh báo DRIFT để admin biết phải cập nhật fixture.
+    // Văn bản mới chưa có bộ ca vàng riêng → cảnh báo DRIFT kèm tỷ lệ chưa được phủ (9.0%),
+    // để admin biết chính xác phải soạn thêm ca vàng nào.
     expect(gate.policy_alignment).toBe('DRIFT')
-    expect(gate.checks.some((c) => c.code === 'GOLDEN_ALIGNMENT' && c.status === 'WARN')).toBe(true)
+    const alignment = gate.checks.find((c) => c.code === 'GOLDEN_ALIGNMENT')
+    expect(alignment?.status).toBe('WARN')
+    expect(alignment?.detail).toContain('9.0%')
     expect(gate.can_publish).toBe(true)
 
     await api.policies.publish(draft.policy_id)

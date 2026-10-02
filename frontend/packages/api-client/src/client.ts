@@ -190,7 +190,9 @@ export const api = {
   },
 
   evaluation: {
-    runBenchmark: (o: CommandOptions = {}) => call<BenchmarkRun>('benchmarkRun', {}, o),
+    /** `body` tuỳ chọn: gắn lần chạy với văn bản chính sách đang chuẩn bị ban hành (bằng chứng release gate). */
+    runBenchmark: (body: { policy_id?: string; policy_version?: string } = {}, o: CommandOptions = {}) =>
+      call<BenchmarkRun>('benchmarkRun', {}, { json: body, ...o }),
   },
 
   copilot: {

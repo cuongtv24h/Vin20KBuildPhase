@@ -319,9 +319,12 @@ export const adminHandlers = [
     return { body: policy }
   }),
 
-  route('benchmarkRun', async ({ db, now }) => {
+  route('benchmarkRun', async ({ db, now, json }) => {
     await delay(scaled(600))
-    return { status: 201, body: runBenchmark(`BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`, iso(now), iso(Date.now())) }
+    // Body tuỳ chọn: backend thật nhận `policy_id`/`policy_version` để ghi bằng chứng theo văn bản.
+    const body = await json<{ policy_id?: string; policy_version?: string }>()
+    const policy = body?.policy_id && body.policy_version ? { policy_id: body.policy_id, policy_version: body.policy_version } : undefined
+    return { status: 201, body: runBenchmark(`BR-${String(nextId(db, 'benchmark')).padStart(4, '0')}`, iso(now), iso(Date.now()), policy) }
   }),
 ]
 
