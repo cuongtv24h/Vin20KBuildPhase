@@ -14,6 +14,9 @@ Nội dung phễu (theo chốt thiết kế P1.1/P1.3):
 - thống kê phân khúc theo số phòng ngủ: số căn, giá thấp nhất → cao nhất;
 - căn **mềm nhất** của phân khúc + **chênh lệch** so với ngân sách Sale nêu;
 - hai hướng đi tiếp: giữ ngân sách → lọc xuống 2PN+1; giữ 3PN → xem phương án vốn tự có/vay.
+
+Chốt P1.5 (cập nhật): **mọi danh sách căn đều trình bày dạng bảng** — kể cả 1–2 căn — để Sale nhìn
+theo cột cho nhanh, không còn kiểu liệt kê dòng.
 """
 
 from __future__ import annotations
@@ -23,11 +26,8 @@ from typing import Any
 
 from src.agents.copilot import grounding
 
-#: Số căn tối thiểu để chuyển từ liệt kê dòng sang bảng rút gọn (chốt P1.5: từ 3 căn).
-TABLE_THRESHOLD = 3
-
-#: Cột bảng rút gọn theo chốt P1.5.
-TABLE_HEADERS = ("Căn", "Dự án", "Số PN", "Diện tích", "Giá niêm yết")
+#: Cột bảng rút gọn theo chốt P1.5: đúng 4 cột, tên cột do người dùng chốt.
+TABLE_HEADERS = ("Mã căn", "Phòng ngủ", "Diện tích", "Giá niêm yết (trước thuế)")
 
 
 @dataclass
@@ -123,15 +123,14 @@ def next_steps(bedrooms: int, budget_vnd: int | None = None) -> list[str]:
 
 
 def units_table(units: list[dict[str, Any]]) -> str:
-    """Bảng markdown rút gọn theo chốt P1.5 (Căn, Dự án, Số PN, Diện tích, Giá niêm yết)."""
+    """Bảng markdown rút gọn theo chốt P1.5: Mã căn · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế)."""
     if not units:
         return ""
     header = "| " + " | ".join(TABLE_HEADERS) + " |"
     divider = "|" + "|".join(["---"] * len(TABLE_HEADERS)) + "|"
     rows = [
-        "| {code} | {project} | {bedrooms} | {area}m² | {price} |".format(
+        "| {code} | {bedrooms}PN | {area}m² | {price} |".format(
             code=u.get("unit_code"),
-            project=grounding.project_name(u.get("project_id")),
             bedrooms=u.get("bedrooms"),
             area=u.get("area_m2"),
             price=grounding.format_vnd(u.get("listed_price_before_tax_vnd")),
@@ -142,17 +141,9 @@ def units_table(units: list[dict[str, Any]]) -> str:
 
 
 def render_matches(units: list[dict[str, Any]]) -> str:
-    """Dưới 3 căn → liệt kê dòng; từ 3 căn → bảng rút gọn (chốt P1.5)."""
+    """Có căn cần liệt kê ⇒ luôn trình bày dạng bảng (chốt P1.5, kể cả 1–2 căn)."""
     if not units:
         return ""
-    if len(units) < TABLE_THRESHOLD:
-        lines = []
-        for u in units:
-            lines.append(
-                f"- {u.get('unit_code')} · {u.get('bedrooms')}PN · {u.get('area_m2')}m² · "
-                f"{grounding.format_vnd(u.get('listed_price_before_tax_vnd'))} · {u.get('status')}"
-            )
-        return "\n".join(lines)
     return units_table(units)
 
 
@@ -190,7 +181,6 @@ def render_empty_funnel(
 
 __all__ = [
     "TABLE_HEADERS",
-    "TABLE_THRESHOLD",
     "SegmentStats",
     "bedroom_histogram",
     "next_steps",

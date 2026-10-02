@@ -251,8 +251,9 @@ vốn tự có. Nếu Sale nói rõ "vốn tự có 2 tỷ" thì chuyển sang t
 → *Anh muốn mặc định là tổng giá, hay luôn hỏi lại?*
 
 **P1.5 — Bao nhiêu căn thì chuyển sang bảng so sánh?**
-Đề xuất: ≤5 căn → liệt kê có mỏ neo; >5 căn → bảng so sánh + nêu tiêu chí sắp xếp (giá tăng dần).
-→ *Ngưỡng anh thấy phù hợp?*
+**CHỐT (người dùng, cập nhật):** không đặt ngưỡng — **cứ có căn cần liệt kê là trình bày dạng bảng**, đúng 4 cột:
+*Mã căn · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế)*. Lý do: nhìn theo cột nhanh hơn liệt kê dòng,
+kể cả khi chỉ có 1–2 căn.
 
 **P1.6 — Có cần nêu "dữ liệu lấy tại ngày giao dịch nào" không?**
 Đề xuất: chỉ nêu khi trả lời về **giá/chính sách** ("giá niêm yết theo chính sách đang hiệu lực ngày 02/10/2026").

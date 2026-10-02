@@ -1059,9 +1059,11 @@ Phân tích đầy đủ (số liệu đo thật, trước/sau): `docs/team_repo
 | P1.2 | **Không** tính chi tiết ngay, chỉ đưa mốc tổng quan | Tool mới `danh_gia_von_tu_co`: tỷ lệ vốn tự có / giá trị HĐMB, mức tối thiểu theo phương án vay, thiếu/thừa bao nhiêu. KHÔNG trả bảng dòng tiền |
 | P1.3 | Báo căn **mềm nhất** + mức thiếu hụt, không dội căn đắt nhất | `softest_unit_line()` — nêu mã căn, diện tích, dự án, giá, chênh so với ngân sách |
 | P1.4 | Mặc định hiểu là **tổng giá**, luôn hỏi lại giả định vốn tự có | Luật trong prompt + `INTENT_ASSESS_FUNDS` cho câu hỏi về vốn tự có |
-| P1.5 | <3 căn liệt kê dòng; ≥3 căn chuyển **bảng rút gọn** (Căn · Dự án · Số PN · Diện tích · Giá) | `inventory_funnel.render_matches()` sinh bảng markdown; `FormattedAiMessage` render bảng từ trước |
+| P1.5 | **Mọi danh sách căn đều là bảng** (kể cả 1 căn), đúng 4 cột: Mã căn · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế) | `inventory_funnel.units_table()` là đường duy nhất; `render_matches()` luôn trả bảng, không còn nhánh liệt kê dòng; `FormattedAiMessage` render bảng markdown động |
 | P1.6 | Mốc thời gian dạng **watermark**, không đưa vào văn phong | `data_as_of` trong Observation → `final.payload.data_as_of` → UI hiển thị "Dữ liệu cập nhật: DD/MM/YYYY HH:mm" |
 | P1.7 | Ưu tiên **Rõ ràng → Ngắn gọn → Đầy đủ**; phần chính 4–6 câu | Luật prompt (đổi thứ tự so với đề xuất ban đầu của tôi) |
+
+**Điều chỉnh sau khi xem bản chạy (cùng ngày):** chốt P1.5 đổi từ *"<3 căn liệt kê dòng, ≥3 căn mới dùng bảng"* thành **"cứ có căn cần liệt kê là trình bày dạng bảng"**, và tên cột lấy đúng 4 cột người dùng chốt (*Mã căn · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế)*) — bỏ cột Dự án để bảng không bị tràn ngang.
 
 ### 16.4 P2 — mỏ neo `[n]` & hiển thị
 
@@ -1087,8 +1089,8 @@ bấm là chạy ngay: *"Xem bảng tính vay chi tiết cho căn 3 ngủ (ngân
 
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
-- `pytest -q` → **600 passed** (572 → 600; thêm 3 file test: `test_copilot_anchors.py` 12 ca,
-  `test_copilot_inventory_funnel.py` 14 ca, +2 ca trong `test_copilot_answer_clarity.py`).
+- `pytest -q` → **601 passed** (572 → 601; thêm 3 file test: `test_copilot_anchors.py` 12 ca,
+  `test_copilot_inventory_funnel.py` 15 ca, +2 ca trong `test_copilot_answer_clarity.py`).
 - `ruff check src/ tests/ scripts/` → sạch. `npm run lint` → **126 cảnh báo, 0 lỗi**.
 - Frontend: `npm test` → api-client **14**, ui **6**, mock-server **39** (59 tổng); `tsc -b apps/internal` 0 lỗi;
   build nội bộ OK.

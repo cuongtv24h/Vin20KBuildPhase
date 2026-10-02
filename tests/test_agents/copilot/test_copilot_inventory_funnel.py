@@ -77,29 +77,44 @@ def test_next_steps_never_silently_lower_bedrooms() -> None:
 # ─── P1.5 — liệt kê hay bảng ───────────────────────────────────────────────────────
 
 
-def test_two_units_are_listed_not_tabled() -> None:
-    units = [
-        {"unit_code": "A", "bedrooms": 2, "area_m2": 70, "listed_price_before_tax_vnd": 1, "status": "AVAILABLE", "project_id": "THE_ZEN_PARK"},
-        {"unit_code": "B", "bedrooms": 2, "area_m2": 71, "listed_price_before_tax_vnd": 2, "status": "AVAILABLE", "project_id": "THE_ZEN_PARK"},
+def _units(n: int) -> list[dict]:
+    return [
+        {
+            "unit_code": f"U-{i}",
+            "bedrooms": 2,
+            "area_m2": 70 + i,
+            "listed_price_before_tax_vnd": 1_000_000_000 * (i + 1),
+            "status": "AVAILABLE",
+            "project_id": "THE_ZEN_PARK",
+        }
+        for i in range(n)
     ]
-    rendered = inventory_funnel.render_matches(units)
-    assert "|" not in rendered and rendered.startswith("- A")
 
 
-def test_three_units_switch_to_compact_table() -> None:
-    units = [
-        {"unit_code": c, "bedrooms": 2, "area_m2": 70, "listed_price_before_tax_vnd": 1, "status": "AVAILABLE", "project_id": "THE_ZEN_PARK"}
-        for c in ("A", "B", "C")
-    ]
-    rendered = inventory_funnel.render_matches(units)
-    assert rendered.splitlines()[0] == "| Căn | Dự án | Số PN | Diện tích | Giá niêm yết |"
-    assert rendered.count("|") >= 4 * 3
+def test_single_unit_is_still_a_table() -> None:
+    """Chốt P1.5 (cập nhật): có căn cần liệt kê ⇒ luôn dạng bảng, không liệt kê dòng."""
+    rendered = inventory_funnel.render_matches(_units(1))
+    assert rendered.splitlines()[0] == "| Mã căn | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) |"
+    assert rendered.splitlines()[2].startswith("| U-0 | 2PN | 70m² |")
+
+
+def test_two_units_also_use_table() -> None:
+    rendered = inventory_funnel.render_matches(_units(2))
+    lines = rendered.splitlines()
+    assert len(lines) == 4, "1 tiêu đề + 1 phân cách + 2 dòng"
+    assert all(line.startswith("|") for line in lines)
+    assert "- U-0" not in rendered, "Không còn kiểu liệt kê dòng"
+
+
+def test_many_units_use_table() -> None:
+    rendered = inventory_funnel.render_matches(_units(4))
+    assert len(rendered.splitlines()) == 2 + 4
 
 
 def test_whole_basket_uses_table_and_scope_label() -> None:
     payload = json.loads(tra_cuu_gio_hang.invoke({}))
     assert "toàn giỏ đang mở bán" in payload["summary"]
-    assert payload["summary"].count("|") > 0, "Bảng rút gọn cho ≥3 căn"
+    assert "| Mã căn | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) |" in payload["summary"]
 
 
 # ─── P1.2 — chỉ mốc tổng quan vốn tự có ────────────────────────────────────────────

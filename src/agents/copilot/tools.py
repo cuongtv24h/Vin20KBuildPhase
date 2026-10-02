@@ -224,9 +224,7 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
         )
     else:
         scope_label = f"riêng phân khúc {int(so_phong_ngu)}PN" if so_phong_ngu else "toàn giỏ đang mở bán"
-        header = (
-            f"{len(entries)} căn phù hợp tiêu chí trong {scope_label} (giá niêm yết trước thuế, chưa gồm VAT):"
-        )
+        header = f"{len(entries)} căn phù hợp tiêu chí trong {scope_label} (giá chưa gồm VAT):"
         summary = _clip("\n".join([header, inventory_funnel.render_matches(entries)]))
 
     return _dump(
