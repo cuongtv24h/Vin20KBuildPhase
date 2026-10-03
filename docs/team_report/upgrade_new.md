@@ -1320,7 +1320,7 @@ giá sau đó mang đúng tên khách.
   crash), chạy thật → **"Đã cập nhật 40/40 căn"**, chạy lại → **"40 căn đều đã có đủ"**; DB đếm `(40, 40, 40)`;
   `grounding.list_units()` 40/40 căn có area + view; bảng máy dựng in `| … | Tầng* | View* |` với
   `SAP-D-4200 · 36m² · View nội khu · Tầng 42`.
-- `pytest -q` → **685 passed** (657 → 685): 15 ca cho thẻ khách/ngữ cảnh căn, 20 ca cho hình thức câu trả lời.
+- `pytest -q` → **686 passed** (657 → 686): 15 ca cho thẻ khách/ngữ cảnh căn, 21 ca cho hình thức câu trả lời.
 - `ruff check src/ tests/ scripts/` → sạch.
 - Frontend: `npm test` → **76 ca** (thêm workspace `@pricepolicy/internal` với 6 ca ngữ cảnh báo giá),
   `tsc -b apps/internal` 0 lỗi, build nội bộ OK.
