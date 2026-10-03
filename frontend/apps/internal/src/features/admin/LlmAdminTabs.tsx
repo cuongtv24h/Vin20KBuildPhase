@@ -1004,6 +1004,11 @@ export function TtsTab() {
           <CardDescription>
             Đơn giá là giá niêm yết của nhà cung cấp, kèm mốc kiểm chứng — đối chiếu lại trước khi quyết toán.
           </CardDescription>
+          <p className="pt-1 text-[11px] text-muted-foreground">
+            Khoá API của nhà cung cấp TTS đọc từ cấu hình máy chủ (ENV: OPENAI_API_KEY, AZURE_SPEECH_KEY,
+            VIETTEL_TTS_TOKEN, VBEE_TOKEN, FPT_TTS_API_KEY…). Hiện <strong>chưa có ô nhập khoá TTS</strong> trên
+            giao diện — cột “Khoá API” chỉ báo trạng thái có/không, không hiển thị khoá.
+          </p>
         </CardHeader>
         <CardContent className="p-0">
           <Table>

@@ -1368,6 +1368,9 @@ nằm ở đâu, người dùng **chưa** cung cấp khoá nào, và hiện **kh
    mang khoá giả đi gọi ⇒ lỗi 401 khó hiểu).
 5. `docs/team_report/tts_integration_plan.md` §4.1b: bảng “khoá đọc từ đâu / đã có chỗ nhập chưa” cho từng
    nhà cung cấp + việc còn thiếu.
+6. Giao diện nói đúng sự thật: tab “Giọng đọc (TTS)” ghi rõ khoá đọc từ ENV của máy chủ và **chưa có ô nhập
+   khoá TTS**; câu nhắc trong workspace Sale đổi từ “Cần khai báo khoá…” (treo lơ lửng, không có chỗ khai báo)
+   thành “quản trị viên khai báo trong ENV của máy chủ”.
 
 #### Chưa làm (chờ người dùng quyết)
 
@@ -1382,6 +1385,8 @@ và TTS, đồng thời nối khoá DB của LLM vào badge TTS để hết lệ
 - `ruff check src/ tests/ scripts/` → sạch. `OPENAI_API_KEY=sk-your-openai-or-groq-key` ⇒ `openai`
   `api_key_configured = False`, `browser = True`; khoá thật ⇒ `True`; `GET /api/v1/settings/tts` không trả
   khoá và cũng không trả chuỗi giá trị.
+- Frontend: `npm test` 76 ca (mock-server 39 · api-client 14 · ui 17 · internal 6), `tsc -b apps/internal`
+  0 lỗi, build nội bộ OK.
 
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
