@@ -237,8 +237,26 @@ def is_provider_configured(cfg: TtsProviderConfig, *, settings: Settings | None 
     resolved = settings or get_settings()
     # "Khác rỗng" KHÔNG đủ: giá trị mẫu trong `.env.example` (ví dụ `sk-your-openai-or-groq-key`) từng bị
     # tính là khoá thật ⇒ giao diện báo "Đã có" dù chưa ai cung cấp khoá (đợt 21).
-    return is_usable_api_key(_env_lookup(cfg.env_key)) or is_usable_api_key(
+    if is_usable_api_key(_env_lookup(cfg.env_key)) or is_usable_api_key(
         getattr(resolved, cfg.env_key.lower(), "")
+    ):
+        return True
+    # Đường thứ ba: khoá đã khai trong **màn hình quản trị → Nhà cung cấp LLM** (lưu DB, đã mã hoá).
+    # Nhà cung cấp TTS trùng vendor với LLM (OpenAI hiện tại) dùng CHUNG khoá đó — catalog cũng ghi rõ
+    # "dùng chung khoá với LLM đang cấu hình". Trước đây badge TTS chỉ nhìn ENV nên hiện "Chưa có" oan
+    # sau khi quản trị viên đã nhập khoá trên giao diện.
+    return _configured_in_llm_store(cfg.provider)
+
+
+def _configured_in_llm_store(vendor: str) -> bool:
+    """Khoá của `vendor` đã có trong kho nhà cung cấp LLM (DB hoặc ENV) hay chưa."""
+    try:
+        from src.services import llm_providers
+    except Exception:  # noqa: BLE001 — thiếu module không được làm sập trang thiết lập giọng đọc
+        return False
+    return any(
+        str(provider.provider).lower() == vendor.lower() and is_usable_api_key(provider.api_key)
+        for provider in llm_providers.resolve_provider_configs()
     )
 
 

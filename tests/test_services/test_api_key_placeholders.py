@@ -87,6 +87,71 @@ class TestTtsCatalog:
         assert is_provider_configured(browser, settings=settings) is True
 
 
+class TestOpenAiKeySharedWithLlmStore:
+    """Khoá OpenAI nhập trong màn hình quản trị (DB) cũng phải làm badge TTS chuyển “Đã có”.
+
+    Catalog TTS ghi rõ OpenAI “dùng chung khoá với LLM đang cấu hình”, nhưng `is_provider_configured`
+    trước đây chỉ nhìn ENV ⇒ quản trị viên nhập khoá trên giao diện xong vẫn thấy “Chưa có”.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean_provider_cache(self):
+        from src.services import llm_providers
+
+        llm_providers.reset_provider_cache()
+        yield
+        llm_providers.reset_provider_cache()
+
+    def test_khoa_nhap_trong_cp_lam_badge_sang_da_co(self, monkeypatch):
+        from src.services import llm_providers
+        from src.services.llm_providers import ProviderConfig
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        settings = Settings()
+        openai = get_tts_provider("openai")
+        assert openai is not None
+        assert is_provider_configured(openai, settings=settings) is False
+
+        llm_providers.set_provider_cache(
+            [
+                ProviderConfig(
+                    provider_id="DB-1",
+                    name="CP · OpenAI",
+                    provider="openai",
+                    model_name="gpt-4o-mini",
+                    api_key="sk-proj-9f3aK2mQ7xLp1",
+                )
+            ]
+        )
+        assert is_provider_configured(openai, settings=settings) is True
+        catalog = {item["provider"]: item for item in tts_catalog(settings=settings)}
+        assert catalog["openai"]["api_key_configured"] is True
+        # Nhà cung cấp TTS khác vendor (ví dụ Azure) không được hưởng ké khoá OpenAI.
+        azure = get_tts_provider("azure")
+        assert azure is not None
+        assert is_provider_configured(azure, settings=settings) is False
+
+    def test_khoa_mau_trong_db_cung_khong_tinh(self, monkeypatch):
+        from src.services import llm_providers
+        from src.services.llm_providers import ProviderConfig
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        llm_providers.set_provider_cache(
+            [
+                ProviderConfig(
+                    provider_id="DB-2",
+                    name="CP · mẫu",
+                    provider="openai",
+                    model_name="gpt-4o-mini",
+                    api_key=ENV_EXAMPLE_PLACEHOLDER,
+                )
+            ]
+        )
+        openai = get_tts_provider("openai")
+        assert openai is not None
+        assert is_provider_configured(openai, settings=Settings()) is False
+
+
 class TestLlmEnvConfigs:
     def test_bo_qua_khoa_mau_tu_env(self):
         """Khoá mẫu không được dựng thành nhà cung cấp, nếu không hệ thống gọi bằng khoá giả (401 khó hiểu)."""

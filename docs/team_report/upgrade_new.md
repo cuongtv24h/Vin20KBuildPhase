@@ -1356,7 +1356,7 @@ nằm ở đâu, người dùng **chưa** cung cấp khoá nào, và hiện **kh
 | Vì sao báo “Đã có” dù chưa ai cung cấp? | `.env.example` bán sẵn `OPENAI_API_KEY=sk-your-openai-or-groq-key`, hướng dẫn triển khai là `cp .env.example .env`, và hàm kiểm tra chỉ hỏi **“khác rỗng?”** ⇒ giá trị **mẫu** bị tính là khoá thật. Đã tái hiện trong sandbox: đặt đúng giá trị đó vào ENV thì `api_key_configured = True` |
 | Chỗ nhập khoá hiện có | **Chỉ cho LLM**: màn hình quản trị → tab “Nhà cung cấp LLM” (`POST/PUT /admin/llm/providers`, khoá mã hoá Fernet qua `llm_secrets`, che khi hiển thị, có “Test kết nối”, ưu tiên DB → ENV) |
 | Chỗ nhập khoá TTS | **Chưa có.** TTS chỉ đọc ENV (`OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_SPEECH_KEY`, `VIETTEL_TTS_TOKEN`, `VBEE_TOKEN`, `FPT_TTS_API_KEY`); API `PUT /settings/tts` chỉ đổi **nhà cung cấp + giọng**, không có trường khoá |
-| Hệ quả phụ | Khoá OpenAI nhập trong CP (DB) **không** làm badge của tab TTS chuyển sang “Đã có”, vì `is_provider_configured` chỉ nhìn ENV/Settings — chưa nối vào kho DB của LLM |
+| Hệ quả phụ | Khoá OpenAI nhập trong CP (DB) **không** làm badge của tab TTS chuyển sang “Đã có”, vì `is_provider_configured` chỉ nhìn ENV/Settings — **đã nối lại trong lượt này** (xem mục 6 dưới) |
 
 #### Đã sửa trong lượt này (cùng một luật: khoá **mẫu** không phải khoá)
 
@@ -1371,6 +1371,11 @@ nằm ở đâu, người dùng **chưa** cung cấp khoá nào, và hiện **kh
 6. Giao diện nói đúng sự thật: tab “Giọng đọc (TTS)” ghi rõ khoá đọc từ ENV của máy chủ và **chưa có ô nhập
    khoá TTS**; câu nhắc trong workspace Sale đổi từ “Cần khai báo khoá…” (treo lơ lửng, không có chỗ khai báo)
    thành “quản trị viên khai báo trong ENV của máy chủ”.
+7. **Nối khoá LLM vào badge TTS**: nhà cung cấp TTS trùng vendor với LLM (hiện là OpenAI) nay được coi là
+   “đã có khoá” khi khoá đã khai trong màn hình quản trị → tab “Nhà cung cấp LLM” (khoá lưu DB, mã hoá
+   Fernet). Trước đây quản trị viên nhập khoá trên giao diện xong badge vẫn hiện “Chưa có” — trái với chính
+   ghi chú của catalog (“dùng chung khoá với LLM đang cấu hình”). Nhà cung cấp khác vendor (Azure, Viettel,
+   Vbee, FPT, Google) **không** hưởng ké khoá OpenAI; khoá mẫu trong DB cũng không tính.
 
 #### Chưa làm (chờ người dùng quyết)
 
@@ -1381,7 +1386,7 @@ và TTS, đồng thời nối khoá DB của LLM vào badge TTS để hết lệ
 
 #### Kiểm chứng
 
-- `pytest -q` → **709 passed** (686 → 709; +23 ca ở `tests/test_services/test_api_key_placeholders.py`).
+- `pytest -q` → **711 passed** (686 → 711; +25 ca ở `tests/test_services/test_api_key_placeholders.py`).
 - `ruff check src/ tests/ scripts/` → sạch. `OPENAI_API_KEY=sk-your-openai-or-groq-key` ⇒ `openai`
   `api_key_configured = False`, `browser = True`; khoá thật ⇒ `True`; `GET /api/v1/settings/tts` không trả
   khoá và cũng không trả chuỗi giá trị.
