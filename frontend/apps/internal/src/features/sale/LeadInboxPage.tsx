@@ -67,7 +67,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@pricepolicy/ui/components/ui/select'
-import { formatDateTime, formatRelative, formatVnd, formatNumber } from '@pricepolicy/ui/lib/format'
+import { formatDateTime, formatNote, formatRelative, formatVnd, formatNumber, maskPhone } from '@pricepolicy/ui/lib/format'
 import {
   DOSSIER_STATUS_LABEL,
   OBJECTIVE_LABEL,
@@ -192,9 +192,9 @@ export function LeadInboxPage() {
   return (
     <div className="space-y-6">
       {/* 1. Header & Actions */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2.5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 lg:flex-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
             <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
               CRM Quản trị khách hàng
             </h1>
@@ -207,7 +207,7 @@ export function LeadInboxPage() {
             Theo dõi, phân loại và cập nhật hồ sơ khách hàng tiềm năng cho chuyên viên kinh doanh
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
           <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 text-xs border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10">
             <Link to="/sale/workspace">
               <Sparkles className="h-3.5 w-3.5 text-amber-500" />
@@ -357,7 +357,7 @@ export function LeadInboxPage() {
             filteredLeads.map((d) => {
               const isSelected = d.dossier_id === selectedId
               const custName = d.customer?.full_name || d.customer_name || 'Khách hàng'
-              const phone = d.customer?.phone || d.customer_phone_masked || '090***'
+              const phone = d.customer?.phone || d.customer_phone_masked || ''
               const temp = d.temperature || d.lead_temperature || 'WARM'
               const unit = d.constraints?.preferred_unit_code || d.preferred_unit_code || d.unit_code || '—'
               const funds = d.constraints?.own_funds_vnd || 0
@@ -385,7 +385,7 @@ export function LeadInboxPage() {
                           )}
                         </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2">
-                          <span>📞 {phone}</span>
+                          <span>📞 {maskPhone(phone) || 'Chưa có SĐT'}</span>
                           <span>·</span>
                           <span>{SEGMENT_LABEL[segment as CustomerSegment] || segment}</span>
                         </div>
@@ -410,7 +410,7 @@ export function LeadInboxPage() {
 
                     <div className="flex items-center justify-between pt-1">
                       <p className="text-[11px] text-muted-foreground line-clamp-1 italic max-w-[240px]">
-                        {d.needs_summary || 'Nhu cầu quan tâm dự án...'}
+                        {formatNote(d.needs_summary)}
                       </p>
                       <Button
                         variant="ghost"
@@ -640,7 +640,7 @@ function CustomerCrmEditor({
 
   // Editable fields
   const [customerName, setCustomerName] = useState(dossier.customer?.full_name || dossier.customer_name || '')
-  const [customerPhone, setCustomerPhone] = useState(dossier.customer?.phone || dossier.customer_phone || '')
+  const [customerPhone, setCustomerPhone] = useState('')
   const [segment, setSegment] = useState<CustomerSegment>(c.customer_segment || dossier.customer_segment || dossier.segment || 'NEW_CUSTOMER')
   const [temperature, setTemperature] = useState<LeadTemperature>(dossier.temperature || dossier.lead_temperature || 'WARM')
   const [status, setStatus] = useState<LeadDossierStatus>(dossier.status || 'NEW')
@@ -654,7 +654,7 @@ function CustomerCrmEditor({
   // Reset values when switching dossiers
   useEffect(() => {
     setCustomerName(dossier.customer?.full_name || dossier.customer_name || '')
-    setCustomerPhone(dossier.customer?.phone || dossier.customer_phone || '')
+    setCustomerPhone('')
     setSegment(c.customer_segment || dossier.customer_segment || dossier.segment || 'NEW_CUSTOMER')
     setTemperature(dossier.temperature || dossier.lead_temperature || 'WARM')
     setStatus(dossier.status || 'NEW')
@@ -769,7 +769,7 @@ function CustomerCrmEditor({
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 className="mt-1 h-8 text-xs"
-                placeholder="0912345678"
+                placeholder={maskPhone(dossier.customer?.phone || dossier.customer_phone || dossier.customer_phone_masked) || '0912345678'}
               />
             </div>
           </div>

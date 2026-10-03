@@ -221,7 +221,7 @@ export function SalePoliciesPage() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[900px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="w-[140px] text-xs">Mã văn bản</TableHead>
@@ -229,7 +229,7 @@ export function SalePoliciesPage() {
                     <TableHead className="w-[120px] text-xs">Trạng thái</TableHead>
                     <TableHead className="w-[180px] text-xs">Thời hạn áp dụng</TableHead>
                     <TableHead className="w-[90px] text-xs">Phiên bản</TableHead>
-                    <TableHead className="w-[200px] text-right text-xs">Thao tác</TableHead>
+                    <TableHead className="w-[220px] min-w-[220px] text-right text-xs">Thao tác</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -265,7 +265,7 @@ export function SalePoliciesPage() {
                           {p.policy_version}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                             <Button
                               variant="outline"
                               size="sm"

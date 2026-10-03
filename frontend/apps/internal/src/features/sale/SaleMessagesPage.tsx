@@ -27,6 +27,7 @@ import { Textarea } from '@pricepolicy/ui/components/ui/textarea'
 import { PageHeader } from '@pricepolicy/ui/components/common/PageStates'
 import { toast } from '@pricepolicy/ui/state/toastStore'
 import { cn } from '@pricepolicy/ui/lib/utils'
+import { maskPhone } from '@pricepolicy/ui/lib/format'
 
 // --- EVIDENCE KNOWLEDGE BASE ---
 interface LegalEvidence {
@@ -295,7 +296,7 @@ export function SaleMessagesPage() {
                       <SelectItem value="">-- Không chọn (Mẫu chung) --</SelectItem>
                       {leads.map((l) => (
                         <SelectItem key={l.dossier_id} value={l.dossier_id}>
-                          {l.customer_name || l.customer?.full_name} ({l.customer_phone_masked || l.customer_phone || l.customer?.phone})
+                          {l.customer_name || l.customer?.full_name} ({maskPhone(l.customer_phone_masked || l.customer_phone || l.customer?.phone)})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -329,7 +330,7 @@ export function SaleMessagesPage() {
               {selectedLead && (
                 <div className="rounded-lg bg-muted/40 p-2.5 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
                   <span>Họ tên: <strong className="text-foreground">{selectedLead.customer_name || selectedLead.customer?.full_name}</strong></span>
-                  <span>Điện thoại: <strong className="text-foreground">{selectedLead.customer_phone_masked || selectedLead.customer_phone || selectedLead.customer?.phone}</strong></span>
+                  <span>Điện thoại: <strong className="text-foreground">{maskPhone(selectedLead.customer_phone_masked || selectedLead.customer_phone || selectedLead.customer?.phone)}</strong></span>
                   <span>Căn quan tâm: <strong className="text-foreground">{selectedLead.preferred_unit_code || selectedLead.unit_code || 'Chưa định danh'}</strong></span>
                   <span>Vốn tự có: <strong className="text-foreground">{selectedLead.constraints?.own_funds_vnd ? (selectedLead.constraints.own_funds_vnd / 1e9).toFixed(1) + ' tỷ' : '5 tỷ'}</strong></span>
                 </div>

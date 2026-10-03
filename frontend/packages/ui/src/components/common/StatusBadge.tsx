@@ -127,7 +127,8 @@ export function TemperatureBadge({ temperature }: { temperature: LeadTemperature
 
 const POLICY_VARIANT: Record<PolicyStatus, Variant> = { DRAFT: 'warning', PUBLISHED: 'success', ARCHIVED: 'muted' }
 
-export function PolicyStatusBadge({ status, expired }: { status: PolicyStatus; expired?: boolean }) {
+export function PolicyStatusBadge({ status, expired }: { status?: PolicyStatus | null; expired?: boolean }) {
+  if (!status || !POLICY_VARIANT[status]) return <Badge variant="muted">Chưa xác định</Badge>
   if (status === 'PUBLISHED' && expired) return <Badge variant="muted">Hết hiệu lực</Badge>
   return (
     <Badge variant={POLICY_VARIANT[status]} data-status={status}>

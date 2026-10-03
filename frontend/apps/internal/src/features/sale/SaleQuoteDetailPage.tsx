@@ -1,7 +1,7 @@
 import { CheckCircle2, Clock, FileEdit, Loader2, Send, XCircle } from 'lucide-react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import type { Quote } from '@pricepolicy/api-client/contracts'
-import { errorMessage } from '@pricepolicy/api-client/errors'
+import { ApiError, errorMessage } from '@pricepolicy/api-client/errors'
 import { useQuote, useQuoteAudit, useQuoteEvents, useQuoteEvidence, useSubmitQuote } from '@pricepolicy/api-client/hooks'
 import { useCurrentUser } from '@/auth/useCurrentUser'
 import { ErrorState, LoadingState, QueryState } from '@pricepolicy/ui/components/common/PageStates'
@@ -92,7 +92,18 @@ function QuoteDetail({ quote, onRecheck, onVersionChange }: { quote: Quote; onRe
                 <CardTitle className="text-sm">Nhật ký hồ sơ</CardTitle>
               </CardHeader>
               <CardContent>
-                <QueryState query={audit}>{(a) => <AuditTimeline audit={a} />}</QueryState>
+                {audit.error && audit.data === undefined && audit.error instanceof ApiError && audit.error.status === 404 ? (
+                  <p className="text-sm text-muted-foreground">Chưa có hoạt động nào cho hồ sơ này</p>
+                ) : audit.error && audit.data === undefined ? (
+                  <div className="flex flex-col items-start gap-2">
+                    <p className="text-sm text-muted-foreground">Không tải được nhật ký</p>
+                    <Button variant="outline" size="sm" onClick={() => audit.refetch()}>
+                      Thử lại
+                    </Button>
+                  </div>
+                ) : (
+                  <QueryState query={audit}>{(a) => <AuditTimeline audit={a} />}</QueryState>
+                )}
               </CardContent>
             </Card>
           </div>

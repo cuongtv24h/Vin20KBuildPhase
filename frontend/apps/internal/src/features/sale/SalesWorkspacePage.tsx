@@ -103,7 +103,7 @@ import {
 } from '@pricepolicy/ui/lib/speech'
 import { filterCommands, type SlashCommand } from '@pricepolicy/ui/lib/slashCommands'
 import { CopilotContextChips } from '@pricepolicy/ui/components/common/CopilotContextChips'
-import { formatVnd } from '@pricepolicy/ui/lib/format'
+import { formatNote, formatVnd, maskPhone } from '@pricepolicy/ui/lib/format'
 import { speakText, stopSpeaking, isSpeechSupported, listLocalVoices } from '@pricepolicy/ui/lib/speech'
 import { OBJECTIVE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
 import { cn } from '@pricepolicy/ui/lib/utils'
@@ -890,6 +890,9 @@ function SmartComposeMessageCard({
   )
 }
 
+/** Sau chừng này ms chưa có phản hồi từ Copilot thì giao diện dừng chờ và hiện nút "Thử lại". */
+const COPILOT_UI_TIMEOUT_MS = 45_000
+
 export function SalesWorkspacePage() {
   const session = useSessionStore((s) => s.session)
   const navigate = useNavigate()
@@ -1399,9 +1402,24 @@ export function SalesWorkspacePage() {
     }
   }, [copilot.error, copilot.lastMessage, copilot.lastContext])
 
+  // Timeout phía giao diện: quá COPILOT_UI_TIMEOUT_MS chưa có câu trả lời thì dừng spinner và cho thử lại.
+  // (Chỉ xử lý hiển thị — nguyên nhân treo ở backend chưa sửa.)
+  const [copilotTimedOut, setCopilotTimedOut] = useState(false)
+  useEffect(() => {
+    if (!copilot.streaming) return
+    setCopilotTimedOut(false)
+    const timer = setTimeout(() => {
+      copilot.cancel()
+      setCopilotTimedOut(true)
+    }, COPILOT_UI_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copilot.streaming, copilot.lastMessage])
+
   useEffect(() => {
     const msgId = reasoningMsgIdRef.current
     if (!msgId) return
+    const timedOut = copilotTimedOut && !copilot.streaming && !copilot.final && !copilot.error
     setMessages((prev) =>
       prev.map((m) =>
         m.id === msgId
@@ -1412,13 +1430,13 @@ export function SalesWorkspacePage() {
                 steps: copilot.steps,
                 streaming: copilot.streaming,
                 degraded: copilot.degraded,
-                error: copilot.error,
+                error: timedOut ? 'Trợ lý chưa phản hồi' : copilot.error,
               },
             }
           : m,
       ),
     )
-  }, [copilot.steps, copilot.streaming, copilot.degraded, copilot.error])
+  }, [copilot.steps, copilot.streaming, copilot.degraded, copilot.error, copilot.final, copilotTimedOut])
 
   useEffect(() => {
     const final = copilot.final
@@ -2567,7 +2585,7 @@ export function SalesWorkspacePage() {
                           </div>
                           <div className="flex justify-between py-1 border-b border-border/50">
                             <span className="text-muted-foreground">Số điện thoại:</span>
-                            <span className="font-semibold text-foreground">{m.data?.phone}</span>
+                            <span className="font-semibold text-foreground">{maskPhone(m.data?.phone)}</span>
                           </div>
                           <div className="flex justify-between py-1 border-b border-border/50">
                             <span className="text-muted-foreground">Căn quan tâm:</span>
@@ -2817,7 +2835,7 @@ export function SalesWorkspacePage() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">Số điện thoại:</span>
-                          <div className="font-semibold text-foreground">{lead.customer?.phone}</div>
+                          <div className="font-semibold text-foreground">{maskPhone(lead.customer?.phone)}</div>
                         </div>
                         <div>
                           <span className="text-muted-foreground">Căn quan tâm:</span>
@@ -2898,7 +2916,7 @@ export function SalesWorkspacePage() {
                                 <TemperatureBadge temperature={l.temperature} />
                               </div>
                               <div className="text-[11px] text-muted-foreground">
-                                {l.customer?.phone} · {l.constraints?.preferred_unit_code || 'Chưa định danh'}
+                                {maskPhone(l.customer?.phone)} · {l.constraints?.preferred_unit_code || 'Chưa định danh'}
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -3377,9 +3395,9 @@ export function SalesWorkspacePage() {
                             <span className="font-semibold text-foreground">{l.customer.full_name}</span>
                             <TemperatureBadge temperature={l.temperature} />
                           </div>
-                          <p className="line-clamp-2 text-muted-foreground text-[11px]">{l.needs_summary}</p>
+                          <p className="line-clamp-2 text-muted-foreground text-[11px]">{formatNote(l.needs_summary)}</p>
                           <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px]">
-                            <span className="text-muted-foreground">{l.customer.phone}</span>
+                            <span className="text-muted-foreground">{maskPhone(l.customer.phone)}</span>
                             <SlaCountdown dueAt={l.sla_due_at} />
                           </div>
                         </CardContent>
@@ -3419,13 +3437,13 @@ export function SalesWorkspacePage() {
                       <span>{selectedLead.customer.full_name}</span>
                       <SlaCountdown dueAt={selectedLead.sla_due_at} />
                     </CardTitle>
-                    <p className="text-xs text-muted-foreground">{selectedLead.customer.phone} · {selectedLead.dossier_id}</p>
+                    <p className="text-xs text-muted-foreground">{maskPhone(selectedLead.customer.phone)} · {selectedLead.dossier_id}</p>
                   </CardHeader>
 
                   <CardContent className="p-3.5 space-y-3">
                     <div>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Tóm tắt nhu cầu</span>
-                      <p className="mt-1 text-foreground leading-relaxed">{selectedLead.needs_summary}</p>
+                      <p className="mt-1 text-foreground leading-relaxed">{formatNote(selectedLead.needs_summary)}</p>
                     </div>
 
                     <div className="border-t border-border pt-2 space-y-1.5">
