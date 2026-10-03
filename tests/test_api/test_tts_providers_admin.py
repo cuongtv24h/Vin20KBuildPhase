@@ -101,6 +101,32 @@ class TestDanhMuc:
         assert items["browser"]["custom"] is False and items["browser"]["has_db_row"] is False
 
     @pytest.mark.asyncio
+    async def test_chuoi_doc_noi_ro_thu_tu_va_cho_tac(self, client: AsyncClient):
+        """Đợt 24: giao diện phải nhìn thấy **thứ tự đọc** và **vì sao chưa đọc được**, không chỉ danh mục."""
+        await _create(client, CUSTOM_PAYLOAD)  # vieneu: có Base URL + khoá ⇒ đọc được
+        data = (await client.get("/api/v1/admin/tts/providers", headers=ADMIN_HEADERS)).json()
+        chain = {item["provider"]: item for item in data["chain"]}
+        assert chain["vieneu"]["ready"] is True and chain["vieneu"]["reason"] == ""
+        # Nhà cung cấp dựng sẵn chưa nhập khoá: vẫn hiện nhưng kèm lý do để biết cần bổ sung gì.
+        assert chain["openai"]["ready"] is False and "khoá" in chain["openai"]["reason"].lower()
+        # Trình duyệt không nằm trong chuỗi đọc qua backend (đọc tại máy, 0 đồng).
+        assert "browser" not in chain
+        # Nhà cung cấp đọc được xếp trước nhà cung cấp đang tắc.
+        order = [item["ready"] for item in data["chain"]]
+        assert order == sorted(order, reverse=True)
+
+        # Đặt vieneu làm nhà cung cấp mặc định ⇒ nó phải đứng **đầu** chuỗi (đúng thứ tự sẽ chạy thật).
+        res = await client.put(
+            "/api/v1/settings/tts",
+            json={"scope": "default", "provider": "vieneu", "voice": "vi-female-01"},
+            headers=ADMIN_HEADERS,
+        )
+        assert res.status_code == 200, res.text
+        data = (await client.get("/api/v1/admin/tts/providers", headers=ADMIN_HEADERS)).json()
+        assert data["chain"][0]["provider"] == "vieneu"
+        assert data["chain"][0]["is_preferred"] is True
+
+    @pytest.mark.asyncio
     async def test_them_nha_cung_cap_moi_ngoai_danh_muc(self, client: AsyncClient):
         created = await _create(client, CUSTOM_PAYLOAD)
         assert created["provider"] == "vieneu"

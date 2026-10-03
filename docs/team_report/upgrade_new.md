@@ -1502,7 +1502,7 @@ GET  /api/v1/tts/quota   (staff)  → daily_budget, chars_today, remaining
 
 | Việc | Cách làm |
 |---|---|
-| Gọi nhà cung cấp | `POST {base}/audio/speech` (giao thức OpenAI-compatible) — dùng cho OpenAI, gateway nội bộ và máy chủ tự dựng kiểu OpenAI (ví dụ VieNeu-TTS). Chưa nối adapter cho Google/Azure/Viettel/Vbee/FPT ⇒ trả **501** kèm việc cần làm, **không** giả vờ đọc được |
+| Gọi nhà cung cấp | `POST {base}/audio/speech` (giao thức OpenAI-compatible) — dùng cho OpenAI, gateway nội bộ và máy chủ tự dựng kiểu OpenAI (ví dụ VieNeu-TTS). *(Đợt 24 bỏ danh sách mã cứng: mọi nhà cung cấp có Base URL + khoá đều đi đường này, xem §16.5j.)* |
 | Giọng trình duyệt | Không đi qua backend (409 + giải thích) — vẫn là đường **0 đồng** mặc định |
 | Che PII | SĐT (`0912345678` → `091***78`) và email (`***@***`) bị che **trước khi** văn bản rời hệ thống (việc còn thiếu của kế hoạch §6) |
 | Cắt chữ | Theo `max_chars_per_turn`; chế độ rảnh tay (`summary_only`) chỉ đọc **240 ký tự đầu** — vừa đỡ tốn tiền vừa không bắt khách chờ |
@@ -1528,12 +1528,76 @@ nhưng chặn được ca một phiên bị lặp đọc câu trả lời dài h
 
 #### Còn lại (nói thẳng)
 
-- Adapter cho Google/Azure/Viettel/Vbee/FPT **chưa làm** (hiện báo 501 rõ ràng, tự lùi về giọng máy).
+- *(Đợt 24 đã bỏ danh sách cứng — mọi nhà cung cấp có Base URL + khoá đều đọc được; xem §16.5j.)*
+  Nhà cung cấp **không** dùng giao thức OpenAI-compatible vẫn cần gateway chuyển tiếp hoặc adapter riêng.
 - Chưa gọi được nhà cung cấp thật từ sandbox (không có khoá) — mới kiểm bằng server giả; cần bấm tay trên VM
   với một khoá thật để xác nhận chất lượng giọng.
 - Cache và hạn mức đang ở **một máy**: nhiều instance backend sẽ không dùng chung cache/hạn mức
   (hạn mức đọc từ file `llm_usage.jsonl` — khi log lớn nên chuyển sang DB; hiện quét tối đa 20.000 dòng).
 - Chưa có ngân sách theo **tháng** và chưa có cảnh báo khi chi phí TTS tăng bất thường.
+
+### 16.5j Đợt 24 (2026-10-03) — Sao chép cơ chế sẵn có: **thêm nhà cung cấp mới là đọc được ngay**
+
+Người dùng chốt: *“A, sao chép cơ chế sẵn có, cho phép thêm nhà cung cấp mới.”* Đợt 22 đã mở phần **khai báo**
+nhà cung cấp (thêm bao nhiêu cũng được, khoá Fernet, DB → ENV), nhưng đường **đọc** vẫn còn danh sách mã cứng:
+`speak_style_for` + `KNOWN_UNWIRED` liệt kê 5 mã (Google/Azure/Viettel/Vbee/FPT) ⇒ chọn nhà cung cấp mới thêm là
+bị **501 “chưa nối adapter”**. Lượt này áp đúng nguyên tắc của đợt 22 cho đường đọc — không còn mã nào bị chặn
+theo tên.
+
+| Trước | Sau (đợt 24) |
+|---|---|
+| `KNOWN_UNWIRED = {google_cloud, azure, viettel, vbee, fpt}` ⇒ 501 | `speak_capable()` chỉ xét **điều kiện kỹ thuật**: đang bật · có `base_url` · có khoá dùng được (DB → ENV → kho LLM). Không nhìn tên nhà cung cấp |
+| Chỉ gọi **một** nhà cung cấp; lỗi ⇒ 502/503 dừng ngay | `speak_chain()` xếp **nhà cung cấp ưu tiên trước, rồi theo `priority`** — đúng cơ chế dự phòng của nhà cung cấp LLM (`llm_providers`) |
+| Lỗi không ghi nhật ký | Mỗi lần thử ghi một dòng `llm_usage.jsonl` (`ok`, `error`, `is_fallback`) ⇒ tab “Chi phí & hiệu năng” thấy cả lượt hỏng và biết lượt nào là dự phòng |
+| Giọng gửi nguyên như người dùng chọn | `voice_for()` giữ giọng đã chọn **nếu nhà cung cấp thật sự có** giọng đó, không thì lấy giọng đầu của họ (không gửi mã lạ ⇒ không bị 400) |
+| Đọc lại từ cache vẫn tính tiền và tiêu hạn mức | Cache hit ⇒ `cost: 0`, **không** tiêu hạn mức ngày (không có gì được gửi ra ngoài) |
+
+Hợp đồng trả về thêm hai trường để giao diện nói thật với Sale:
+
+```
+fallback_used: bool          # true khi nhà cung cấp đã đọc KHÔNG phải nhà cung cấp ưu tiên
+attempts: [ {provider, label, ok, status, detail, voice, model} ]   # từng lần thử, theo đúng thứ tự đã gọi
+```
+
+Quy tắc lỗi (không đổi so với đợt 23, chỉ áp cho từng mắt của chuỗi):
+
+- **402** khi vượt hạn mức ký tự/ngày: chặn **trước cả chuỗi** — không đốt thêm một đồng nào (test chứng minh
+  không có request nào ra ngoài), và lượt đọc lại từ cache vẫn được phép.
+- Hết chuỗi mà vẫn lỗi ⇒ **502 `ALL_PROVIDERS_FAILED`** kèm lý do của **từng** nhà cung cấp; không nhà cung cấp nào
+  đủ điều kiện ⇒ **503** nói rõ cần Base URL + khoá, kèm chỗ nhập (Quản trị CP → Giọng đọc).
+- Nhà cung cấp trả **400/404/405** ⇒ lần thử đó ghi lỗi kèm gợi ý Base URL theo giao thức OpenAI-compatible
+  (thường kết thúc bằng `/v1`) và chuỗi đọc tiếp nhà cung cấp kế tiếp; hết chuỗi thì **502** nêu lại đúng lý do
+  đó. Nói cách khác lỗi giờ nói về *phản hồi của nhà cung cấp*, không còn là “chưa làm adapter”.
+- Giọng trình duyệt vẫn **không** đi qua backend (409) — đường 0 đồng mặc định không đổi.
+
+**Nhìn thấy được, không chỉ chạy được:**
+
+1. `GET /admin/tts/providers` trả thêm `chain` — từng mắt kèm `ready` + `reason` (thiếu Base URL / thiếu khoá /
+   đang tắt) ⇒ thẻ quản trị in **“Thứ tự đọc: 1. … → 2. …”** và danh sách **“Chưa đọc được: … (lý do)”**.
+2. Workspace Sale: khi phải chuyển tiếp, hiện thông báo *“<A> không đọc được — đã tự chuyển sang <B>”* thay vì im lặng.
+3. Mock server phản chiếu đúng chuỗi (bản ghi có Base URL chứa `/mock-fail` là mắt lỗi để test được đường dự phòng)
+   ⇒ có test hợp đồng cho cả `chain`, `attempts`, `fallback_used` và luật “đọc lại không tính tiền”.
+
+#### Kiểm chứng
+
+- `pytest -q` → **752 passed** (+3 ca so với đợt 23; `tests/test_api/test_tts_speak.py` nay 13 ca, gồm: nhà cung
+  cấp **bất kỳ** do quản trị viên tự thêm vẫn đọc được, chuyển tiếp khi nhà cung cấp ưu tiên lỗi, giọng được
+  đổi theo nhà cung cấp thật đọc, nhật ký có đủ lượt hỏng + cờ dự phòng, cache hit ⇒ 0 đồng và hạn mức không đổi,
+  hết chuỗi ⇒ 502 nêu lý do + gợi ý Base URL;
+  `tests/test_api/test_tts_providers_admin.py` thêm ca chuỗi đọc nói rõ **thứ tự** + **chỗ tắc**),
+  `ruff check src/ tests/ scripts/` sạch.
+- Frontend: `npm test` → **86 ca** (mock-server **49** — thêm ca chuyển tiếp dự phòng · api-client 14 · ui 17 ·
+  internal 6), `tsc -b apps/internal` 0 lỗi, build OK, oxlint 0 lỗi (126 cảnh báo, không tăng).
+- Không đụng đường trả lời Copilot ⇒ golden/bank không phải chạy lại.
+
+#### Còn lại (nói thẳng)
+
+- Nhà cung cấp **không** dùng giao thức OpenAI-compatible (Google/Azure/Viettel/Vbee/FPT…) vẫn cần **gateway
+  chuyển tiếp** hoặc adapter riêng — cơ chế mới chỉ bảo đảm *không chặn theo tên*, không tự biến API riêng của
+  họ thành `/audio/speech`.
+- Chưa gọi nhà cung cấp thật từ sandbox (không có khoá) và chưa bấm trên trình duyệt/VM.
+- Nhà cung cấp trả **200 với thân audio rỗng** hiện vẫn rơi vào nhánh lỗi chung (câu báo còn nhắc “mã 200”) — nên
+  tách thành `PROVIDER_ERROR` rõ nghĩa ở lượt sau; đã ghi vào danh sách việc còn lại.
 
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
@@ -1568,9 +1632,10 @@ giá trị tư vấn cao hơn một câu khẳng định chung.
 
 ### 16.8 Còn lại (nói thẳng)
 
-0. **Đợt 23 (chưa xong)**: đường đọc qua nhà cung cấp đã nối (`POST /tts/speak`) nhưng mới kiểm bằng server
-   giả — chưa gọi nhà cung cấp thật (sandbox không có khoá) và chưa bấm trên trình duyệt/VM; adapter cho
-   Google/Azure/Viettel/Vbee/FPT chưa làm (báo 501 rõ ràng). Chi tiết + việc còn lại: §16.5i.
+0. **Đợt 23 + 24 (chưa xong)**: đường đọc qua nhà cung cấp đã nối (`POST /tts/speak`) và đã **sao chép cơ chế
+   ưu tiên/dự phòng của LLM** (không danh sách mã cứng — nhà cung cấp mới thêm là đọc được, lỗi thì tự chuyển
+   tiếp), nhưng mới kiểm bằng server giả: chưa gọi nhà cung cấp thật (sandbox không có khoá) và chưa bấm trên
+   trình duyệt/VM. Chi tiết + việc còn lại: §16.5i và §16.5j.
 0b. **Đợt 22 (chưa xong)**: màn hình quản trị nhà cung cấp TTS mới chỉ xác nhận ở mức mã nguồn + typecheck +
    test hợp đồng (mock) — chưa bấm trên trình duyệt (sandbox không có Chromium) và chưa chạy trên VM.
    Chi tiết: §16.5h.

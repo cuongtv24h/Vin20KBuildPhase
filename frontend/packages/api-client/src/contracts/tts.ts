@@ -139,6 +139,16 @@ export interface TtsQuota {
   remaining: number
 }
 
+export interface TtsSpeakAttempt {
+  provider: string
+  label: string
+  ok: boolean
+  status: string
+  detail: string
+  voice: string
+  model: string
+}
+
 export interface TtsSpeakResponse {
   provider: string
   voice: string
@@ -151,4 +161,7 @@ export interface TtsSpeakResponse {
   currency: string
   latency_ms: number
   quota: TtsQuota
+  /** True khi nhà cung cấp đã đọc KHÔNG phải nhà cung cấp ưu tiên (đã tự chuyển tiếp). */
+  fallback_used: boolean
+  attempts: TtsSpeakAttempt[]
 }

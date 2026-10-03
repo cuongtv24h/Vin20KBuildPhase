@@ -7,8 +7,12 @@ Nguyên tắc:
 
 - Nhà cung cấp trình duyệt (`mode = "browser"`) **không** đi đường này — trả về thông báo rõ để giao diện
   dùng giọng máy (0 đồng), không im lặng đọc sai đường.
-- Nhà cung cấp chưa nối adapter ⇒ **501 kèm hướng dẫn**, không giả vờ đọc được.
-- Nhà cung cấp lỗi ⇒ **502/503**; giao diện tự lùi về giọng trình duyệt (đúng hành vi đã chốt trong kế hoạch).
+- **Sao chép cơ chế nhà cung cấp LLM**: đọc theo **ưu tiên rồi `priority`**, nhà cung cấp lỗi thì tự chuyển
+  sang nhà cung cấp kế tiếp; phản hồi có `attempts` + `fallback_used` để giao diện nói thật với Sale.
+- Hết chuỗi ⇒ **502** kèm lý do từng nhà cung cấp; chưa nhà cung cấp nào đủ điều kiện (thiếu Base URL/khoá) ⇒
+  **503** nêu việc cần làm. Nhà cung cấp trả 400/404/405 ⇒ lần thử đó báo lỗi kèm gợi ý Base URL
+  (`attempts[].detail`, ví dụ “thử Base URL kết thúc bằng /v1”), hết chuỗi thì thành 502 nêu lại lý do.
+  Giao diện tự lùi về giọng trình duyệt (đúng hành vi đã chốt trong kế hoạch).
 - Văn bản được **che PII** và **cắt theo hạn mức ký tự** trước khi rời khỏi hệ thống.
 """
 
@@ -24,13 +28,18 @@ from src.api.deps import Principal
 from src.api.endpoints.copilot import require_staff_principal
 from src.api.endpoints.settings import DEFAULT_SCOPE, _load_scope, user_scope
 from src.db.session import get_db_session
-from src.services.tts_providers import default_tts_settings, get_tts_provider, refresh_tts_providers
+from src.services.tts_providers import (
+    default_tts_settings,
+    get_tts_provider,
+    refresh_tts_providers,
+    speak_chain,
+)
 from src.services.tts_speak import (
     TtsSpeakError,
     audio_base64,
     chars_spoken_today,
     daily_char_budget,
-    synthesize_speech,
+    synthesize_with_fallback,
     trim_for_speech,
 )
 
@@ -56,6 +65,18 @@ class QuotaInfo(BaseModel):
     remaining: int
 
 
+class SpeakAttempt(BaseModel):
+    """Một lần thử đọc (nhà cung cấp lỗi cũng hiện) — giao diện nói rõ đã chuyển tiếp vì lý do gì."""
+
+    provider: str
+    label: str
+    ok: bool
+    status: str
+    detail: str = ""
+    voice: str = ""
+    model: str = ""
+
+
 class SpeakResponse(BaseModel):
     provider: str
     voice: str
@@ -68,6 +89,9 @@ class SpeakResponse(BaseModel):
     currency: str
     latency_ms: float
     quota: QuotaInfo
+    #: True khi nhà cung cấp đã đọc **không phải** nhà cung cấp ưu tiên (đã tự chuyển tiếp).
+    fallback_used: bool = False
+    attempts: list[SpeakAttempt] = Field(default_factory=list)
 
 
 async def _effective_settings(session: AsyncSession, user_id: str) -> dict[str, Any]:
@@ -102,12 +126,12 @@ async def speak(
     effective = await _effective_settings(session, principal.user_id)
     provider_code = (payload.provider or effective.get("provider") or "").strip().lower()
     cfg = get_tts_provider(provider_code)
-    if cfg is None:
+    if cfg is None and provider_code:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Nhà cung cấp TTS '{provider_code}' không có trong danh mục. Chọn lại trong thiết lập giọng đọc.",
         )
-    if cfg.mode == "browser":
+    if cfg is not None and cfg.mode == "browser":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -115,6 +139,10 @@ async def speak(
                 "không gửi qua backend."
             ),
         )
+    # Chuỗi đọc: nhà cung cấp đang chọn chạy trước, lỗi thì tự chuyển sang nhà cung cấp kế tiếp theo
+    # `priority` — sao chép cơ chế dự phòng của nhà cung cấp LLM. Nhà cung cấp mới thêm trong giao diện
+    # tham gia chuỗi y như nhà cung cấp dựng sẵn (không có danh sách cứng trong đường đọc).
+    candidates = speak_chain(preferred=provider_code)
 
     voice = (payload.voice or effective.get("voice") or (cfg.voices[0].code if cfg.voices else "")).strip()
     model = (payload.model or effective.get("model") or cfg.default_model).strip()
@@ -125,8 +153,8 @@ async def speak(
         raise HTTPException(status_code=422, detail="Không có nội dung để đọc.")
 
     try:
-        result = await synthesize_speech(
-            cfg,
+        result, used_cfg, attempts = await synthesize_with_fallback(
+            candidates,
             text=text,
             voice=voice,
             model=model,
@@ -136,10 +164,11 @@ async def speak(
     except TtsSpeakError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
 
+    used = next((a for a in attempts if a["ok"]), None)
     return SpeakResponse(
-        provider=cfg.provider,
-        voice=voice,
-        model=model,
+        provider=used_cfg.provider,
+        voice=str((used or {}).get("voice") or voice),
+        model=str((used or {}).get("model") or model or used_cfg.default_model),
         mime=result.mime,
         audio_base64=audio_base64(result.audio),
         chars=result.chars,
@@ -148,4 +177,6 @@ async def speak(
         currency=result.currency,
         latency_ms=result.latency_ms,
         quota=_quota(),
+        fallback_used=len(attempts) > 1,
+        attempts=[SpeakAttempt(**attempt) for attempt in attempts],
     )

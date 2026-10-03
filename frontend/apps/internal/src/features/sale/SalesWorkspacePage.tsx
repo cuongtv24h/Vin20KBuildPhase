@@ -1185,6 +1185,11 @@ export function SalesWorkspacePage() {
       }
       await audio.play()
       if (res.cached) showToast('Đọc lại từ bản đã lưu — không phát sinh thêm chi phí.')
+      // Sao chép cơ chế dự phòng của LLM: nói rõ đã đọc bằng nhà cung cấp nào khi phải chuyển tiếp.
+      if (res.fallback_used) {
+        const failed = res.attempts.filter((a) => !a.ok).map((a) => a.label)
+        showToast(`${failed.join(', ')} không đọc được — đã tự chuyển sang ${ttsProvider?.label ?? res.provider}.`)
+      }
       return true
     } catch (err) {
       setSpeakingId(null)

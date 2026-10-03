@@ -11,9 +11,10 @@ qua backend:
 - **Cache trên đĩa** theo `sha256(text|provider|voice|model|speed)`: đọc lại cùng câu không tốn thêm tiền.
 - **Ghi chi phí** vào `llm_usage.jsonl` với `kind = "tts"` (cột ký tự, không nhồi vào token).
 
-Hiện mới nối **giao thức OpenAI-compatible** (`POST {base}/audio/speech`) — dùng được cho OpenAI, gateway
-nội bộ và các máy chủ tự dựng kiểu OpenAI. Các nhà cung cấp khác (Google/Azure/Viettel/Vbee/FPT) trả về
-thông báo **chưa nối adapter** kèm cách xử lý, thay vì giả vờ thành công.
+Đường đọc dùng **giao thức OpenAI-compatible** (`POST {base}/audio/speech`) cho **mọi** nhà cung cấp có Base
+URL — cố ý **không** có danh sách cứng theo tên, để nhà cung cấp thêm mới trong Quản trị CP (đợt 22) đọc
+được ngay mà không phải sửa mã. Nhà cung cấp chọn trước mà lỗi thì **tự chuyển sang nhà cung cấp kế tiếp**
+theo `priority` (`synthesize_with_fallback`) — sao chép cơ chế dự phòng của nhà cung cấp LLM.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -37,10 +39,6 @@ from src.services.tts_providers import TtsProviderConfig, resolve_provider_api_k
 
 logger = logging.getLogger(__name__)
 
-#: Nhà cung cấp nói giao thức OpenAI-compatible cho `/audio/speech`.
-OPENAI_SPEECH_STYLE = {"openai", "openai_compatible", "groq", "openrouter", "deepseek", "vieneu"}
-#: Nhà cung cấp đã biết nhưng CHƯA nối adapter (nói thẳng ra, không giả vờ chạy được).
-KNOWN_UNWIRED = {"google_cloud", "azure", "viettel", "vbee", "fpt"}
 
 #: Che PII y như `copilot/feedback.mask_pii` (cùng luật: SĐT Việt Nam + email).
 _PHONE_RE = re.compile(r"\b0\d{8,10}\b")
@@ -95,14 +93,13 @@ def trim_for_speech(text: str, max_chars: int) -> str:
 
 
 def speak_style_for(cfg: TtsProviderConfig) -> str:
-    """`openai` nếu gọi được qua `/audio/speech`; `none` nếu chưa nối adapter cho nhà cung cấp này."""
-    if cfg.provider in OPENAI_SPEECH_STYLE:
-        return "openai"
-    # Nhà cung cấp tự thêm: có Base URL ⇒ coi là OpenAI-compatible (kiểu máy chủ TTS tự dựng phổ biến),
-    # trừ khi trùng tên một nhà cung cấp đã biết là dùng giao thức riêng.
-    if cfg.custom and cfg.base_url and cfg.provider not in KNOWN_UNWIRED:
-        return "openai"
-    return "none"
+    """Giao thức dùng để gọi đọc: **OpenAI-compatible** cho mọi nhà cung cấp có Base URL.
+
+    Cố ý **không** có danh sách cứng theo tên nhà cung cấp: yêu cầu là “sao chép cơ chế sẵn có, cho phép
+    thêm nhà cung cấp mới”, nên nhà cung cấp thêm sau này (self-host, gateway nội bộ, đại lý) chạy đúng
+    cùng một đường như nhà cung cấp dựng sẵn. Thiếu Base URL là lý do duy nhất để không gọi được.
+    """
+    return "openai" if cfg.base_url else "none"
 
 
 def _cache_dir() -> Path:
@@ -189,12 +186,18 @@ async def _call_openai_style(
     ctype = resp.headers.get("content-type", "")
     body = resp.text[:300] if not ctype.startswith("audio/") else ""
     logger.warning("tts_provider_error status=%s url=%s body=%s", resp.status_code, url, body[:120])
+    hint = ""
+    if resp.status_code in (404, 405, 400) and "<html" not in body.lower():
+        hint = (
+            " Có thể nhà cung cấp này không dùng giao thức OpenAI-compatible: hãy khai Base URL trỏ tới endpoint "
+            "tương thích (kết thúc bằng `/v1`) của họ, hoặc để hệ thống đọc bằng nhà cung cấp kế tiếp trong chuỗi."
+        )
     if "<html" in body.lower():
         body = "(nhà cung cấp trả trang HTML — thường là bị chặn/Cloudflare, không phải lỗi khoá)"
     raise TtsSpeakError(
-        502,
+        502 if resp.status_code not in (404, 405) else 501,
         "PROVIDER_ERROR",
-        f"Nhà cung cấp trả mã {resp.status_code} cho {url}." + (f" Phản hồi: {body}" if body else ""),
+        f"Nhà cung cấp trả mã {resp.status_code} cho {url}." + (f" Phản hồi: {body}" if body else "") + hint,
     )
 
 
@@ -210,23 +213,16 @@ async def synthesize_speech(
     timeout: float = 30.0,
 ) -> SpeechResult:
     """Tổng hợp `text` thành audio qua nhà cung cấp đã cấu hình (có cache + ghi chi phí)."""
-    style = speak_style_for(cfg)
-    if style == "none":
-        raise TtsSpeakError(
-            501,
-            "ADAPTER_NOT_WIRED",
-            (
-                f"Chưa nối adapter tổng hợp audio cho {cfg.label} ({cfg.provider}). "
-                "Hiện chạy được: OpenAI và mọi máy chủ/gateway theo giao thức OpenAI-compatible "
-                "(thêm trong Quản trị CP → Giọng đọc với Base URL). "
-                "Hoặc chọn giọng trình duyệt (miễn phí) cho tới khi adapter của nhà cung cấp này hoàn thành."
-            ),
-        )
-    if not cfg.base_url:
+    if speak_style_for(cfg) == "none" or not cfg.base_url:
+        # Không có Base URL = không biết gọi vào đâu. *Không* kết luận hộ là "nhà cung cấp này chưa hỗ trợ":
+        # điều kiện duy nhất là kỹ thuật, nên nhà cung cấp thêm mới chỉ cần khai Base URL là chạy.
         raise TtsSpeakError(
             503,
             "MISSING_BASE_URL",
-            f"{cfg.label} chưa có Base URL nên không gọi được. Khai báo trong Quản trị CP → Giọng đọc.",
+            (
+                f"{cfg.label} chưa có Base URL nên không gọi được. Khai báo trong Quản trị CP → Giọng đọc → "
+                "Nhà cung cấp TTS (giao thức OpenAI-compatible, thường là địa chỉ kết thúc bằng /v1)."
+            ),
         )
     api_key = resolve_provider_api_key(cfg, settings=settings)
     if not api_key:
@@ -247,18 +243,17 @@ async def synthesize_speech(
 
     cached_audio = _cache_read(key)
     if cached_audio is not None:
-        latency = round((time.perf_counter() - started) * 1000, 2)
-        cost = round(billable / 1_000_000 * cfg.price_per_1m_chars, 6)
-        _record(cfg, voice=voice, model=model, chars=billable, cost=cost, cached=True, latency_ms=latency)
+        # Đọc lại từ cache: KHÔNG gọi nhà cung cấp ⇒ **không phát sinh chi phí** và không tính vào hạn mức
+        # ngày (hạn mức để chặn tiền thật, không phải để chặn nghe lại). Vẫn trả số ký tự để hiển thị.
         return SpeechResult(
             audio=cached_audio,
             mime=_audio_mime(""),
             chars=billable,
             billable_chars=billable,
             cached=True,
-            cost=cost,
+            cost=0.0,
             currency=cfg.currency,
-            latency_ms=latency,
+            latency_ms=round((time.perf_counter() - started) * 1000, 2),
         )
 
     budget = daily_char_budget(settings=settings)
@@ -286,7 +281,6 @@ async def synthesize_speech(
     latency = round((time.perf_counter() - started) * 1000, 2)
     cost = round(billable / 1_000_000 * cfg.price_per_1m_chars, 6)
     _cache_write(key, audio)
-    _record(cfg, voice=voice, model=model, chars=billable, cost=cost, cached=False, latency_ms=latency)
     return SpeechResult(
         audio=audio,
         mime=mime,
@@ -308,12 +302,17 @@ def _record(
     cost: float,
     cached: bool,
     latency_ms: float,
+    ok: bool = True,
+    error: str | None = None,
+    is_fallback: bool = False,
 ) -> None:
     llm_usage.record_usage(
         provider=cfg.provider,
         model_name=model or cfg.default_model or voice,
         latency_ms=latency_ms,
-        ok=True,
+        ok=ok,
+        error=error,
+        is_fallback=is_fallback,
         input_price_per_1m=0.0,
         output_price_per_1m=0.0,
         currency=cfg.currency,
@@ -324,13 +323,134 @@ def _record(
     )
 
 
+def voice_for(cfg: TtsProviderConfig, requested: str | None) -> str:
+    """Giọng dùng cho một nhà cung cấp: giữ yêu cầu nếu họ có giọng đó, không thì lấy giọng đầu của họ.
+
+    Quan trọng khi **chuyển tiếp**: giọng của nhà cung cấp này (ví dụ `alloy`) là mã lạ với nhà cung cấp
+    khác và sẽ bị từ chối; dùng giọng hợp lệ của chính nhà cung cấp đó thì câu vẫn đọc được.
+    """
+    wanted = (requested or "").strip()
+    if wanted and any(v.code == wanted for v in cfg.voices):
+        return wanted
+    if wanted and not cfg.voices:
+        return wanted
+    return cfg.voices[0].code if cfg.voices else wanted
+
+
+async def synthesize_with_fallback(
+    candidates: list[TtsProviderConfig],
+    *,
+    text: str,
+    voice: str | None,
+    model: str | None,
+    speed: float,
+    max_chars: int,
+    settings: Settings | None = None,
+    timeout: float = 30.0,
+) -> tuple[SpeechResult, TtsProviderConfig, list[dict[str, Any]]]:
+    """Thử lần lượt các nhà cung cấp trong chuỗi — **sao chép cơ chế dự phòng của nhà cung cấp LLM**.
+
+    Trả về `(kết quả, nhà cung cấp đã đọc, danh sách lần thử)`. Mỗi lần thử (kể cả lần lỗi) được ghi vào
+    `llm_usage.jsonl` với `kind = "tts"`, nên tab “Chi phí & hiệu năng” thấy được cả tỉ lệ lỗi và việc
+    chuyển tiếp. Lỗi **402 (vượt hạn mức ngày)** dừng ngay cả chuỗi — đổi nhà cung cấp không giải quyết được
+    ngân sách.
+    """
+    if not candidates:
+        raise TtsSpeakError(
+            503,
+            "NO_PROVIDER",
+            (
+                "Chưa có nhà cung cấp TTS nào gọi được (cần Base URL + khoá, hoặc dùng giọng trình duyệt). "
+                "Khai trong Quản trị CP → Giọng đọc → Nhà cung cấp TTS."
+            ),
+        )
+    attempts: list[dict[str, Any]] = []
+    for index, cfg in enumerate(candidates):
+        head = index == 0
+        # Giọng: giữ đúng giọng người dùng chọn nếu **nhà cung cấp này** có giọng đó, không thì lấy giọng
+        # đầu của họ — gửi mã giọng của nhà cung cấp khác sẽ bị từ chối (400) và làm hỏng cả chuỗi.
+        provider_voice = voice_for(cfg, voice)
+        provider_model = ((model or "").strip() if head else "") or cfg.default_model
+        try:
+            result = await synthesize_speech(
+                cfg,
+                text=text,
+                voice=provider_voice,
+                model=provider_model,
+                speed=speed,
+                max_chars=max_chars,
+                settings=settings,
+                timeout=timeout,
+            )
+        except TtsSpeakError as exc:
+            if exc.status == 402:
+                raise
+            attempts.append(
+                {
+                    "provider": cfg.provider,
+                    "label": cfg.label,
+                    "ok": False,
+                    "status": exc.code,
+                    "detail": exc.detail,
+                    "voice": provider_voice,
+                    "model": provider_model,
+                }
+            )
+            _record(
+                cfg,
+                voice=provider_voice,
+                model=provider_model,
+                chars=0,
+                cost=0.0,
+                cached=False,
+                latency_ms=0.0,
+                ok=False,
+                error=exc.code,
+                is_fallback=not head,
+            )
+            logger.warning("tts_provider_failed provider=%s status=%s detail=%s", cfg.provider, exc.code, exc.detail[:160])
+            continue
+        attempts.append(
+            {
+                "provider": cfg.provider,
+                "label": cfg.label,
+                "ok": True,
+                "status": "OK",
+                "detail": "",
+                "voice": provider_voice,
+                "model": provider_model,
+            }
+        )
+        _record(
+            cfg,
+            voice=provider_voice,
+            model=provider_model,
+            chars=result.chars,
+            cost=result.cost,
+            cached=result.cached,
+            latency_ms=result.latency_ms,
+            is_fallback=not head,
+        )
+        return result, cfg, attempts
+    reasons = "; ".join(f"{a['label']}: {a['detail']}" for a in attempts[:3])
+    raise TtsSpeakError(
+        502,
+        "ALL_PROVIDERS_FAILED",
+        "Không nhà cung cấp TTS nào đọc được. " + reasons,
+    )
+
+
 def chars_spoken_today(*, settings: Settings | None = None) -> int:
     """Số ký tự đã gửi đi đọc trong hôm nay (để chặn vượt hạn mức)."""
     today = llm_usage.today_key()
     return sum(
         int(rec.get("chars") or 0)
         for rec in llm_usage.recent_usage(limit=llm_usage.MAX_RECORDS_SCANNED)
-        if str(rec.get("kind") or "") == "tts" and str(rec.get("at") or "").startswith(today)
+        if str(rec.get("kind") or "") == "tts"
+        and str(rec.get("at") or "").startswith(today)
+        # Lượt đọc lại từ cache không gửi gì ra nhà cung cấp ⇒ không tính vào hạn mức ngày.
+        and rec.get("note") != "cache"
+        and rec.get("ok") is not False
     )
 
 

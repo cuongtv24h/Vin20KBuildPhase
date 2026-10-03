@@ -221,7 +221,7 @@ describe('Admin quản trị nhà cung cấp TTS', () => {
 
 
 describe('Đọc thành tiếng qua nhà cung cấp (backend gọi nhà cung cấp thật)', () => {
-  it('giọng trình duyệt không đi qua backend; thiếu khoá thì nói thật; chưa nối adapter thì nói thẳng', async () => {
+  it('giọng trình duyệt không đi qua backend; thiếu khoá thì nói thật; có Base URL + khoá là đọc được', async () => {
     await loginAsAdmin()
     // Nhà cung cấp trình duyệt: giao diện tự đọc tại máy, gửi lên backend là sai đường.
     await expect(
@@ -231,7 +231,7 @@ describe('Đọc thành tiếng qua nhà cung cấp (backend gọi nhà cung c�
     // Nhà cung cấp dựng sẵn chưa nhập khoá ⇒ phải chỉ chỗ nhập, không hứa hão.
     await expect(api.tts.speak({ text: 'Xin chào', provider: 'viettel' })).rejects.toMatchObject({ status: 503 })
 
-    // Đã nhập khoá nhưng chưa nối adapter ⇒ 501 kèm việc cần làm.
+    // Khai báo đầy đủ (Base URL + khoá) ⇒ đọc được, không còn bị chặn theo tên nhà cung cấp.
     await api.ttsAdmin.createProvider({
       ...CUSTOM,
       provider: 'viettel',
@@ -239,7 +239,64 @@ describe('Đọc thành tiếng qua nhà cung cấp (backend gọi nhà cung c�
       price_per_1m_chars: 320_000,
       api_key: 'viettel-token-1234',
     })
-    await expect(api.tts.speak({ text: 'Xin chào', provider: 'viettel' })).rejects.toMatchObject({ status: 501 })
+    // Sao chép cơ chế nhà cung cấp LLM: không còn danh sách mã cứng — có Base URL + khoá là đọc được.
+    const res = await api.tts.speak({ text: 'Xin chào', provider: 'viettel', voice: 'hn_female_ngochuyen' })
+    expect(res.provider).toBe('viettel')
+    expect(res.cached).toBe(false)
+    expect(res.fallback_used).toBe(false)
+    expect(res.attempts).toHaveLength(1)
+    expect(res.attempts[0]).toMatchObject({ provider: 'viettel', ok: true, status: 'OK' })
+
+    // Đọc lại đúng nội dung đó ⇒ lấy từ bản đã lưu: không phát sinh chi phí, hạn mức không tăng.
+    const replay = await api.tts.speak({ text: 'Xin chào', provider: 'viettel', voice: 'hn_female_ngochuyen' })
+    expect(replay.cached).toBe(true)
+    expect(replay.cost).toBe(0)
+    expect(replay.quota.chars_today).toBe(res.quota.chars_today)
+  })
+
+  it('nhà cung cấp ưu tiên lỗi thì tự chuyển sang nhà cung cấp kế tiếp (đúng cơ chế dự phòng của LLM)', async () => {
+    await loginAsAdmin()
+    // priority 1 — Base URL chứa `/mock-fail`: mock offline coi như lần gọi này hỏng (backend thật gọi mạng).
+    await api.ttsAdmin.createProvider({
+      ...CUSTOM,
+      provider: 'tts-cong-ty-cu',
+      label: 'TTS công ty (cũ)',
+      base_url: 'http://10.0.0.9:8080/mock-fail',
+      priority: 1,
+    })
+    // Nhà cung cấp dự phòng dùng mã giọng KHÁC ⇒ phải tự đổi sang giọng của họ, không gửi mã lạ.
+    await api.ttsAdmin.createProvider({
+      ...CUSTOM,
+      provider: 'tts-cong-ty-moi',
+      label: 'TTS công ty (mới)',
+      voices_text: 'vi-news | Giọng đọc tin | female',
+      priority: 2,
+    })
+
+    const res = await api.tts.speak({
+      text: 'Dạ, căn ZEN-A-1205 còn hàng.',
+      provider: 'tts-cong-ty-cu',
+      voice: 'vi-female-01',
+    })
+    expect(res.provider).toBe('tts-cong-ty-moi')
+    expect(res.fallback_used).toBe(true)
+    expect(res.attempts.map((a) => a.provider)).toEqual(['tts-cong-ty-cu', 'tts-cong-ty-moi'])
+    expect(res.attempts[0]).toMatchObject({ ok: false, status: 'PROVIDER_ERROR' })
+    expect(res.attempts[1]).toMatchObject({ ok: true, status: 'OK' })
+    expect(res.voice).toBe('vi-news')
+
+    // Chuỗi đọc (thứ tự) hiện được trong màn hình quản trị để biết nhà cung cấp nào sẽ đọc tiếp theo.
+    // Nhà cung cấp chưa đủ điều kiện (chưa có khoá) vẫn hiện nhưng `ready: false` kèm lý do.
+    const admins = await api.ttsAdmin.providers()
+    const ready = (admins.chain ?? []).filter((c) => c.ready)
+    expect(ready.map((c) => c.provider)).toEqual(['tts-cong-ty-cu', 'tts-cong-ty-moi'])
+    const blocked = (admins.chain ?? []).filter((c) => !c.ready)
+    expect(blocked.every((c) => c.reason.length > 0)).toBe(true)
+
+    // Lượt lỗi vẫn vào nhật ký (kèm cờ chuyển tiếp) để tab chi phí nói đúng sự thật.
+    const summary = await api.llmAdmin.usageSummary(14)
+    expect(summary.tts_calls).toBe(2)
+    expect(summary.tts_chars).toBe(res.chars)
   })
 
   it('nhà cung cấp tự thêm (OpenAI-compatible) đọc được: trả audio, số ký tự, chi phí và ghi vào nhật ký', async () => {

@@ -492,6 +492,9 @@ export function TtsProvidersCard() {
   const [deleting, setDeleting] = useState<TtsProviderAdmin | null>(null)
 
   const items = data?.items ?? []
+  const chain = data?.chain ?? []
+  const readyChain = chain.filter((item) => item.ready)
+  const blockedChain = chain.filter((item) => !item.ready)
 
   async function runTest(p: TtsProviderAdmin) {
     const ref = p.provider_id || p.provider
@@ -521,6 +524,18 @@ export function TtsProvidersCard() {
               Đơn giá là giá niêm yết của nhà cung cấp, kèm mốc kiểm chứng — đối chiếu lại trước khi quyết toán.
               Nhà cung cấp gắn nhãn <strong>Tuỳ chỉnh</strong> là do quản trị viên tự thêm.
             </p>
+            {/* Sao chép cơ chế nhà cung cấp LLM: đọc theo thứ tự, lỗi thì tự chuyển tiếp. */}
+            {readyChain.length > 0 && (
+              <p className="pt-1 text-[11px] text-muted-foreground">
+                <strong>Thứ tự đọc:</strong> {readyChain.map((item, i) => `${i + 1}. ${item.label}`).join(' → ')}
+                {' '}— nhà cung cấp trước lỗi thì tự chuyển sang nhà cung cấp kế tiếp (có ghi log + báo cho Sale).
+              </p>
+            )}
+            {blockedChain.length > 0 && (
+              <p className="pt-1 text-[11px] text-amber-600">
+                Chưa đọc được: {blockedChain.map((item) => `${item.label} (${item.reason})`).join(' · ')}
+              </p>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Badge variant="outline" className="text-[11px]">
@@ -748,11 +763,12 @@ export function TtsProvidersFootnote() {
         từng nhân viên nằm trong workspace ở nút “Giọng đọc”.
       </p>
       <p className="text-[11px] text-muted-foreground">
-        Mức độ hoàn thiện: nhà cung cấp <strong>OpenAI và mọi máy chủ/gateway theo giao thức
-        OpenAI-compatible</strong> (kể cả máy chủ tự dựng khai ở trên) đã <strong>đọc được qua backend</strong> —
-        văn bản được che PII, cắt theo hạn mức ký tự, lưu cache và ghi chi phí vào tab “Chi phí &amp; hiệu năng”.
-        Các nhà cung cấp khác (Google/Azure/Viettel/Vbee/FPT) cần adapter riêng: chọn nhà cung cấp đó sẽ báo
-        “chưa nối adapter” và tự lùi về giọng trình duyệt (0 đồng) thay vì im lặng.
+        Cách đọc: <strong>mọi nhà cung cấp có Base URL + khoá</strong> đều đọc được qua backend theo giao thức
+        OpenAI-compatible (<code>POST {'{base_url}'}/audio/speech</code>) — kể cả OpenAI và máy chủ tự dựng khai ở
+        trên, không có danh sách mã cứng. Văn bản được che PII, cắt theo hạn mức ký tự, lưu cache và ghi chi phí
+        vào tab “Chi phí &amp; hiệu năng”. Thứ tự đọc theo <strong>Ưu tiên</strong>; nhà cung cấp đứng trước lỗi thì
+        tự chuyển sang nhà cung cấp kế tiếp và báo cho Sale biết — hết chuỗi thì mới lùi về giọng trình duyệt (0 đồng).
+        Nhà cung cấp không dùng giao thức này sẽ trả lỗi 404/405 và được nhắc đổi Base URL (thường kết thúc bằng /v1).
       </p>
     </div>
   )

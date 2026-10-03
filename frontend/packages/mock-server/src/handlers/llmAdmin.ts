@@ -167,7 +167,14 @@ const ENV_PROVIDERS = [
  * Ghi một lượt **đọc thành tiếng** (mock dùng khi Sale đọc câu trả lời qua nhà cung cấp) — chi phí quy
  * theo ký tự, đúng cách backend thật ghi (`kind: 'tts'`, `chars`), để tab “Chi phí & hiệu năng” cộng đúng.
  */
-export function recordMockTtsCall(provider: string, voice: string, chars: number, cost: number, latencyMs: number) {
+export function recordMockTtsCall(
+  provider: string,
+  voice: string,
+  chars: number,
+  cost: number,
+  latencyMs: number,
+  opts: { ok?: boolean; error?: string | null; isFallback?: boolean; kind?: 'tts' } = {},
+) {
   usage = [
     ...usage,
     {
@@ -177,9 +184,9 @@ export function recordMockTtsCall(provider: string, voice: string, chars: number
       input_tokens: 0,
       output_tokens: 0,
       latency_ms: Math.round(latencyMs * 100) / 100,
-      ok: true,
-      error: null,
-      is_fallback: false,
+      ok: opts.ok ?? true,
+      error: opts.error ?? null,
+      is_fallback: opts.isFallback ?? false,
       currency: 'USD',
       cost,
       chars,

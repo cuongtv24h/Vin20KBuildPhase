@@ -2,8 +2,10 @@
 
 Bộ test khoá lại những điều dễ sai và dễ tốn tiền oan:
 
-- Nhà cung cấp trình duyệt **không** gửi qua backend (0 đồng) và nhà cung cấp chưa nối adapter thì nói
-  thẳng là chưa nối, không giả vờ đọc được.
+- Nhà cung cấp trình duyệt **không** gửi qua backend (0 đồng); chưa đủ điều kiện (thiếu Base URL/khoá) thì
+  nói thẳng việc cần làm, không giả vờ đọc được.
+- **Không có danh sách mã cứng**: nhà cung cấp bất kỳ do quản trị viên tự thêm vẫn đọc được; nhà cung cấp
+  chọn trước mà lỗi thì **tự chuyển sang nhà cung cấp kế tiếp** (đúng cơ chế dự phòng của nhà cung cấp LLM).
 - Thiếu khoá ⇒ câu lỗi đọc được, hướng dẫn nhập ở đâu.
 - **Che PII** (SĐT/email khách) và **cắt theo hạn mức ký tự** trước khi văn bản rời khỏi hệ thống.
 - **Cache**: đọc lại cùng câu không gọi nhà cung cấp lần hai (không tốn thêm tiền) nhưng vẫn trả audio.
@@ -16,6 +18,7 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -63,6 +66,17 @@ class _TtsHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "audio/mpeg")
         self.end_headers()
         self.wfile.write(FAKE_AUDIO)
+
+
+@pytest_asyncio.fixture
+async def bad_tts_server(monkeypatch, tmp_path):
+    """Server trả 404 JSON — mô phỏng nhà cung cấp **không** dùng giao thức OpenAI-compatible."""
+    handler = type("BadHandler", (_TtsHandler,), {"requests": [], "status": 404})
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield handler, f"http://127.0.0.1:{server.server_port}/v1"
+    server.shutdown()
+    server.server_close()
 
 
 @pytest_asyncio.fixture
@@ -147,31 +161,128 @@ class TestDuongDoc:
         assert handler.requests == [], "không được gọi mạng khi đọc bằng giọng máy"
 
     @pytest.mark.asyncio
-    async def test_nha_cung_cap_chua_noi_adapter_thi_noi_that(self, client: AsyncClient, tts_server):
+    async def test_chua_co_nha_cung_cap_nao_goi_duoc_thi_noi_ro_thieu_gi(self, client: AsyncClient, tts_server):
+        """Không nhà cung cấp nào đủ điều kiện (chưa có khoá) ⇒ 503 kèm việc cần làm, không gọi mạng."""
+        handler, _url = tts_server
         await _set_provider(client, "viettel", voice="hn_female_ngochuyen")
         res = await client.post("/api/v1/tts/speak", json={"text": "Xin chào"}, headers=SALE_HEADERS)
-        assert res.status_code == 501
-        assert "Chưa nối adapter" in res.json()["detail"]
+        assert res.status_code == 503
+        assert "Base URL + khoá" in res.json()["detail"]
+        assert handler.requests == []
 
     @pytest.mark.asyncio
-    async def test_thieu_khoa_thi_huong_dan_nhap_o_dau(self, client: AsyncClient, tts_server):
-        _handler, base_url = tts_server
-        await _register(client, base_url)
-        # Bản ghi không có khoá (quản trị viên xoá/để trống) ⇒ phải nói rõ thiếu khoá (503), kèm chỗ nhập.
-        from sqlalchemy import update
+    async def test_moi_nha_cung_cap_co_base_url_la_goi_duoc_khong_can_danh_sach_cung(
+        self, client: AsyncClient, tts_server
+    ):
+        """Mã nhà cung cấp bất kỳ (không có trong danh mục dựng sẵn) vẫn đọc được — đúng yêu cầu."""
+        handler, base_url = tts_server
+        payload = {
+            "provider": "cong-ty-tts-abc",
+            "label": "Nhà cung cấp của công ty",
+            "mode": "api",
+            "base_url": base_url,
+            "default_model": "model-x",
+            "price_per_1m_chars": 1000,
+            "currency": "VND",
+            "voices_text": "giong-01 | Giọng công ty | female",
+            "api_key": "tok-abc-9999",
+            "priority": 1,
+            "is_active": True,
+        }
+        assert (await client.post("/api/v1/admin/tts/providers", json=payload, headers=ADMIN_HEADERS)).status_code == 201
+        await _set_provider(client, "cong-ty-tts-abc", voice="giong-01")
 
-        from src.db.models import TTSProviderModel
-        from tests.conftest import async_test_session_factory
-
-        async with async_test_session_factory() as session:
-            await session.execute(update(TTSProviderModel).values(api_key_encrypted=""))
-            await session.commit()
-
-        await _set_provider(client, "openai")
         res = await client.post("/api/v1/tts/speak", json={"text": "Xin chào"}, headers=SALE_HEADERS)
-        assert res.status_code == 503
+        assert res.status_code == 200, res.text
+        assert res.json()["provider"] == "cong-ty-tts-abc"
+        assert handler.requests[0]["path"] == "/v1/audio/speech"
+        assert handler.requests[0]["auth"] == "Bearer tok-abc-9999"
+
+    @pytest.mark.asyncio
+    async def test_nha_cung_cap_loi_thi_tu_chuyen_sang_nha_cung_cap_ke_tiep(
+        self, client: AsyncClient, tts_server, bad_tts_server
+    ):
+        """Sao chép cơ chế dự phòng của LLM: nhà cung cấp ưu tiên lỗi thì tự chuyển tiếp, có ghi log."""
+        good_handler, good_url = tts_server
+        _bad_handler, bad_url = bad_tts_server
+        # Ưu tiên (priority 1) là nhà cung cấp KHÔNG dùng giao thức OpenAI-compatible ⇒ sẽ lỗi.
+        first = {
+            "provider": "nha-cung-cap-cu",
+            "label": "Nhà cung cấp cũ",
+            "mode": "api",
+            "base_url": bad_url,
+            "default_model": "cu-v1",
+            "price_per_1m_chars": 10,
+            "currency": "USD",
+            "voices_text": "giong-cu | Giọng cũ | female",
+            "api_key": "tok-cu-0001",
+            "priority": 1,
+            "is_active": True,
+        }
+        second = {
+            "provider": "nha-cung-cap-moi",
+            "label": "Nhà cung cấp mới",
+            "mode": "api",
+            "base_url": good_url,
+            "default_model": "moi-v1",
+            "price_per_1m_chars": 5,
+            "currency": "USD",
+            "voices_text": "giong-moi | Giọng mới | female",
+            "api_key": "tok-moi-0002",
+            "priority": 2,
+            "is_active": True,
+        }
+        for payload in (first, second):
+            assert (await client.post("/api/v1/admin/tts/providers", json=payload, headers=ADMIN_HEADERS)).status_code == 201
+        await _set_provider(client, "nha-cung-cap-cu", voice="giong-cu")
+
+        res = await client.post("/api/v1/tts/speak", json={"text": "Xin chào"}, headers=SALE_HEADERS)
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["provider"] == "nha-cung-cap-moi", "phải tự chuyển sang nhà cung cấp kế tiếp"
+        assert body["fallback_used"] is True
+        assert [a["provider"] for a in body["attempts"]] == ["nha-cung-cap-cu", "nha-cung-cap-moi"]
+        assert body["attempts"][0]["ok"] is False and body["attempts"][1]["ok"] is True
+        # Giọng của nhà cung cấp dự phòng được dùng (mã giọng của nhà cung cấp cũ là mã lạ với họ).
+        assert body["voice"] == "giong-moi"
+        assert good_handler.requests[0]["body"]["voice"] == "giong-moi"
+
+        # Nhật ký ghi cả lượt lỗi lẫn lượt thành công (kèm cờ chuyển tiếp) để tab chi phí thấy đúng.
+        import os
+
+        usage_path = Path(os.environ["LLM_USAGE_PATH"])
+        records = [json.loads(line) for line in usage_path.read_text(encoding="utf-8").strip().splitlines()]
+        assert [r["provider"] for r in records] == ["nha-cung-cap-cu", "nha-cung-cap-moi"]
+        assert records[0]["ok"] is False and records[0]["error"] == "PROVIDER_ERROR"
+        assert records[1]["ok"] is True and records[1]["is_fallback"] is True
+
+    @pytest.mark.asyncio
+    async def test_het_chuoi_thi_502_kem_ly_do_va_goi_y_base_url(
+        self, client: AsyncClient, tts_server, bad_tts_server
+    ):
+        """Cả chuỗi đều lỗi ⇒ 502 nêu lý do từng nhà cung cấp; nhà cung cấp trả 404 được nhắc gợi ý Base URL."""
+        _handler, bad_url = bad_tts_server
+        payload = {
+            "provider": "tts-api-rieng",
+            "label": "TTS API riêng",
+            "mode": "api",
+            "base_url": bad_url,
+            "default_model": "v1",
+            "price_per_1m_chars": 10,
+            "currency": "USD",
+            "voices_text": "giong-01 | Giọng 01 | female",
+            "api_key": "tok-404-0001",
+            "priority": 1,
+            "is_active": True,
+        }
+        assert (await client.post("/api/v1/admin/tts/providers", json=payload, headers=ADMIN_HEADERS)).status_code == 201
+        await _set_provider(client, "tts-api-rieng")
+
+        res = await client.post("/api/v1/tts/speak", json={"text": "Xin chào"}, headers=SALE_HEADERS)
+        assert res.status_code == 502
         detail = res.json()["detail"]
-        assert "Quản trị CP → Giọng đọc" in detail and "OPENAI_API_KEY" in detail
+        assert "TTS API riêng" in detail and "404" in detail
+        assert "/v1" in detail, "phải gợi ý Base URL theo giao thức OpenAI-compatible"
 
     @pytest.mark.asyncio
     async def test_chua_dang_nhap_thi_khong_doc_duoc(self, client: AsyncClient, tts_server):

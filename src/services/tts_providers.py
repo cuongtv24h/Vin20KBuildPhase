@@ -479,6 +479,78 @@ def resolve_provider_api_key(cfg: TtsProviderConfig, *, settings: Settings | Non
     return ""
 
 
+def speak_capable(cfg: TtsProviderConfig, *, settings: Settings | None = None) -> tuple[bool, str]:
+    """Nhà cung cấp này có **gọi đọc thật** được không — kèm lý do nếu chưa.
+
+    Luật **không phụ thuộc tên nhà cung cấp** (đúng yêu cầu “sao chép cơ chế sẵn có, cho phép thêm nhà cung
+    cấp mới”): cứ `mode = "api"` + có **Base URL** + có **khoá dùng được** là gọi được theo giao thức
+    OpenAI-compatible (`POST {base}/audio/speech`). Không có danh sách cứng trong đường đọc — nhà cung cấp
+    mới thêm trong giao diện tham gia chuỗi đọc y như nhà cung cấp dựng sẵn.
+    """
+    if cfg.mode == "browser":
+        return False, "đọc tại trình duyệt (không gọi qua backend)"
+    if not cfg.is_active:
+        return False, "đang tắt"
+    if not cfg.base_url:
+        return False, "chưa khai Base URL"
+    if provider_key_source(cfg, settings=settings) == "none":
+        return False, "chưa có khoá"
+    return True, ""
+
+
+def speak_chain(*, preferred: str | None = None, settings: Settings | None = None) -> list[TtsProviderConfig]:
+    """Chuỗi nhà cung cấp sẽ thử khi đọc — **sao chép đúng cơ chế nhà cung cấp LLM**:
+
+    1. nhà cung cấp đang được chọn (thiết lập giọng đọc) chạy trước;
+    2. rồi tới các nhà cung cấp còn lại theo `priority` (số nhỏ trước);
+    3. chỉ gồm nhà cung cấp **gọi được thật** (Base URL + khoá) và đang bật;
+    4. lỗi ở nhà cung cấp trước thì tự chuyển sang nhà cung cấp kế tiếp (ghi log + nói cho người dùng).
+    """
+    wanted = (preferred or "").strip().lower()
+    head: list[TtsProviderConfig] = []
+    tail: list[TtsProviderConfig] = []
+    for cfg in resolve_tts_providers():
+        ok, _reason = speak_capable(cfg, settings=settings)
+        if not ok:
+            continue
+        (head if wanted and cfg.provider == wanted else tail).append(cfg)
+    return head + tail
+
+
+def speak_chain_report(*, preferred: str | None = None, settings: Settings | None = None) -> list[dict[str, Any]]:
+    """Danh mục kèm lý do **vì sao (không) gọi được** — để giao diện nói rõ thứ tự đọc và chỗ tắc.
+
+    Nhà cung cấp đọc được xếp trước theo đúng thứ tự chuỗi (nhà cung cấp đang chọn lên đầu); nhà cung cấp
+    chưa gọi được xếp sau, mỗi dòng kèm lý do để quản trị viên biết cần bổ sung gì.
+    """
+    resolved = settings or get_settings()
+    wanted = (preferred or "").strip().lower()
+    ready: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+    for cfg in speak_chain(preferred=preferred, settings=resolved) + [
+        cfg
+        for cfg in resolve_tts_providers(include_inactive=True)
+        if not speak_capable(cfg, settings=resolved)[0]
+    ]:
+        if cfg.mode == "browser":
+            # Giọng trình duyệt không đi qua backend (đọc tại máy, 0 đồng) ⇒ không thuộc chuỗi này.
+            continue
+        ok, reason = speak_capable(cfg, settings=resolved)
+        item = {
+            "provider": cfg.provider,
+            "label": cfg.label,
+            "mode": cfg.mode,
+            "base_url": cfg.base_url,
+            "price_per_1m_chars": cfg.price_per_1m_chars,
+            "currency": cfg.currency,
+            "ready": ok,
+            "reason": reason,
+            "is_preferred": bool(wanted) and cfg.provider == wanted,
+        }
+        (ready if ok else blocked).append(item)
+    return ready + blocked
+
+
 def _configured_in_llm_store(vendor: str) -> bool:
     """Khoá của `vendor` đã có trong kho nhà cung cấp LLM (DB hoặc ENV) hay chưa."""
     try:

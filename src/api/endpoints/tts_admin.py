@@ -26,6 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import Principal, get_current_principal
+from src.api.endpoints.settings import DEFAULT_SCOPE, _load_scope
 from src.db.models import TTSProviderModel, TTSSettingsModel
 from src.db.session import get_db_session
 from src.services import tts_providers
@@ -110,10 +111,26 @@ class TtsProviderView(BaseModel):
     updated_at: str | None = None
 
 
+class TtsChainItem(BaseModel):
+    """Một mắt trong chuỗi đọc: sẵn sàng hay chưa, kèm lý do — quản trị viên nhìn là biết cần bổ sung gì."""
+
+    provider: str
+    label: str
+    mode: str
+    base_url: str = ""
+    price_per_1m_chars: float = 0.0
+    currency: str = "USD"
+    ready: bool
+    reason: str = ""
+    is_preferred: bool = False
+
+
 class TtsProviderListResponse(BaseModel):
     source: str = Field(..., description="'db' nếu có bản ghi trong DB, 'env'/'builtin' nếu chỉ có danh mục")
     total: int
     items: list[TtsProviderView]
+    #: Thứ tự đọc thật khi lỗi (sao chép cơ chế ưu tiên/dự phòng của nhà cung cấp LLM).
+    chain: list[TtsChainItem] = Field(default_factory=list)
 
 
 class TtsProviderTestResult(BaseModel):
@@ -202,6 +219,9 @@ async def list_tts_providers(
     """Danh mục nhà cung cấp TTS hiệu lực: dựng sẵn + bản ghi Admin thêm/đè. Khoá chỉ hiển thị dạng che."""
     rows = await _rows(session)
     catalog = await _load_and_refresh(session)
+    # Nhà cung cấp mặc định của hệ thống đứng đầu chuỗi ⇒ báo cáo “thứ tự đọc” đúng bằng thứ tự sẽ chạy thật.
+    default_scope = await _load_scope(session, DEFAULT_SCOPE)
+    default_provider = str((default_scope or {}).get("provider") or "").strip().lower()
     by_provider = {str(row.provider).strip().lower(): row for row in rows}
     items: list[TtsProviderView] = []
     for cfg in catalog:
@@ -219,6 +239,10 @@ async def list_tts_providers(
         source="db" if rows else "builtin",
         total=len(items),
         items=items,
+        chain=[
+            TtsChainItem(**item)
+            for item in tts_providers.speak_chain_report(preferred=default_provider)
+        ],
     )
 
 

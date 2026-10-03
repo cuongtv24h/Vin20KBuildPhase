@@ -44,11 +44,26 @@ export interface TtsProviderAdmin {
   updated_at?: string | null
 }
 
+/** Một mắt trong chuỗi đọc khi lỗi: sẵn sàng hay chưa, kèm lý do. */
+export interface TtsChainItem {
+  provider: string
+  label: string
+  mode: string
+  base_url: string
+  price_per_1m_chars: number
+  currency: string
+  ready: boolean
+  reason: string
+  is_preferred: boolean
+}
+
 export interface TtsProviderListResponse {
   /** 'db' = đã có khai báo trong DB; 'builtin' = chỉ có danh mục dựng sẵn. */
   source: 'db' | 'builtin'
   total: number
   items: TtsProviderAdmin[]
+  /** Thứ tự đọc thật khi lỗi (sao chép cơ chế ưu tiên/dự phòng của nhà cung cấp LLM). */
+  chain?: TtsChainItem[]
 }
 
 export interface TtsProviderPayload {

@@ -116,9 +116,13 @@ cung cấp, trả audio base64 kèm số ký tự/chi phí; văn bản được 
 `max_chars_per_turn`** trước khi rời hệ thống; **cache trên đĩa** theo nội dung (đọc lại không tốn thêm tiền);
 chi phí ghi vào `llm_usage.jsonl` với `kind = "tts"` và hiện trong tab “Chi phí & hiệu năng”; **hạn mức ký tự
 mỗi ngày** (`TTS_DAILY_CHAR_BUDGET`, mặc định 300.000) chặn trước khi gọi nhà cung cấp. Giao diện tự **lùi về
-giọng trình duyệt** khi nhà cung cấp lỗi/thiếu khoá/chưa nối adapter — Sale không bao giờ bị “bấm mà không có
-gì xảy ra”. Hiện nối **giao thức OpenAI-compatible** (`POST {base}/audio/speech`): OpenAI, gateway nội bộ và
-máy chủ tự dựng kiểu OpenAI; Google/Azure/Viettel/Vbee/FPT trả **501 “chưa nối adapter”** kèm việc cần làm.
+giọng trình duyệt** khi hết chuỗi nhà cung cấp lỗi/thiếu khoá — Sale không bao giờ bị “bấm mà không có gì xảy
+ra”. Đường đọc dùng **giao thức OpenAI-compatible** (`POST {base}/audio/speech`) và **sao chép cơ chế ưu
+tiên/dự phòng của nhà cung cấp LLM** (đợt 24): không còn danh sách mã cứng — mọi nhà cung cấp khai trong Quản
+trị CP có Base URL + khoá đều đọc được, nhà cung cấp ưu tiên lỗi thì tự chuyển sang nhà cung cấp kế tiếp
+(`attempts` + `fallback_used`), hết chuỗi mới lùi về giọng trình duyệt. Nhà cung cấp không dùng giao thức này
+trả 404/405 ⇒ lần thử đó ghi lỗi kèm gợi ý Base URL (thường kết thúc bằng `/v1`), hết chuỗi thì **502** nêu lý
+do — cần gateway chuyển tiếp hoặc adapter riêng.
 
 **Đã triển khai ở đợt 22** (người dùng chốt *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2
 nhà cung cấp sẵn”*): đúng đề xuất trên — bảng `tts_providers` + `GET/POST /admin/tts/providers`,
@@ -241,8 +245,14 @@ Kèm theo — **trạng thái thực tế sau đợt 23**:
   **không gọi nhà cung cấp** (đã có test chứng minh không phát sinh request).
 - ➕ Thêm ngoài hợp đồng: **che PII trước khi gửi** (SĐT/email khách) và `summary_only` (chế độ rảnh tay chỉ
   đọc 240 ký tự đầu) — hai việc trước đây nằm trong danh sách “chưa làm” của kế hoạch.
-- ⏳ Chưa làm: adapter cho Google/Azure/Viettel/Vbee/FPT (hiện trả 501 đọc được), ngân sách theo tháng và
-  cache xuyên máy chủ (nhiều instance backend dùng chung cache).
+- ✅ **Đợt 24 — sao chép cơ chế sẵn có**: `speak_capable()`/`speak_chain()` thay danh sách mã cứng
+  (`KNOWN_UNWIRED` đã bị xoá); đọc theo **ưu tiên → priority**, tự chuyển tiếp khi lỗi (ghi từng lượt thử vào
+  `llm_usage.jsonl` với `is_fallback`), đổi giọng theo nhà cung cấp thật đọc, cache hit ⇒ 0 đồng và không tiêu
+  hạn mức; `GET /admin/tts/providers` trả thêm `chain` (mắt nào sẵn sàng / tắc vì lý do gì) để màn hình quản trị
+  nói rõ thứ tự đọc.
+- ⏳ Chưa làm: **adapter riêng/gateway** cho nhà cung cấp không dùng giao thức OpenAI-compatible (nay không còn
+  bị chặn theo tên, nhưng vẫn phải có chỗ chuyển tiếp), ngân sách theo tháng và cache xuyên máy chủ (nhiều
+  instance backend dùng chung cache).
 
 ---
 

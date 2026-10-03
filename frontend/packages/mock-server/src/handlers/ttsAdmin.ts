@@ -1,6 +1,7 @@
 import type { TtsProviderAdmin, TtsProviderPayload } from '@pricepolicy/api-client/contracts'
 import { recordMockTtsCall } from './llmAdmin'
 import { MockError } from '../services/errors'
+import { onReset } from '../db'
 import { route } from './route'
 import {
   BUILTIN_ENV_KEYS,
@@ -132,7 +133,43 @@ export const ttsAdminHandlers = [
       const row = rows.get(entry.provider)
       return row ? toView(row) : builtinView(entry)
     })
-    return { body: { source: getProviderRows().length ? 'db' : 'builtin', total: items.length, items } }
+    // `chain`: thứ tự đọc thật khi lỗi — song song `speak_chain_report` ở backend. UI nhờ đó nói rõ
+    // "sao chép cơ chế nhà cung cấp LLM": đọc theo thứ tự, lỗi thì tự chuyển tiếp.
+    const chain = speakChain()
+      .map((entry) => ({
+        provider: entry.provider,
+        label: entry.label,
+        mode: entry.mode,
+        base_url: entry.base_url ?? '',
+        price_per_1m_chars: entry.price_per_1m_chars,
+        currency: entry.currency,
+        ready: readyReason(entry) === '',
+        reason: readyReason(entry),
+        is_preferred: false,
+      }))
+      .concat(
+        catalog
+          .filter((c) => c.mode !== 'browser' && !speakChain().some((u) => u.provider === c.provider))
+          .map((entry) => ({
+            provider: entry.provider,
+            label: entry.label,
+            mode: entry.mode,
+            base_url: entry.base_url ?? '',
+            price_per_1m_chars: entry.price_per_1m_chars,
+            currency: entry.currency,
+            ready: false,
+            reason: readyReason(entry) || 'Chưa bật (đang tắt)',
+            is_preferred: false,
+          })),
+      )
+    return {
+      body: {
+        source: getProviderRows().length ? 'db' : 'builtin',
+        total: items.length,
+        items,
+        chain,
+      },
+    }
   }),
 
   route('ttsProviderCreate', async ({ json }) => {
@@ -325,19 +362,59 @@ export const ttsAdminHandlers = [
  * Đường **đọc thành tiếng qua nhà cung cấp** — bản mock song song với `src/api/endpoints/tts_speak.py`.
  *
  * Mock chạy offline nên trả một đoạn WAV ngắn cố định (không gọi mạng), nhưng giữ đúng hành vi quan
- * trọng của backend thật: trình duyệt thì KHÔNG đi đường này; thiếu khoá/chưa nối adapter thì nói thật;
+ * trọng của backend thật: trình duyệt thì KHÔNG đi đường này; chưa đủ điều kiện (Base URL/khoá) thì nói thật;
  * chi phí quy theo ký tự và ghi vào nhật ký để tab “Chi phí & hiệu năng” cộng đúng.
  */
 const MOCK_AUDIO_BASE64 =
   'UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YQAAAAA='  // WAV im lặng, đủ để trình phát chạy
 
-const UNWIRED = new Set(['google_cloud', 'azure', 'viettel', 'vbee', 'fpt'])
+/**
+ * Chuỗi đọc: **sao chép cơ chế nhà cung cấp LLM** — nhà cung cấp ưu tiên trước, rồi theo `priority`;
+ * bỏ qua nhà cung cấp chưa đủ điều kiện (chưa bật / thiếu Base URL / thiếu khoá / là giọng trình duyệt).
+ * Không có danh sách mã cứng: nhà cung cấp do quản trị viên tự thêm cũng nằm trong chuỗi.
+ */
+const speakChain = (preferred?: string) => {
+  const usable = effectiveCatalog().filter(
+    (c) => c.mode === 'api' && (c.base_url ?? '').trim() !== '' && (c.key_source ?? 'none') !== 'none',
+  )
+  const head = usable.filter((c) => c.provider === preferred)
+  const rest = usable.filter((c) => c.provider !== preferred).sort((a, b) => a.priority - b.priority)
+  return [...head, ...rest]
+}
+
+/**
+ * Mock chạy offline nên không gọi mạng được. Để vẫn tái hiện được tình huống "nhà cung cấp ưu tiên lỗi",
+ * mock lấy kết quả **Test kết nối** gần nhất của quản trị viên làm tín hiệu mô phỏng: đã báo ERROR thì
+ * coi như lần gọi này hỏng rồi đọc tiếp — hoặc Base URL chứa `/mock-fail` (móc riêng cho test, xem
+ * `ttsAdmin.test.ts`). Backend thật gọi mạng và quyết định theo phản hồi thực tế của nhà cung cấp.
+ */
+const simulatedFailure = (entry: CatalogEntry) =>
+  entry.last_test_status === 'ERROR' || (entry.base_url ?? '').includes('/mock-fail')
+/** Sẵn sàng đọc = có Base URL + có khoá (đúng điều kiện vào chuỗi của backend thật). */
+const readyReason = (entry: CatalogEntry) => {
+  if (!(entry.base_url ?? '').trim()) return 'Thiếu Base URL'
+  if ((entry.key_source ?? 'none') === 'none') return `Chưa có khoá (${entry.env_key || 'nhập trong Quản trị CP → Giọng đọc'})`
+  return ''
+}
+
+const pickVoice = (entry: CatalogEntry, requested?: string) => {
+  const wanted = (requested ?? '').trim()
+  if (wanted && entry.voices.some((v) => v.code === wanted)) return wanted
+  return entry.voices[0]?.code ?? ''
+}
+
+/** Hạn mức ký tự trong ngày (mock): chỉ cộng lượt gọi thật, không cộng lượt đọc lại từ bản đã lưu. */
+let charsToday = 0
+onReset(() => {
+  charsToday = 0
+  cachedSpeak.clear()
+})
+const cachedSpeak = new Map<string, { chars: number; voice: string; model: string; provider: string }>()
 
 export const ttsSpeakHandlers = [
-  route('ttsQuota', () => {
-    const used = getProviderRows().length ? 0 : 0  // mock không giới hạn; số liệu thật nằm ở backend
-    return { body: { daily_budget: 300_000, chars_today: used, remaining: 300_000 } }
-  }),
+  route('ttsQuota', () => ({
+    body: { daily_budget: 300_000, chars_today: charsToday, remaining: 300_000 - charsToday },
+  })),
 
   route('ttsSpeak', async ({ json }) => {
     const body = await json<{ text?: string; provider?: string; voice?: string; summary_only?: boolean }>()
@@ -355,44 +432,122 @@ export const ttsSpeakHandlers = [
         'Nhà cung cấp đang chọn là giọng trình duyệt — giao diện đọc trực tiếp tại máy, không gửi qua backend.',
       )
     }
-    // Khoá lấy từ DB trước, rồi tới ENV; mock không cấu hình ENV nào ⇒ nhà cung cấp dựng sẵn chưa nhập khoá
-    // thì phải nói thật là thiếu khoá (đúng như backend thật).
-    const hasKey = (entry.key_source ?? 'none') !== 'none'
-    if (!hasKey) {
-      throw new MockError(
-        503,
-        'MISSING_KEY',
-        `Chưa có khoá cho ${entry.label}. Nhập khoá trong Quản trị CP → Giọng đọc → Nhà cung cấp TTS.`,
-      )
-    }
-    if (!entry.custom && UNWIRED.has(entry.provider)) {
-      throw new MockError(
-        501,
-        'ADAPTER_NOT_WIRED',
-        `Chưa nối adapter tổng hợp audio cho ${entry.label} (${entry.provider}). Hiện chạy được: OpenAI và máy chủ/gateway theo giao thức OpenAI-compatible.`,
-      )
-    }
 
     // Cắt theo hạn mức ký tự như backend (mock lấy mặc định 600) — đủ để UI thấy số ký tự thật.
     const spoken = body?.summary_only ? text.slice(0, 240) : text.slice(0, 600)
     const chars = spoken.length
-    const cost = Math.round((chars / 1_000_000) * entry.price_per_1m_chars * 1e6) / 1e6
-    const latency = 320 + (chars % 30) * 4
-    recordMockTtsCall(entry.provider, body?.voice ?? entry.voices[0]?.code ?? '', chars, cost, latency)
-    return {
-      body: {
-        provider: entry.provider,
-        voice: body?.voice ?? entry.voices[0]?.code ?? '',
-        model: entry.default_model,
-        mime: 'audio/wav',
-        audio_base64: MOCK_AUDIO_BASE64,
-        chars,
-        cached: false,
-        cost,
-        currency: entry.currency,
-        latency_ms: latency,
-        quota: { daily_budget: 300_000, chars_today: chars, remaining: 300_000 - chars },
-      },
+
+    const chain = speakChain(wanted)
+    if (chain.length === 0) {
+      throw new MockError(
+        503,
+        'NO_PROVIDER',
+        'Chưa có nhà cung cấp TTS nào gọi được (cần Base URL + khoá, hoặc dùng giọng trình duyệt). Khai trong Quản trị CP → Giọng đọc → Nhà cung cấp TTS.',
+      )
     }
+
+    const attempts: Array<{
+      provider: string
+      label: string
+      ok: boolean
+      status: string
+      detail: string
+      voice: string
+      model: string
+    }> = []
+    for (const candidate of chain) {
+      const voice = pickVoice(candidate, body?.voice)
+      const model = candidate.default_model
+      if (simulatedFailure(candidate)) {
+        // Giống backend thật: lượt gọi nhà cung cấp này hỏng ⇒ ghi nhận rồi đọc tiếp bằng nhà cung cấp kế tiếp.
+        attempts.push({
+          provider: candidate.provider,
+          label: candidate.label,
+          ok: false,
+          status: 'PROVIDER_ERROR',
+          detail: `Nhà cung cấp lỗi ở lần gọi này (mock lấy từ kết quả “Test kết nối” gần nhất) — tự chuyển sang nhà cung cấp kế tiếp trong chuỗi.`,
+          voice,
+          model,
+        })
+        recordMockTtsCall(candidate.provider, voice, 0, 0, 0, {
+          ok: false,
+          error: 'PROVIDER_ERROR',
+          isFallback: attempts.length > 1,
+        })
+        continue
+      }
+
+      const cacheKey = `${candidate.provider}|${voice}|${model}|${spoken}`
+      const cached = cachedSpeak.get(cacheKey)
+      if (cached) {
+        // Đọc lại từ bản đã lưu: không tính chi phí, không tiêu hạn mức — đúng như backend thật.
+        return {
+          body: {
+            provider: cached.provider,
+            voice: cached.voice,
+            model: cached.model,
+            mime: 'audio/wav',
+            audio_base64: MOCK_AUDIO_BASE64,
+            chars: cached.chars,
+            cached: true,
+            cost: 0,
+            currency: candidate.currency,
+            latency_ms: 12,
+            quota: { daily_budget: 300_000, chars_today: charsToday, remaining: 300_000 - charsToday },
+            fallback_used: attempts.length > 0,
+            attempts: [
+              ...attempts,
+              {
+                provider: candidate.provider,
+                label: candidate.label,
+                ok: true,
+                status: 'OK',
+                detail: '',
+                voice,
+                model,
+              },
+            ],
+          },
+        }
+      }
+
+      const cost = Math.round((chars / 1_000_000) * candidate.price_per_1m_chars * 1e6) / 1e6
+      const latency = 320 + (chars % 30) * 4
+      charsToday += chars
+      cachedSpeak.set(cacheKey, { chars, voice, model, provider: candidate.provider })
+      recordMockTtsCall(candidate.provider, voice, chars, cost, latency, { isFallback: attempts.length > 0 })
+      attempts.push({
+        provider: candidate.provider,
+        label: candidate.label,
+        ok: true,
+        status: 'OK',
+        detail: '',
+        voice,
+        model,
+      })
+      return {
+        body: {
+          provider: candidate.provider,
+          voice,
+          model,
+          mime: 'audio/wav',
+          audio_base64: MOCK_AUDIO_BASE64,
+          chars,
+          cached: false,
+          cost,
+          currency: candidate.currency,
+          latency_ms: latency,
+          quota: { daily_budget: 300_000, chars_today: charsToday, remaining: 300_000 - charsToday },
+          fallback_used: attempts.length > 1,
+          attempts,
+        },
+      }
+    }
+
+    throw new MockError(
+      502,
+      'ALL_PROVIDERS_FAILED',
+      `Tất cả nhà cung cấp TTS đều lỗi: ${attempts.map((a) => `${a.label} (${a.status})`).join(' · ')}`,
+    )
   }),
 ]
