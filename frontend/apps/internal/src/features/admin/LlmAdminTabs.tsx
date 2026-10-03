@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Plus, RefreshCw, Trash2, Volume2, Zap } from 'lucide-react'
 import { useState } from 'react'
 
-import type { LlmProvider, LlmProviderPayload, LlmProviderTestResult } from '@pricepolicy/api-client/contracts'
+import type { LlmEnvProvider, LlmProvider, LlmProviderPayload, LlmProviderTestResult } from '@pricepolicy/api-client/contracts'
 import {
   useCreateLlmProvider,
   useDeleteLlmProvider,
@@ -391,14 +391,19 @@ export function LlmProvidersTab() {
   const [deleting, setDeleting] = useState<LlmProvider | null>(null)
 
   const providers = data?.items ?? []
+  const envItems = data?.env_items ?? []
   const usingEnvFallback = data?.source !== 'db'
+  /** Kết quả “Test kết nối” của nhà cung cấp ENV — chỉ giữ trong phiên xem (backend không lưu lịch sử). */
+  const [envTest, setEnvTest] = useState<Record<string, LlmProviderTestResult>>({})
 
-  async function runTest(provider: LlmProvider) {
+  async function runTest(provider: LlmProvider | LlmEnvProvider) {
     setTesting(provider.provider_id)
     try {
       const result = await testProvider.mutateAsync(provider.provider_id)
       if (result.ok) toast.success(`${provider.name}: kết nối OK (${result.latency_ms} ms)`)
       else toast.error(`${provider.name}: ${result.detail}`)
+      // Nhà cung cấp ENV không có bản ghi DB để lưu lịch sử ⇒ giữ kết quả trong phiên xem này.
+      if (!('is_active' in provider)) setEnvTest((prev) => ({ ...prev, [provider.provider_id]: result }))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Không kiểm tra được kết nối.')
     } finally {
@@ -415,10 +420,15 @@ export function LlmProvidersTab() {
             <div>
               {data?.source === 'env' ? (
                 <>
-                  <p className="font-medium">Đang dùng API key từ biến môi trường (chưa khai báo nhà cung cấp nào trong hệ thống).</p>
+                  <p className="font-medium">
+                    {envItems.length > 0
+                      ? `Đang chạy bằng ${envItems.length} nhà cung cấp đọc từ biến môi trường của máy chủ (liệt kê ở bảng bên dưới).`
+                      : 'Đang dùng API key từ biến môi trường (chưa khai báo nhà cung cấp nào trong hệ thống).'}
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Khai báo bên dưới để chủ động đổi khoá/đơn giá — khi có ít nhất một nhà cung cấp đang hoạt động,
-                    hệ thống ưu tiên dùng cấu hình này thay cho ENV.
+                    Khai báo thêm nhà cung cấp bên dưới (kể cả nhà cung cấp khác ngoài hai cái đang có) để chủ động
+                    đổi khoá/đơn giá — khi có ít nhất một nhà cung cấp đang hoạt động, hệ thống ưu tiên dùng cấu hình
+                    này thay cho ENV.
                   </p>
                 </>
               ) : data?.source === 'none' ? (
@@ -577,6 +587,85 @@ export function LlmProvidersTab() {
           </Table>
         </CardContent>
       </Card>
+
+      {envItems.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Nhà cung cấp đọc từ biến môi trường máy chủ</CardTitle>
+            <CardDescription>
+              Đây là những nhà cung cấp hệ thống đang thực sự chạy khi chưa khai báo trong DB (chỉ-đọc, khoá đã che).
+              Bấm “Test kết nối” để kiểm tra ngay; muốn đổi khoá/đơn giá hoặc thêm nhà cung cấp khác (ví dụ
+              DeepSeek, Kimi, Qwen…) thì khai báo ở bảng trên — bản ghi trong hệ thống sẽ được ưu tiên thay cho ENV.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[130px]">Nguồn</TableHead>
+                  <TableHead>Tên / Model</TableHead>
+                  <TableHead>API key</TableHead>
+                  <TableHead className="w-[130px]">Kiểm tra</TableHead>
+                  <TableHead className="w-[150px] text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {envItems.map((item) => (
+                  <TableRow key={item.provider_id}>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[11px]">
+                        {item.is_fallback ? 'ENV · dự phòng' : 'ENV · chính'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{item.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {item.provider} · {item.model_name}
+                        {item.base_url ? ` · ${item.base_url}` : ''}
+                        {item.overridden_by_db ? ' · đã có bản ghi trong hệ thống (bản ghi thắng)' : ''}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{item.api_key_masked}</TableCell>
+                    <TableCell>
+                      {envTest[item.provider_id] ? (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          {envTest[item.provider_id].ok ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                          )}
+                          <span>{envTest[item.provider_id].status}</span>
+                          {envTest[item.provider_id].latency_ms > 0 && (
+                            <span className="text-muted-foreground">{envTest[item.provider_id].latency_ms} ms</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Chưa kiểm tra</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        title="Kiểm tra kết nối"
+                        disabled={testing === item.provider_id}
+                        onClick={() => void runTest(item)}
+                      >
+                        {testing === item.provider_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Zap className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       <ProviderFormDialog open={dialogOpen} editing={editing} onClose={() => setDialogOpen(false)} />
 

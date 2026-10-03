@@ -25,11 +25,32 @@ export interface LlmProvider {
   updated_at?: string | null
 }
 
+/**
+ * Nhà cung cấp **đọc từ biến môi trường máy chủ** — chỉ để hiển thị và “Test kết nối”, không sửa/xoá được
+ * từ giao diện. Khoá luôn ở dạng che.
+ */
+export interface LlmEnvProvider {
+  provider_id: string
+  name: string
+  provider: string
+  base_url?: string | null
+  model_name: string
+  api_key_masked: string
+  has_api_key: boolean
+  priority: number
+  is_fallback: boolean
+  /** Đã có bản ghi trong hệ thống cho cùng `provider` ⇒ bản ghi DB đang thắng dòng ENV này. */
+  overridden_by_db: boolean
+  source: 'env'
+}
+
 export interface LlmProviderListResponse {
   /** 'db' = đang dùng khai báo trong DB; 'env' = chưa khai báo gì nên rơi về biến môi trường. */
   source: 'db' | 'env' | 'none'
   total: number
   items: LlmProvider[]
+  /** Nhà cung cấp đang có trong ENV của máy chủ (chỉ-đọc) — để màn hình nói đủ sự thật. */
+  env_items?: LlmEnvProvider[]
 }
 
 export interface LlmProviderPayload {

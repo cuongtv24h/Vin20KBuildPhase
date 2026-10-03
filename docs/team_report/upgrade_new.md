@@ -1405,6 +1405,13 @@ LLM” (ô nhập khoá + “Test kết nối”, lưu DB đã mã hoá Fernet, 
 nhà cung cấp ngoài danh mục có sẵn** (self-host, gateway nội bộ, nhà cung cấp khác), thay vì bó vào danh sách
 7 nhà cung cấp dựng sẵn.
 
+**“2 nhà cung cấp sẵn” là 2 cái nào — tra ra bằng mã, không đoán:** khi DB chưa có bản ghi nào, hệ thống chạy
+bằng cấu hình ENV do `llm_providers._env_configs()` dựng: **`ENV · primary`** (`OPENAI_API_KEY`) và
+**`ENV · fallback 1`** (`FALLBACK1_OPENAI_API_KEY`, ví dụ DeepSeek) — tối đa 3 nếu khai thêm `FALLBACK2_*`.
+Nhưng bảng quản trị chỉ liệt kê **bản ghi DB**, nên đúng lúc đang chạy bằng 2 nhà cung cấp ấy thì màn hình
+ghi *“Chưa khai báo nhà cung cấp nào trong hệ thống”* — quản trị viên không nhìn thấy mình đang có gì.
+Đã sửa trong lượt này (mục “Bổ sung” bên dưới).
+
 #### Đã làm
 
 **Backend**
@@ -1439,12 +1446,14 @@ khoá ENV nào nên các nhà cung cấp trả phí vẫn báo “chưa có” c
 
 #### Kiểm chứng
 
-- `pytest -q` → **735 passed** (711 → 735; +24 ca `tests/test_api/test_tts_providers_admin.py`), `ruff` sạch.
+- `pytest -q` → **738 passed** (711 → 738; +24 ca `tests/test_api/test_tts_providers_admin.py`, +3 ca
+  `tests/test_api/test_llm_admin.py` cho `env_items` / thêm nhà cung cấp thứ ba / test nhà cung cấp ENV),
+  `ruff` sạch.
 - Test backend phủ: phân quyền (SALE 403, chưa đăng nhập 403), thêm nhà cung cấp mới, bản ghi đè giữ vị trí,
   xoá bản ghi đè → về giá gốc, xoá nhà cung cấp tự thêm → biến mất, **khoá không lộ** trong mọi phản hồi,
   DB thắng ENV rồi quay lại ENV khi xoá, khoá mẫu trong ENV không tính là có khoá, 5 tình huống “Test kết nối”
   (trình duyệt / thiếu khoá / gateway OK / sai khoá 401 / không mở endpoint kiểm tra).
-- Frontend: `npm test` **82 ca** (mock-server 45 · api-client 14 · ui 17 · internal 6),
+- Frontend: `npm test` **83 ca** (mock-server 46 · api-client 14 · ui 17 · internal 6),
   `tsc -b apps/internal` 0 lỗi, `npm run build` OK, `oxlint` không phát sinh cảnh báo mới.
 - Luồng mới có test riêng trên mock: `packages/mock-server/src/ttsAdmin.test.ts` (6 ca) — đóng vai **đặc tả hợp
   đồng** cho backend thật.
@@ -1457,6 +1466,22 @@ Bảng `tts_providers` **tự tạo** khi backend khởi động (`src/main.py` 
 — cùng đường với mọi bảng khác, không cần alembic). Nếu chưa khởi động lại, `scripts/verify_schema.py` sẽ liệt
 kê `tts_providers` là bảng còn thiếu; trang giọng đọc vẫn chạy với danh mục dựng sẵn (đã có ca test cho tình
 huống này).
+
+#### Bổ sung cùng lượt — “2 nhà cung cấp sẵn” phải NHÌN THẤY được
+
+Người dùng nhắc lại đúng câu chốt ở đầu lượt ⇒ rà lại tab “Nhà cung cấp LLM” và tìm ra lỗ hổng thật: bảng chỉ
+đọc `LLMProviderModel` (DB), còn nhà cung cấp đọc từ ENV thì **không hiện ở đâu cả**. Đã bù:
+
+1. `GET /admin/llm/providers` trả thêm `env_items` — nhà cung cấp dựng từ ENV (`ENV · primary`,
+   `ENV · fallback 1`…), **chỉ-đọc**, khoá ở dạng che, kèm cờ `overridden_by_db`.
+2. `POST /admin/llm/providers/{id}/test` nhận **cả** `ENV-PRIMARY`/`ENV-FALLBACK-1` ⇒ bấm “Test kết nối” được
+   cho chính 2 nhà cung cấp đang chạy thật, trước khi quyết định thêm nhà cung cấp mới.
+3. Tab LLM thêm thẻ **“Nhà cung cấp đọc từ biến môi trường máy chủ”** (chỉ-đọc + nút Test, kết quả giữ trong
+   phiên xem) và banner nói đúng *“Đang chạy bằng N nhà cung cấp đọc từ biến môi trường…”* thay cho câu gây
+   hiểu nhầm “chưa khai báo nhà cung cấp nào”.
+4. Nhãn nói rõ **thêm mới là thêm ở đâu**: khai báo trong hệ thống ⇒ bản ghi DB thắng ENV (đúng cơ chế cũ), và
+   thêm được vendor ngoài 2 cái đang có (DeepSeek, Kimi, Qwen…). Mock server phản chiếu hành vi này để có test
+   hợp đồng (`ENV-PRIMARY`/`ENV-FALLBACK-1`).
 
 #### Còn lại (nói thẳng)
 

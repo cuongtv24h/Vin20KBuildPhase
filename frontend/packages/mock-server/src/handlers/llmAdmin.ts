@@ -127,9 +127,51 @@ function summary(days: number): LlmUsageSummary {
   }
 }
 
+/**
+ * Hai nhà cung cấp “có sẵn từ biến môi trường” của mock — song song với `ENV · primary` /
+ * `ENV · fallback 1` mà backend thật dựng từ `OPENAI_API_KEY` + `FALLBACK1_OPENAI_API_KEY`.
+ * Chỉ để HIỂN THỊ (chỉ-đọc) và để “Test kết nối” chạy được, không sửa/xoá được từ giao diện.
+ */
+const ENV_PROVIDERS = [
+  {
+    provider_id: 'ENV-PRIMARY',
+    name: 'ENV · primary',
+    provider: 'openai',
+    base_url: 'https://api.openai.com/v1',
+    model_name: 'gpt-4o-mini',
+    api_key_masked: 'sk-e…0001',
+    has_api_key: true,
+    priority: 0,
+    is_fallback: false,
+    source: 'env',
+  },
+  {
+    provider_id: 'ENV-FALLBACK-1',
+    name: 'ENV · fallback 1',
+    provider: 'openai',
+    base_url: 'https://api.deepseek.com/v1',
+    model_name: 'deepseek-chat',
+    api_key_masked: 'sk-e…0002',
+    has_api_key: true,
+    priority: 1,
+    is_fallback: true,
+    source: 'env',
+  },
+]
+
 export const llmAdminHandlers = [
   route('llmProviders', () => ({
-    body: { source: providers.length ? 'db' : 'env', total: providers.length, items: providers },
+    body: {
+      source: providers.length ? 'db' : 'env',
+      total: providers.length,
+      items: providers,
+      // Nhà cung cấp ENV luôn hiện (chỉ-đọc) để màn hình nói đủ sự thật; khi đã khai báo trong DB thì
+      // đánh dấu là đã bị bản ghi DB thay thế.
+      env_items: ENV_PROVIDERS.map((item) => ({
+        ...item,
+        overridden_by_db: providers.some((p) => p.provider === item.provider),
+      })),
+    },
   })),
 
   route('llmProviderCreate', async ({ json, now }) => {
@@ -191,6 +233,19 @@ export const llmAdminHandlers = [
   }),
 
   route('llmProviderTest', ({ params }) => {
+    // Nhà cung cấp đọc từ ENV cũng kiểm tra được (backend thật cũng vậy) — chỉ không ghi lịch sử.
+    const envProvider = ENV_PROVIDERS.find((p) => p.provider_id === params.provider_id)
+    if (envProvider) {
+      return {
+        body: {
+          provider_id: envProvider.provider_id,
+          ok: true,
+          latency_ms: 140,
+          status: 'OK',
+          detail: 'Kết nối thành công với nhà cung cấp từ biến môi trường (mock — không gọi mạng thật).',
+        },
+      }
+    }
     const provider = providers.find((p) => p.provider_id === params.provider_id)
     if (!provider) throw notFound(`nhà cung cấp ${params.provider_id}`)
     // Mock chạy offline: mô phỏng kết quả kiểm tra kết nối tất định (không gọi mạng thật).

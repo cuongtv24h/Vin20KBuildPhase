@@ -156,6 +156,43 @@ describe('Lịch sử hội thoại Copilot', () => {
 })
 
 describe('Admin tự khai báo nhà cung cấp LLM', () => {
+  it('thấy được 2 nhà cung cấp đọc từ ENV và thêm được nhà cung cấp thứ ba ngoài chúng', async () => {
+    // Đợt 22 — người dùng: “Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2 nhà cung cấp sẵn.”
+    // Hai nhà cung cấp ấy là ENV · primary + ENV · fallback 1; trước đây bảng quản trị không hiện dòng nào.
+    await loginAsAdmin()
+    const before = await api.llmAdmin.providers()
+    expect(before.env_items?.map((p) => p.name)).toEqual(['ENV · primary', 'ENV · fallback 1'])
+    expect(before.env_items?.[1].is_fallback).toBe(true)
+    expect(before.env_items?.[0].api_key_masked).toContain('…')
+
+    // Test kết nối chạy được cho nhà cung cấp ENV (không có bản ghi DB).
+    const tested = await api.llmAdmin.testProvider('ENV-PRIMARY')
+    expect(tested.ok).toBe(true)
+    expect(tested.provider_id).toBe('ENV-PRIMARY')
+
+    // Thêm nhà cung cấp thứ ba (vendor khác) ngoài hai cái sẵn có.
+    const third = await api.llmAdmin.createProvider({
+      name: 'DeepSeek (nhà cung cấp mới)',
+      provider: 'deepseek',
+      base_url: 'https://api.deepseek.com/v1',
+      model_name: 'deepseek-chat',
+      api_key: 'sk-deepseek-9999',
+      input_price_per_1m: 0.14,
+      output_price_per_1m: 0.28,
+      currency: 'USD',
+      temperature: 0.2,
+      priority: 0,
+      is_active: true,
+    })
+    const after = await api.llmAdmin.providers()
+    expect(after.source).toBe('db')
+    expect(after.items.map((p) => p.provider)).toEqual(['deepseek'])
+    // Hai nhà cung cấp ENV vẫn hiển thị (chỉ-đọc) để quản trị viên biết chúng là đường lui.
+    expect(after.env_items?.map((p) => p.provider_id)).toEqual(['ENV-PRIMARY', 'ENV-FALLBACK-1'])
+    expect(after.env_items?.[0].overridden_by_db).toBe(false)
+    await api.llmAdmin.deleteProvider(third.provider_id)
+  })
+
   it('danh sách trống → nguồn ENV; khai báo xong → nguồn DB, khoá luôn được che', async () => {
     await loginAsAdmin()
     const before = await api.llmAdmin.providers()

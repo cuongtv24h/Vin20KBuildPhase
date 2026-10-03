@@ -26,7 +26,7 @@ from src.db.models import LLMProviderModel
 from src.db.session import get_db_session
 from src.services import llm_usage
 from src.services.llm_probe import probe_llm_provider
-from src.services.llm_providers import cache_source, refresh_provider_cache
+from src.services.llm_providers import _env_configs, cache_source, refresh_provider_cache
 from src.services.llm_secrets import decrypt_api_key, encrypt_api_key, mask_api_key
 
 router = APIRouter(prefix="/admin/llm", tags=["admin-llm"])
@@ -77,10 +77,35 @@ class LLMProviderView(BaseModel):
     updated_at: str | None = None
 
 
+class LlmEnvProviderView(BaseModel):
+    """Nhà cung cấp **đọc từ biến môi trường máy chủ** — chỉ để hiển thị, không sửa/xoá được từ giao diện.
+
+    Vì sao cần: khi DB trống, hệ thống chạy bằng cấu hình ENV (thường là 2: `ENV · primary` +
+    `ENV · fallback 1`), nhưng bảng quản trị chỉ liệt kê bản ghi DB nên hiện “Chưa khai báo nhà cung cấp
+    nào” — quản trị viên không thấy mình đang có những nhà cung cấp nào, cũng không biết thêm mới từ đâu.
+    Khoá ở đây **chỉ trả dạng che**, đúng nguyên tắc của tab này.
+    """
+
+    provider_id: str
+    name: str
+    provider: str
+    base_url: str | None = None
+    model_name: str
+    api_key_masked: str
+    has_api_key: bool = True
+    priority: int
+    is_fallback: bool = False
+    #: Khai báo `provider` này đã có bản ghi trong DB chưa (nếu có thì bản ghi DB đang thắng ENV).
+    overridden_by_db: bool = False
+    source: str = "env"
+
+
 class LLMProviderListResponse(BaseModel):
     source: str = Field(..., description="'db' nếu đang dùng khai báo trong DB, 'env' nếu rơi về ENV")
     total: int
     items: list[LLMProviderView]
+    #: Nhà cung cấp đang có trong ENV của máy chủ (chỉ-đọc) — để màn hình nói đủ sự thật.
+    env_items: list[LlmEnvProviderView] = Field(default_factory=list)
 
 
 class ProviderTestResult(BaseModel):
@@ -89,6 +114,33 @@ class ProviderTestResult(BaseModel):
     latency_ms: float
     status: str
     detail: str
+
+
+def _env_provider_views(*, db_provider_codes: set[str] | None = None) -> list[LlmEnvProviderView]:
+    """Nhà cung cấp dựng từ ENV (`ENV · primary`, `ENV · fallback 1`…) ở dạng chỉ-đọc, khoá đã che."""
+    try:
+        configs = _env_configs()
+    except Exception:  # noqa: BLE001 — thiếu cấu hình không được làm hỏng màn hình quản trị
+        return []
+    overridden = db_provider_codes or set()
+    views: list[LlmEnvProviderView] = []
+    for cfg in configs:
+        key = str(getattr(cfg, "api_key", "") or "")
+        views.append(
+            LlmEnvProviderView(
+                provider_id=str(getattr(cfg, "provider_id", "")),
+                name=str(getattr(cfg, "name", "")),
+                provider=str(getattr(cfg, "provider", "")),
+                base_url=getattr(cfg, "base_url", None),
+                model_name=str(getattr(cfg, "model_name", "")),
+                api_key_masked=mask_api_key(key),
+                has_api_key=bool(key),
+                priority=int(getattr(cfg, "priority", 0) or 0),
+                is_fallback=bool(getattr(cfg, "is_fallback", False)),
+                overridden_by_db=str(getattr(cfg, "provider", "")).strip().lower() in overridden,
+            )
+        )
+    return views
 
 
 def _to_view(row: LLMProviderModel) -> LLMProviderView:
@@ -135,7 +187,12 @@ async def list_providers(
         .all()
     )
     await refresh_provider_cache(session)
-    return LLMProviderListResponse(source=cache_source(), total=len(rows), items=[_to_view(r) for r in rows])
+    return LLMProviderListResponse(
+        source=cache_source(),
+        total=len(rows),
+        items=[_to_view(r) for r in rows],
+        env_items=_env_provider_views(db_provider_codes={str(r.provider).strip().lower() for r in rows}),
+    )
 
 
 @router.post("/providers", response_model=LLMProviderView, status_code=status.HTTP_201_CREATED)
@@ -219,6 +276,23 @@ async def test_provider(
     tự thử tiếp `POST /chat/completions` — endpoint ứng dụng thật dùng, cũng là đường đi qua được
     Cloudflare khi nhà cung cấp chặn client lạ. Lỗi trả về luôn là câu đọc được, không đổ HTML thô.
     """
+    # Nhận cả bản ghi DB **lẫn** nhà cung cấp đọc từ ENV (`ENV-PRIMARY`, `ENV-FALLBACK-1`…): quản trị viên
+    # phải kiểm tra được 2 nhà cung cấp đang chạy thật trước khi quyết định thêm nhà cung cấp mới.
+    env_cfg = next((c for c in _env_configs() if str(c.provider_id) == provider_id), None)
+    if env_cfg is not None:
+        probe = await probe_llm_provider(
+            env_cfg.base_url,
+            str(env_cfg.api_key or ""),
+            env_cfg.model_name,
+        )
+        return ProviderTestResult(
+            provider_id=provider_id,
+            ok=probe.ok,
+            latency_ms=probe.latency_ms,
+            status=probe.status,
+            detail=probe.detail,
+        )
+
     row = await _get_or_404(session, provider_id)
     probe = await probe_llm_provider(
         row.base_url,
