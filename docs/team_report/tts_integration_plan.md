@@ -95,10 +95,11 @@ chữ **“Đã có”** cho OpenAI dù chưa ai cung cấp khoá. Sự thật n
 | Nhà cung cấp | Khoá đọc từ đâu | Có chỗ nhập trên giao diện chưa? |
 | :--- | :--- | :--- |
 | Trình duyệt (Web Speech API) | Không cần khoá | — (không cần) |
-| OpenAI (`OPENAI_API_KEY`) | ENV / `.env`; **dùng chung với khoá LLM đang cấu hình** | LLM: **có** (màn hình quản trị → “Nhà cung cấp LLM”, khoá lưu DB đã mã hoá). TTS: chưa có ô nhập riêng — dùng chung khoá LLM |
-| Google Cloud (`GOOGLE_APPLICATION_CREDENTIALS`) | ENV (đường dẫn file service account) | **Chưa có** |
-| Azure (`AZURE_SPEECH_KEY`) | ENV | **Chưa có** |
-| Viettel / Vbee / FPT | ENV (`VIETTEL_TTS_TOKEN`, `VBEE_TOKEN`, `FPT_TTS_API_KEY`) | **Chưa có** |
+| OpenAI (`OPENAI_API_KEY`) | **DB** (Quản trị CP → Giọng đọc → Nhà cung cấp TTS) → ENV / `.env` → khoá LLM đang cấu hình | **Có** (từ đợt 22: ô nhập khoá + “Test kết nối”, lưu DB đã mã hoá) |
+| Google Cloud (`GOOGLE_APPLICATION_CREDENTIALS`) | DB (Base URL + khoá) → ENV (đường dẫn file service account) | **Có** (từ đợt 22) |
+| Azure (`AZURE_SPEECH_KEY`) | DB → ENV | **Có** (từ đợt 22) |
+| Viettel / Vbee / FPT | DB (`VIETTEL_TTS_TOKEN`, `VBEE_TOKEN`, `FPT_TTS_API_KEY` là đường lui ENV) | **Có** (từ đợt 22) |
+| Nhà cung cấp **ngoài danh mục** (self-host VieNeu, gateway nội bộ…) | DB (Base URL + khoá nhập trên giao diện) | **Có** (từ đợt 22 — thêm nhà cung cấp mới, không cần sửa mã) |
 
 **Vì sao bảng báo “Đã có” oan:** `.env.example` bán sẵn dòng `OPENAI_API_KEY=sk-your-openai-or-groq-key`,
 hướng dẫn triển khai lại là `cp .env.example .env`, và hàm kiểm tra chỉ hỏi “giá trị có khác rỗng không”.
@@ -110,10 +111,13 @@ hướng dẫn triển khai lại là `cp .env.example .env`, và hàm kiểm tr
 3. `llm_providers._env_configs` **bỏ qua** khoá mẫu và ghi cảnh báo — tránh cảnh mang khoá giả đi gọi
    nhà cung cấp rồi trả về lỗi 401 khó hiểu.
 
-**Việc còn thiếu (đề xuất, chưa triển khai):** đưa 6 nhà cung cấp TTS vào cùng cơ chế khoá của LLM —
-một ô nhập khoá + nút “Test kết nối”, lưu DB đã mã hoá bằng Fernet (`llm_secrets`), thứ tự ưu tiên
-**DB → ENV**, giao diện chỉ trả `api_key_configured` (không bao giờ trả khoá). Khi đó màn hình quản trị
-là **một chỗ duy nhất** để khai báo khoá cho cả LLM lẫn TTS, và cột “Khoá API” phản ánh đúng thực tế.
+**Đã triển khai ở đợt 22** (người dùng chốt *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2
+nhà cung cấp sẵn”*): đúng đề xuất trên — bảng `tts_providers` + `GET/POST /admin/tts/providers`,
+`PUT/DELETE /admin/tts/providers/{id}`, `POST /admin/tts/providers/{id}/test` (chỉ ADMIN), khoá mã hoá Fernet
+qua `llm_secrets`, giao diện chỉ trả dạng che `sk-t…abcd` + nhãn nguồn khoá, ưu tiên **DB → ENV → kho LLM trùng
+tên**, và **thêm được nhà cung cấp mới** ngoài danh mục dựng sẵn. Nhà cung cấp mới xuất hiện ngay ở màn hình
+chọn giọng đọc (`GET /settings/tts` nạp bản ghi DB trước khi dựng danh mục). Phần **tổng hợp audio qua nhà cung
+cấp** (§7) vẫn là bước kế tiếp — hiện tiếng đọc do trình duyệt tổng hợp. Chi tiết + bằng chứng: `upgrade_new.md` §16.5h.
 
 ### 4.2 Trình tự một lượt đọc
 

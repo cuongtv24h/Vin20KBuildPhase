@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Mic, Plus, RefreshCw, Trash2, Volume2, Zap } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Plus, RefreshCw, Trash2, Volume2, Zap } from 'lucide-react'
 import { useState } from 'react'
 
 import type { LlmProvider, LlmProviderPayload, LlmProviderTestResult } from '@pricepolicy/api-client/contracts'
@@ -35,6 +35,8 @@ import {
   TableRow,
 } from '@pricepolicy/ui/components/ui/table'
 import { toast } from '@pricepolicy/ui/state/toastStore'
+
+import { TtsProvidersCard, TtsProvidersFootnote } from './TtsProvidersCard'
 
 const EMPTY_FORM: LlmProviderPayload = {
   name: '',
@@ -998,71 +1000,9 @@ export function TtsTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Nhà cung cấp TTS &amp; đơn giá</CardTitle>
-          <CardDescription>
-            Đơn giá là giá niêm yết của nhà cung cấp, kèm mốc kiểm chứng — đối chiếu lại trước khi quyết toán.
-          </CardDescription>
-          <p className="pt-1 text-[11px] text-muted-foreground">
-            Khoá API của nhà cung cấp TTS đọc từ cấu hình máy chủ (ENV: OPENAI_API_KEY, AZURE_SPEECH_KEY,
-            VIETTEL_TTS_TOKEN, VBEE_TOKEN, FPT_TTS_API_KEY…). Hiện <strong>chưa có ô nhập khoá TTS</strong> trên
-            giao diện — cột “Khoá API” chỉ báo trạng thái có/không, không hiển thị khoá.
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nhà cung cấp</TableHead>
-                <TableHead className="text-right">Đơn giá / 1M ký tự</TableHead>
-                <TableHead className="w-[130px]">Khoá API</TableHead>
-                <TableHead className="w-[120px]">Kiểm chứng</TableHead>
-                <TableHead>Ghi chú</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data?.catalog ?? []).map((c) => (
-                <TableRow key={c.provider}>
-                  <TableCell>
-                    <div className="font-medium">{c.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {c.mode === 'browser' ? 'Đọc tại trình duyệt' : c.default_model}
-                      {c.voices.length ? ` · ${c.voices.length} giọng` : ''}
-                      {c.supports_streaming ? ' · có streaming' : ''}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right text-sm">
-                    {c.price_per_1m_chars === 0
-                      ? 'Miễn phí'
-                      : `${c.price_per_1m_chars.toLocaleString('vi-VN')} ${c.currency}`}
-                  </TableCell>
-                  <TableCell>
-                    {c.mode === 'browser' ? (
-                      <span className="text-xs text-muted-foreground">Không cần</span>
-                    ) : c.api_key_configured ? (
-                      <Badge className="bg-emerald-600 text-[10px] hover:bg-emerald-700">Đã có</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px] text-amber-600">
-                        Chưa có
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{c.verified_at || '—'}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{c.price_note || c.note}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <TtsProvidersCard />
 
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Mic className="h-3 w-3" />
-        Chi tiết phương án kỹ thuật (đọc tại trình duyệt vs gọi API TTS, chi phí, cách nối endpoint tổng hợp
-        audio): <code>docs/team_report/tts_integration_plan.md</code>. Lựa chọn riêng của từng nhân viên nằm
-        trong workspace ở nút “Giọng đọc”.
-      </p>
+      <TtsProvidersFootnote />
     </div>
   )
 }

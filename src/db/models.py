@@ -540,6 +540,54 @@ class TTSFeedbackModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class TTSProviderModel(Base):
+    """Nhà cung cấp Text-to-Speech do Admin khai báo trong giao diện (không phải sửa `.env`).
+
+    Cùng cơ chế với `LLMProviderModel` (chốt đợt 22 — người dùng yêu cầu "dùng sẵn cơ chế cũ đã có"):
+
+    - Khoá API lưu **đã mã hoá** (Fernet, `src/services/llm_secrets.py`), API chỉ trả dạng che `sk-…abcd`.
+    - Ưu tiên **DB → ENV**; ENV chỉ dùng khi DB chưa có khoá cho nhà cung cấp đó.
+    - Một bản ghi có thể là **bản ghi đè** của nhà cung cấp dựng sẵn trong danh mục (ví dụ sửa đơn giá
+      Viettel, nhập khoá cho Azure) **hoặc** một nhà cung cấp **mới hoàn toàn** (self-host, gateway nội bộ,
+      nhà cung cấp khác ngoài danh mục) — đúng yêu cầu "cho phép thêm mới nhà cung cấp ngoài các nhà cung
+      cấp sẵn".
+    """
+
+    __tablename__ = "tts_providers"
+
+    provider_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: f"TTS-{uuid.uuid4().hex[:10]}"
+    )
+    #: Mã nhà cung cấp (slug) — trùng mã trong danh mục nghĩa là bản ghi ĐÈ; mã lạ nghĩa là nhà cung cấp MỚI.
+    provider: Mapped[str] = mapped_column(String(48), nullable=False)
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    #: `browser` (đọc tại máy, 0 đồng) hoặc `api` (gọi qua backend, cần khoá).
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="api")
+    base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    default_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    env_key: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    #: Đơn giá theo 1 triệu ký tự (đơn vị ở `currency`) — cùng công thức với danh mục dựng sẵn.
+    price_per_1m_chars: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
+    price_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    verified_at: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    #: Danh sách giọng dạng JSON: `[{"code": "...", "label": "...", "gender": "female"}]`.
+    voices_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    supports_streaming: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    voice_cloning: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_test_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_test_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class LLMProviderModel(Base):
     """Nhà cung cấp LLM do Admin khai báo trong giao diện (không phải sửa .env).
 

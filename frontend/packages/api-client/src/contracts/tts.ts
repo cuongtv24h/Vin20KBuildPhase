@@ -29,6 +29,16 @@ export interface TtsProviderInfo {
   note: string
   /** Đã có khoá API chưa (chỉ cờ boolean, không bao giờ là giá trị khoá). */
   api_key_configured: boolean
+  /** Khoá đang lấy từ đâu: 'db' (nhập trên giao diện) | 'env' | 'llm' | 'browser' | 'none'. */
+  key_source?: string
+  /** Base URL hiệu lực (rỗng với nhà cung cấp dựng sẵn chưa cấu hình). */
+  base_url?: string
+  /** Tên biến ENV chứa khoá (đường lui DB → ENV). */
+  env_key?: string
+  /** Nhà cung cấp do Admin tự thêm trong màn hình quản trị (ngoài danh mục dựng sẵn). */
+  custom?: boolean
+  /** `provider_id` của bản ghi DB, nếu có. */
+  provider_id?: string
   voices: TtsVoiceOption[]
 }
 

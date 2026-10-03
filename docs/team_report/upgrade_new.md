@@ -1369,8 +1369,9 @@ nằm ở đâu, người dùng **chưa** cung cấp khoá nào, và hiện **kh
 5. `docs/team_report/tts_integration_plan.md` §4.1b: bảng “khoá đọc từ đâu / đã có chỗ nhập chưa” cho từng
    nhà cung cấp + việc còn thiếu.
 6. Giao diện nói đúng sự thật: tab “Giọng đọc (TTS)” ghi rõ khoá đọc từ ENV của máy chủ và **chưa có ô nhập
-   khoá TTS**; câu nhắc trong workspace Sale đổi từ “Cần khai báo khoá…” (treo lơ lửng, không có chỗ khai báo)
-   thành “quản trị viên khai báo trong ENV của máy chủ”.
+   khoá TTS** *(đợt 22 đã bù: nay có ô nhập khoá + thêm nhà cung cấp — §16.5h)*; câu nhắc trong workspace Sale
+   đổi từ “Cần khai báo khoá…” (treo lơ lửng, không có chỗ khai báo) thành “quản trị viên khai báo trong ENV
+   của máy chủ” *(đợt 22: trỏ tới màn hình quản trị)*.
 7. **Nối khoá LLM vào badge TTS**: nhà cung cấp TTS trùng vendor với LLM (hiện là OpenAI) nay được coi là
    “đã có khoá” khi khoá đã khai trong màn hình quản trị → tab “Nhà cung cấp LLM” (khoá lưu DB, mã hoá
    Fernet). Trước đây quản trị viên nhập khoá trên giao diện xong badge vẫn hiện “Chưa có” — trái với chính
@@ -1384,6 +1385,9 @@ UI chỉ trả `api_key_configured`) — khi đó màn hình quản trị là **
 và TTS, đồng thời nối khoá DB của LLM vào badge TTS để hết lệch trạng thái. Chưa triển khai vì người dùng
 đang hỏi để hiểu vấn đề (quy tắc đợt 13).
 
+> **Cập nhật đợt 22:** người dùng đã chốt *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2 nhà
+> cung cấp sẵn”* ⇒ đã triển khai đúng đề xuất này và mở rộng thêm phần thêm nhà cung cấp mới — xem **§16.5h**.
+
 #### Kiểm chứng
 
 - `pytest -q` → **711 passed** (686 → 711; +25 ca ở `tests/test_services/test_api_key_placeholders.py`).
@@ -1392,6 +1396,75 @@ và TTS, đồng thời nối khoá DB của LLM vào badge TTS để hết lệ
   khoá và cũng không trả chuỗi giá trị.
 - Frontend: `npm test` 76 ca (mock-server 39 · api-client 14 · ui 17 · internal 6), `tsc -b apps/internal`
   0 lỗi, build nội bộ OK.
+
+### 16.5h Đợt 22 (2026-10-03) — Nhập khoá TTS trên giao diện & thêm nhà cung cấp ngoài danh mục
+
+**Người dùng chốt** (nguyên văn): *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2 nhà cung
+cấp sẵn.”* Diễn giải đã dùng để triển khai: **không** dựng cơ chế mới — dùng đúng cơ chế của tab “Nhà cung cấp
+LLM” (ô nhập khoá + “Test kết nối”, lưu DB đã mã hoá Fernet, ưu tiên **DB → ENV**) và mở rộng để **thêm được cả
+nhà cung cấp ngoài danh mục có sẵn** (self-host, gateway nội bộ, nhà cung cấp khác), thay vì bó vào danh sách
+7 nhà cung cấp dựng sẵn.
+
+#### Đã làm
+
+**Backend**
+
+| Thành phần | Nội dung |
+|---|---|
+| Bảng `tts_providers` (`src/db/models.py`) | `provider_id` (`TTS-{hex10}`), `provider` (slug), `label`, `mode` (`api`/`browser`), `base_url`, `default_model`, `env_key`, `price_per_1m_chars`, `currency`, `price_note`, `verified_at`, `note`, `voices_json`, `supports_streaming`, `voice_cloning`, `api_key_encrypted`, `priority`, `is_active`, `last_test_*`, `created_at`, `updated_at`. Tạo bảng bằng `Base.metadata.create_all` (idempotent, cùng đường với các bảng hiện có; không thêm alembic — đúng chốt của người dùng) |
+| `src/services/tts_providers.py` | `set_tts_provider_rows` / `refresh_tts_providers` / `tts_row_to_dict`; **`resolve_tts_providers()`** gộp: danh mục dựng sẵn → bản ghi **đè** theo mã (giữ đúng vị trí cũ) → nhà cung cấp **mới** (sắp theo `priority`); `provider_key_source()` (db/env/llm/browser/none); `resolve_provider_api_key()` (DB → ENV → kho LLM) |
+| `src/api/endpoints/tts_admin.py` (mới) | `GET/POST /admin/tts/providers`, `PUT/DELETE /admin/tts/providers/{provider_id}`, `POST /admin/tts/providers/{provider_id}/test`; `require_admin` (chỉ ADMIN); khoá **chỉ trả dạng che** (`sk-t…abcd`) + nhãn nguồn khoá; `provider_ref` của endpoint test nhận **cả** `provider_id` lẫn mã dựng sẵn (ví dụ `openai`) |
+| `src/services/tts_probe.py` (mới) | “Test kết nối” **không tổng hợp thử** (tổng hợp là tốn tiền thật): trình duyệt ⇒ `NO_KEY_NEEDED`; thiếu khoá ⇒ `NOT_CONFIGURED` (kèm tên biến ENV); gateway OpenAI-compatible ⇒ `GET /models`; nhà cung cấp khác ⇒ thử `/voices` rồi base URL, không kiểm tra được thì trả `UNSUPPORTED` + hướng dẫn kiểm bằng tay (dùng lại đúng bộ chẩn đoán Cloudflare/HTML của `llm_probe`) |
+| `src/api/endpoints/settings.py` | `GET /settings/tts` nạp bản ghi DB trước khi dựng danh mục ⇒ thêm nhà cung cấp xong là **dùng được ngay**, không phải khởi động lại backend; `tts_catalog()` trả thêm `custom`, `provider_id`, `key_source`, `base_url`, `env_key` |
+
+**Giao diện (Admin CP → Giọng đọc)**
+
+- Thay bảng chỉ-đọc bằng thẻ quản trị (`TtsProvidersCard.tsx`): nút **Thêm nhà cung cấp**, nút **Sửa/Khai báo**
+  trên từng dòng, nút **Test kết nối** từng dòng, **Xoá** (bản ghi đè thì nhà cung cấp dựng sẵn vẫn còn, quay về
+  đơn giá gốc); cột “Khoá API” hiện badge + **nguồn khoá** + khoá che.
+- Hộp thoại khai báo theo đúng khuôn tab LLM (gồm cả `autoComplete="new-password"` để Chrome không tự điền vào
+  ô Base URL/khoá — lỗi đã gặp ở đợt 9): mã, tên, cách đọc, Base URL, model, biến ENV, khoá, đơn giá/1M ký tự,
+  đơn vị tiền, ghi chú giá, danh sách giọng (`mã | nhãn | giới tính`), mức ưu tiên, đang dùng / streaming /
+  nhân bản giọng. **Lưu xong không đóng hộp thoại** để bấm “Test kết nối” ngay (giống tab LLM).
+- Ghi chú cũ “hiện **chưa có ô nhập khoá TTS**” (đợt 21) đã được thay bằng mô tả đúng: khoá nhập trên giao diện,
+  ưu tiên DB → ENV → kho LLM trùng tên; nói rõ **mức độ hoàn thiện** (tiếng đọc hiện vẫn do trình duyệt tổng hợp,
+  đường gọi nhà cung cấp trả phí là bước kế tiếp của `tts_integration_plan.md` §7).
+- Workspace Sale: câu “quản trị viên khai báo trong ENV của máy chủ” → “khai báo ở **Quản trị CP → Giọng đọc →
+  Nhà cung cấp TTS** (hoặc ENV của máy chủ)”.
+
+**Mock server** (`handlers/tts.ts` + `handlers/ttsAdmin.ts`): cùng ngữ nghĩa backend (đè theo mã, nhà cung cấp
+mới, khoá chỉ dạng che, DB → ENV, xoá bản ghi đè không làm mất nhà cung cấp dựng sẵn); mock **không** cấu hình
+khoá ENV nào nên các nhà cung cấp trả phí vẫn báo “chưa có” cho tới khi nhập khoá — giữ đúng nguyên tắc đợt 21
+(không hứa hão). “Test kết nối” trong mock ghi rõ “(mô phỏng trong mock)”.
+
+#### Kiểm chứng
+
+- `pytest -q` → **735 passed** (711 → 735; +24 ca `tests/test_api/test_tts_providers_admin.py`), `ruff` sạch.
+- Test backend phủ: phân quyền (SALE 403, chưa đăng nhập 403), thêm nhà cung cấp mới, bản ghi đè giữ vị trí,
+  xoá bản ghi đè → về giá gốc, xoá nhà cung cấp tự thêm → biến mất, **khoá không lộ** trong mọi phản hồi,
+  DB thắng ENV rồi quay lại ENV khi xoá, khoá mẫu trong ENV không tính là có khoá, 5 tình huống “Test kết nối”
+  (trình duyệt / thiếu khoá / gateway OK / sai khoá 401 / không mở endpoint kiểm tra).
+- Frontend: `npm test` **82 ca** (mock-server 45 · api-client 14 · ui 17 · internal 6),
+  `tsc -b apps/internal` 0 lỗi, `npm run build` OK, `oxlint` không phát sinh cảnh báo mới.
+- Luồng mới có test riêng trên mock: `packages/mock-server/src/ttsAdmin.test.ts` (6 ca) — đóng vai **đặc tả hợp
+  đồng** cho backend thật.
+- Không đụng vào đường trả lời Copilot ⇒ golden/bank không cần chạy lại (danh mục TTS chỉ được dùng ở
+  `settings.py` và `tts_admin.py`; kiểm bằng `grep`).
+
+#### Triển khai (VM)
+
+Bảng `tts_providers` **tự tạo** khi backend khởi động (`src/main.py` gọi `Base.metadata.create_all`, idempotent
+— cùng đường với mọi bảng khác, không cần alembic). Nếu chưa khởi động lại, `scripts/verify_schema.py` sẽ liệt
+kê `tts_providers` là bảng còn thiếu; trang giọng đọc vẫn chạy với danh mục dựng sẵn (đã có ca test cho tình
+huống này).
+
+#### Còn lại (nói thẳng)
+
+- Chưa bấm thử trên trình duyệt (sandbox không có Chromium) và chưa chạy trên VM.
+- Chưa gọi nhà cung cấp TTS thật từ sandbox (không có khoá) — câu chẩn đoán của “Test kết nối” mới kiểm bằng
+  server giả.
+- Đợt này **chỉ** quản lý nhà cung cấp & khoá: phần **tổng hợp audio qua backend** (`POST /api/v1/tts/speak`,
+  cache, ghi chi phí) vẫn là việc kế tiếp của `tts_integration_plan.md` §7; hiện tiếng đọc do trình duyệt tổng hợp.
 
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
@@ -1426,7 +1499,10 @@ giá trị tư vấn cao hơn một câu khẳng định chung.
 
 ### 16.8 Còn lại (nói thẳng)
 
-0. **Đợt 20 (chưa xong)**: chưa kiểm giao diện bằng trình duyệt (sandbox không có Chromium) và chưa deploy
+0. **Đợt 22 (chưa xong)**: màn hình quản trị nhà cung cấp TTS mới chỉ xác nhận ở mức mã nguồn + typecheck +
+   test hợp đồng (mock) — chưa bấm trên trình duyệt (sandbox không có Chromium) và chưa chạy trên VM; phần
+   **tổng hợp audio qua nhà cung cấp** vẫn là việc kế tiếp (`tts_integration_plan.md` §7). Chi tiết: §16.5h.
+0b. **Đợt 20 (chưa xong)**: chưa kiểm giao diện bằng trình duyệt (sandbox không có Chromium) và chưa deploy
    lên VM; câu trả lời ở chế độ **LLM thật** chưa chạy được ở đây (không có API key) — phần hình thức đã có
    lớp tất định chạy sau nên không phụ thuộc model.
 1. **Phần văn phong do LLM viết chưa đo được trong sandbox** (không có API key/egress): luật prompt P0.5/P1.7/K2

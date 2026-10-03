@@ -56,6 +56,10 @@ import type {
   SendMessageCommand,
   TtsFeedbackPayload,
   TtsFeedbackResponse,
+  TtsProviderAdmin,
+  TtsProviderListResponse,
+  TtsProviderPayload,
+  TtsProviderTestResult,
   TtsSettingsPayload,
   TtsSettingsResponse,
   UnitSnapshot,
@@ -272,5 +276,26 @@ export const api = {
     /** Ai cũng gửi được (kèm danh tính trong token) — dữ liệu để chọn giọng theo thực tế. */
     feedback: (body: TtsFeedbackPayload, o: CommandOptions = {}) =>
       call<TtsFeedbackResponse>('ttsFeedback', {}, { json: body, ...o }),
+  },
+
+  /** Quản trị nhà cung cấp TTS (ADMIN) — nhập khoá, test kết nối, thêm nhà cung cấp mới. */
+  ttsAdmin: {
+    providers: (signal?: AbortSignal) => call<TtsProviderListResponse>('ttsProviders', {}, { signal }),
+    createProvider: (body: TtsProviderPayload, o: CommandOptions = {}) =>
+      call<TtsProviderAdmin>('ttsProviderCreate', {}, { json: body, ...o }),
+    updateProvider: (providerId: string, body: TtsProviderPayload, o: CommandOptions = {}) =>
+      call<TtsProviderAdmin>('ttsProviderUpdate', { provider_id: providerId }, { json: body, ...o }),
+    deleteProvider: (providerId: string, o: CommandOptions = {}) =>
+      call<{
+        ok: boolean
+        provider_id: string
+        provider: string
+        still_available: boolean
+        /** Số phạm vi thiết lập (mặc định/hồ sơ riêng) đang chọn nhà cung cấp này. */
+        used_by_scopes: number
+      }>('ttsProviderDelete', { provider_id: providerId }, o),
+    /** Nhận cả `provider_id` lẫn mã nhà cung cấp dựng sẵn (ví dụ `openai`). */
+    testProvider: (providerRef: string, o: CommandOptions = {}) =>
+      call<TtsProviderTestResult>('ttsProviderTest', { provider_id: providerRef }, { json: {}, ...o }),
   },
 }

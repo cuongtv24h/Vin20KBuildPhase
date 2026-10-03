@@ -4461,7 +4461,7 @@ export function SalesWorkspacePage() {
                     ? `Đơn giá ${ttsProvider.price_per_1m_chars.toLocaleString('vi-VN')} ${ttsProvider.currency}/1 triệu ký tự · kiểm chứng ${ttsProvider.verified_at}`
                     : 'Không phát sinh chi phí.'}{' '}
                   {ttsProvider.mode === 'api' && !ttsProvider.api_key_configured
-                    ? 'Chưa có khoá cho nhà cung cấp này — quản trị viên khai báo trong ENV của máy chủ.'
+                    ? 'Chưa có khoá cho nhà cung cấp này — quản trị viên khai báo ở Quản trị CP → Giọng đọc → Nhà cung cấp TTS (hoặc ENV của máy chủ).'
                     : ''}
                 </p>
               )}

@@ -6,6 +6,7 @@ import { conversationHandlers } from './conversations'
 import { copilotHandlers } from './copilot'
 import { llmAdminHandlers } from './llmAdmin'
 import { ttsHandlers } from './tts'
+import { ttsAdminHandlers } from './ttsAdmin'
 import { quoteHandlers } from './quotes'
 import { adminHandlers, complianceHandlers, devtoolHandlers, leadHandlers, preSalesHandlers } from './workflows'
 
@@ -22,6 +23,7 @@ export const handlers = [
   ...conversationHandlers,
   ...llmAdminHandlers,
   ...ttsHandlers,
+  ...ttsAdminHandlers,
   ...adminCpHandlers,
   ...devtoolHandlers,
 ]

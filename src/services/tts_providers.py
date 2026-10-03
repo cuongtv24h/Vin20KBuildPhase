@@ -15,11 +15,15 @@ Nguyên tắc kế thừa từ phần LLM (`llm_providers.py` / `llm_usage.py`):
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from src.config import Settings, get_settings
 from src.services.llm_secrets import is_usable_api_key
+
+logger = logging.getLogger(__name__)
 
 #: Giọng đọc mặc định khi Admin chưa chọn gì — 0 đồng, chạy ngay trong trình duyệt.
 BROWSER_PROVIDER = "browser"
@@ -54,6 +58,14 @@ class TtsProviderConfig:
     supports_streaming: bool = False
     voice_cloning: bool = False
     note: str = ""
+    #: `provider_id` của bản ghi DB ("" nếu chỉ có trong danh mục dựng sẵn).
+    provider_id: str = ""
+    #: True khi bản ghi do Admin tự thêm (không nằm trong danh mục dựng sẵn).
+    custom: bool = False
+    #: Đang bật hay đang tắt (bản ghi DB có thể tạm ẩn một nhà cung cấp).
+    is_active: bool = True
+    #: Khoá đã giải mã từ DB — chỉ nằm trong bộ nhớ, KHÔNG bao giờ trả ra API.
+    db_api_key: str = ""
 
 
 #: Danh mục tham khảo (giá niêm yết công bố trên trang giá của nhà cung cấp).
@@ -189,28 +201,211 @@ TTS_PROVIDER_CATALOG: tuple[TtsProviderConfig, ...] = (
 
 _BY_PROVIDER = {cfg.provider: cfg for cfg in TTS_PROVIDER_CATALOG}
 
+#: Bản ghi DB đã nạp: `None` = chưa nạp (dùng danh mục dựng sẵn), `[]` = đã nạp và DB trống.
+_DB_ROWS: list[dict[str, Any]] | None = None
+
 #: Chặn trên số ký tự đọc mỗi lượt — câu trả lời dài mà đọc hết vừa lâu vừa tốn tiền.
 DEFAULT_MAX_CHARS_PER_TURN = 600
 
 
-def get_tts_provider(provider: str | None) -> TtsProviderConfig | None:
-    """Tra cứu nhà cung cấp TTS theo mã (không phân biệt hoa/thường)."""
+def set_tts_provider_rows(rows: list[dict[str, Any]] | None) -> None:
+    """Nạp bản ghi DB vào bộ nhớ (gọi từ endpoint sau mỗi lần đọc/ghi, hoặc từ test).
+
+    `None` = chưa nạp; `[]` = đã nạp và DB trống (hai trạng thái này khác nhau: DB trống nghĩa là
+    "không có bản ghi nào", còn chưa nạp nghĩa là "chưa hỏi DB").
+    """
+    global _DB_ROWS
+    _DB_ROWS = rows
+
+
+def tts_provider_rows() -> list[dict[str, Any]] | None:
+    """Bản ghi DB đang có trong bộ nhớ (dùng cho test và endpoint)."""
+    return _DB_ROWS
+
+
+async def refresh_tts_providers(session: Any | None = None) -> list[dict[str, Any]]:
+    """Đọc bảng `tts_providers` từ DB, giải mã khoá, nạp vào bộ nhớ; trả danh sách bản ghi.
+
+    Khoá được giải mã ngay tại đây để mọi tầng sau (kiểm tra "đã có khoá", chọn khoá khi gọi API) dùng
+    cùng một nguồn — nhưng khoá **không** bao giờ được trả ra API (endpoint chỉ trả dạng che).
+    """
+    from sqlalchemy import select
+
+    from src.db.models import TTSProviderModel
+    from src.db.session import get_db_session
+    from src.services.llm_secrets import decrypt_api_key
+
+    async def _load(db_session: Any) -> list[TTSProviderModel]:
+        result = await db_session.execute(select(TTSProviderModel).order_by(TTSProviderModel.priority.asc()))
+        return list(result.scalars().all())
+
+    try:
+        if session is not None:
+            rows = await _load(session)
+        else:
+            async for db_session in get_db_session():
+                rows = await _load(db_session)
+                break
+            else:  # pragma: no cover — không mở được session (DB chưa cấu hình)
+                set_tts_provider_rows([])
+                return []
+    except Exception as exc:  # noqa: BLE001
+        # Bảng chưa kịp tạo trên một triển khai cũ KHÔNG được làm sập trang giọng đọc của Sale:
+        # giữ nguyên danh mục dựng sẵn và ghi cảnh báo để quản trị viên biết chạy lại khởi động backend
+        # (`Base.metadata.create_all` sẽ tạo bảng còn thiếu).
+        logger.warning("tts_providers_load_failed err=%s — dùng danh mục dựng sẵn", exc)
+        set_tts_provider_rows([])
+        return []
+
+    models = list(rows)
+    set_tts_provider_rows([tts_row_to_dict(row, decrypt_api_key=decrypt_api_key) for row in models])
+    return _DB_ROWS or []
+
+
+def tts_row_to_dict(row: Any, *, decrypt_api_key: Any | None = None) -> dict[str, Any]:
+    """Bản ghi DB → dict thuần (khoá ở dạng giải mã nếu truyền `decrypt_api_key`)."""
+    try:
+        voices = json.loads(row.voices_json or "[]")
+    except (TypeError, ValueError):  # JSON hỏng thì coi như chưa khai giọng, không làm sập trang
+        voices = []
+    return {
+        "provider_id": row.provider_id,
+        "provider": row.provider,
+        "label": row.label,
+        "mode": row.mode,
+        "base_url": row.base_url or "",
+        "default_model": row.default_model or "",
+        "env_key": row.env_key or "",
+        "price_per_1m_chars": float(row.price_per_1m_chars or 0.0),
+        "currency": row.currency or "USD",
+        "price_note": row.price_note or "",
+        "verified_at": row.verified_at or "",
+        "note": row.note or "",
+        "voices": [v for v in voices if isinstance(v, dict) and v.get("code")],
+        "supports_streaming": bool(row.supports_streaming),
+        "voice_cloning": bool(row.voice_cloning),
+        "api_key": decrypt_api_key(row.api_key_encrypted) if decrypt_api_key else "",
+        "priority": int(row.priority or 50),
+        "is_active": bool(row.is_active),
+        "last_test_status": row.last_test_status,
+        "last_test_latency_ms": row.last_test_latency_ms,
+        "last_tested_at": row.last_tested_at.isoformat() if row.last_tested_at else None,
+        "created_at": row.created_at.isoformat() if getattr(row, "created_at", None) else None,
+        "updated_at": row.updated_at.isoformat() if getattr(row, "updated_at", None) else None,
+    }
+
+
+def _config_from_row(row: dict[str, Any], *, custom: bool) -> TtsProviderConfig:
+    """Bản ghi DB → `TtsProviderConfig` (để danh mục và mọi tầng dùng chung một hình dạng)."""
+    return TtsProviderConfig(
+        provider=str(row["provider"]).strip().lower(),
+        label=str(row["label"]).strip() or str(row["provider"]),
+        mode=str(row.get("mode") or "api").strip().lower(),
+        env_key=str(row.get("env_key") or "").strip().upper(),
+        base_url=str(row.get("base_url") or "").strip(),
+        default_model=str(row.get("default_model") or "").strip(),
+        price_per_1m_chars=float(row.get("price_per_1m_chars") or 0.0),
+        currency=str(row.get("currency") or "USD").strip().upper(),
+        verified_at=str(row.get("verified_at") or "").strip(),
+        price_note=str(row.get("price_note") or "").strip(),
+        voices=tuple(
+            TtsVoice(
+                code=str(v.get("code", "")).strip(),
+                label=str(v.get("label") or v.get("code") or "").strip(),
+                gender=str(v.get("gender") or "neutral").strip(),
+            )
+            for v in (row.get("voices") or [])
+            if str(v.get("code", "")).strip()
+        ),
+        supports_streaming=bool(row.get("supports_streaming")),
+        voice_cloning=bool(row.get("voice_cloning")),
+        note=str(row.get("note") or "").strip(),
+        provider_id=str(row.get("provider_id") or ""),
+        custom=custom,
+        is_active=bool(row.get("is_active", True)),
+        db_api_key=str(row.get("api_key") or ""),
+    )
+
+
+def resolve_tts_providers(*, include_inactive: bool = False) -> list[TtsProviderConfig]:
+    """Danh mục HIỆU LỰC: danh mục dựng sẵn + bản ghi DB (đè theo mã, rồi tới nhà cung cấp mới).
+
+    Đây là điểm duy nhất quyết định "có những nhà cung cấp nào" — nhờ vậy thêm một nhà cung cấp mới
+    trong giao diện là nó xuất hiện ở mọi nơi (chọn giọng đọc, tính chi phí, kiểm tra khoá).
+    """
+    rows = _DB_ROWS if _DB_ROWS is not None else []
+    overrides = {str(r["provider"]).strip().lower(): r for r in rows}
+    merged: list[TtsProviderConfig] = []
+    for base in TTS_PROVIDER_CATALOG:
+        row = overrides.get(base.provider)
+        if row is None:
+            merged.append(base)
+            continue
+        merged.append(
+            TtsProviderConfig(
+                provider=base.provider,
+                label=str(row.get("label") or base.label),
+                mode=str(row.get("mode") or base.mode),
+                env_key=str(row.get("env_key") or base.env_key),
+                base_url=str(row.get("base_url") or base.base_url),
+                default_model=str(row.get("default_model") or base.default_model),
+                price_per_1m_chars=float(row.get("price_per_1m_chars") or 0.0),
+                currency=str(row.get("currency") or base.currency),
+                verified_at=str(row.get("verified_at") or base.verified_at),
+                price_note=str(row.get("price_note") or base.price_note),
+                voices=tuple(
+                    TtsVoice(code=str(v.get("code", "")), label=str(v.get("label") or v.get("code", "")), gender=str(v.get("gender") or "neutral"))
+                    for v in (row.get("voices") or [])
+                )
+                or base.voices,
+                supports_streaming=bool(row.get("supports_streaming", base.supports_streaming)),
+                voice_cloning=bool(row.get("voice_cloning", base.voice_cloning)),
+                note=str(row.get("note") or base.note),
+                provider_id=str(row.get("provider_id") or ""),
+                custom=False,
+                is_active=bool(row.get("is_active", True)),
+                db_api_key=str(row.get("api_key") or ""),
+            )
+        )
+    builtin_codes = {cfg.provider for cfg in TTS_PROVIDER_CATALOG}
+    custom_rows = sorted(
+        (r for r in rows if str(r["provider"]).strip().lower() not in builtin_codes),
+        key=lambda r: (int(r.get("priority") or 50), str(r["provider"])),
+    )
+    merged.extend(_config_from_row(row, custom=True) for row in custom_rows)
+    if include_inactive:
+        return merged
+    return [cfg for cfg in merged if cfg.is_active]
+
+
+def get_tts_provider(provider: str | None, *, include_inactive: bool = False) -> TtsProviderConfig | None:
+    """Tra cứu nhà cung cấp TTS theo mã (không phân biệt hoa/thường) — có tính bản ghi DB."""
     if not provider:
         return None
-    return _BY_PROVIDER.get(provider.strip().lower())
+    wanted = provider.strip().lower()
+    for cfg in resolve_tts_providers(include_inactive=include_inactive):
+        if cfg.provider == wanted:
+            return cfg
+    return None
 
 
 def tts_catalog(*, settings: Settings | None = None) -> list[dict[str, Any]]:
-    """Danh mục cho UI: giá, giọng gợi ý, và **đã có khoá để gọi chưa** (không lộ khoá)."""
+    """Danh mục hiệu lực cho UI: giá, giọng gợi ý, và **đã có khoá để gọi chưa** (không lộ khoá).
+
+    Danh mục gồm nhà cung cấp dựng sẵn **và** nhà cung cấp Admin tự thêm trong giao diện; nhà cung cấp
+    tự thêm có cờ `custom = true` để UI gắn nhãn "Tuỳ chỉnh".
+    """
     resolved = settings or get_settings()
     items: list[dict[str, Any]] = []
-    for cfg in TTS_PROVIDER_CATALOG:
+    for cfg in resolve_tts_providers():
         items.append(
             {
                 "provider": cfg.provider,
                 "label": cfg.label,
                 "mode": cfg.mode,
                 "default_model": cfg.default_model,
+                "base_url": cfg.base_url,
+                "env_key": cfg.env_key,
                 "price_per_1m_chars": cfg.price_per_1m_chars,
                 "currency": cfg.currency,
                 "price_note": cfg.price_note,
@@ -218,8 +413,12 @@ def tts_catalog(*, settings: Settings | None = None) -> list[dict[str, Any]]:
                 "supports_streaming": cfg.supports_streaming,
                 "voice_cloning": cfg.voice_cloning,
                 "note": cfg.note,
+                # Nhà cung cấp do Admin thêm (ngoài danh mục dựng sẵn) — UI gắn nhãn "Tuỳ chỉnh".
+                "custom": cfg.custom,
+                "provider_id": cfg.provider_id,
                 # Chỉ trả về CÓ/KHÔNG, không bao giờ trả chính khoá.
                 "api_key_configured": is_provider_configured(cfg, settings=resolved),
+                "key_source": provider_key_source(cfg, settings=resolved),
                 "voices": [{"code": v.code, "label": v.label, "gender": v.gender} for v in cfg.voices],
             }
         )
@@ -232,20 +431,52 @@ def is_provider_configured(cfg: TtsProviderConfig, *, settings: Settings | None 
     Vì sao hai đường: `OPENAI_API_KEY` được Settings map thành `openai_api_key`, còn
     `GOOGLE_APPLICATION_CREDENTIALS` là đường dẫn file, Settings không khai báo → phải đọc ENV trực tiếp.
     """
-    if not cfg.env_key:
-        return True  # chế độ trình duyệt: không cần khoá
+    return provider_key_source(cfg, settings=settings) != "none"
+
+
+def provider_key_source(cfg: TtsProviderConfig, *, settings: Settings | None = None) -> str:
+    """Khoá của nhà cung cấp đang lấy từ đâu: `db` | `env` | `llm` | `browser` | `none`.
+
+    Thứ tự ưu tiên đúng như kho nhà cung cấp LLM (**DB → ENV**), cộng thêm một đường đặc biệt: nhà cung
+    cấp TTS trùng vendor với LLM đang cấu hình thì dùng chung khoá đó (OpenAI).
+    """
+    if cfg.mode == "browser" or not cfg.env_key:
+        return "browser"
+    if is_usable_api_key(cfg.db_api_key):
+        return "db"
     resolved = settings or get_settings()
     # "Khác rỗng" KHÔNG đủ: giá trị mẫu trong `.env.example` (ví dụ `sk-your-openai-or-groq-key`) từng bị
     # tính là khoá thật ⇒ giao diện báo "Đã có" dù chưa ai cung cấp khoá (đợt 21).
     if is_usable_api_key(_env_lookup(cfg.env_key)) or is_usable_api_key(
         getattr(resolved, cfg.env_key.lower(), "")
     ):
-        return True
+        return "env"
     # Đường thứ ba: khoá đã khai trong **màn hình quản trị → Nhà cung cấp LLM** (lưu DB, đã mã hoá).
     # Nhà cung cấp TTS trùng vendor với LLM (OpenAI hiện tại) dùng CHUNG khoá đó — catalog cũng ghi rõ
     # "dùng chung khoá với LLM đang cấu hình". Trước đây badge TTS chỉ nhìn ENV nên hiện "Chưa có" oan
     # sau khi quản trị viên đã nhập khoá trên giao diện.
-    return _configured_in_llm_store(cfg.provider)
+    if _configured_in_llm_store(cfg.provider):
+        return "llm"
+    return "none"
+
+
+def resolve_provider_api_key(cfg: TtsProviderConfig, *, settings: Settings | None = None) -> str:
+    """Khoá dùng thật khi gọi nhà cung cấp (DB → ENV → kho LLM). Không bao giờ trả ra API."""
+    resolved = settings or get_settings()
+    if is_usable_api_key(cfg.db_api_key):
+        return cfg.db_api_key
+    for candidate in (_env_lookup(cfg.env_key), str(getattr(resolved, cfg.env_key.lower(), "") or "")):
+        if is_usable_api_key(candidate):
+            return candidate
+    try:
+        from src.services import llm_providers
+
+        for provider in llm_providers.resolve_provider_configs():
+            if str(provider.provider).lower() == cfg.provider.lower() and is_usable_api_key(provider.api_key):
+                return str(provider.api_key)
+    except Exception:  # noqa: BLE001 — thiếu module không được làm sập luồng đọc
+        pass
+    return ""
 
 
 def _configured_in_llm_store(vendor: str) -> bool:
@@ -330,7 +561,7 @@ def validate_tts_settings(payload: dict[str, Any], *, base: dict[str, Any] | Non
     if provider is None:
         raise ValueError(
             "Nhà cung cấp TTS không hợp lệ. Chọn một trong: "
-            + ", ".join(cfg.provider for cfg in TTS_PROVIDER_CATALOG)
+            + ", ".join(cfg.provider for cfg in resolve_tts_providers())
         )
     merged["provider"] = provider.provider
 
