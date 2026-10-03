@@ -117,3 +117,38 @@ export interface TtsFeedbackResponse {
   up: number
   down: number
 }
+
+/** Yêu cầu đọc một đoạn văn bản qua nhà cung cấp TTS (backend gọi nhà cung cấp, không phải trình duyệt). */
+export interface TtsSpeakRequest {
+  text: string
+  /** Bỏ trống = lấy thiết lập hiệu lực của người gọi. */
+  provider?: string
+  voice?: string
+  model?: string
+  speed?: number
+  conversation_id?: string | null
+  /** True = chỉ đọc phần đầu (chế độ rảnh tay). */
+  summary_only?: boolean
+}
+
+export interface TtsQuota {
+  /** 0 = không giới hạn. */
+  daily_budget: number
+  chars_today: number
+  /** -1 khi không giới hạn. */
+  remaining: number
+}
+
+export interface TtsSpeakResponse {
+  provider: string
+  voice: string
+  model: string
+  mime: string
+  audio_base64: string
+  chars: number
+  cached: boolean
+  cost: number
+  currency: string
+  latency_ms: number
+  quota: TtsQuota
+}

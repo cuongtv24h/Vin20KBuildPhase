@@ -22,6 +22,7 @@ from src.api.endpoints import (
     quotes,
     settings,
     tts_admin,
+    tts_speak,
 )
 from src.models.schemas import ChatRequest, ChatResponse
 
@@ -67,6 +68,7 @@ router.include_router(compliance.router)
 router.include_router(evaluation.router)
 router.include_router(llm_admin.router, prefix="/api/v1")
 router.include_router(tts_admin.router, prefix="/api/v1")
+router.include_router(tts_speak.router, prefix="/api/v1")
 router.include_router(settings.router, prefix="/api/v1")
 router.include_router(copilot.router, prefix="/api/v1")
 router.include_router(policies.router, prefix="/api/v1")

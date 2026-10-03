@@ -326,6 +326,10 @@ class UsageSummaryResponse(BaseModel):
     p50_latency_ms: float
     p95_latency_ms: float
     avg_cost_per_call: float
+    #: Số liệu riêng cho lượt **đọc thành tiếng** (TTS): chi phí tính theo ký tự, không theo token.
+    tts_calls: int = 0
+    tts_chars: int = 0
+    tts_cost: float = 0.0
     by_provider: list[dict[str, Any]]
     by_day: list[dict[str, Any]]
 

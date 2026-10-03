@@ -119,6 +119,10 @@ export const ENDPOINTS = {
   ttsSettingsUpdate: def({ method: 'PUT', path: '/settings/tts', source: 'PROPOSED', auth: 'staff' }),
   ttsFeedback: def({ method: 'POST', path: '/settings/tts/feedback', source: 'PROPOSED', auth: 'staff' }),
 
+  // Đọc thành tiếng qua nhà cung cấp TTS (backend gọi nhà cung cấp thật; trình duyệt vẫn là đường miễn phí)
+  ttsSpeak: def({ method: 'POST', path: '/tts/speak', source: 'PROPOSED', auth: 'staff' }),
+  ttsQuota: def({ method: 'GET', path: '/tts/quota', source: 'PROPOSED', auth: 'staff' }),
+
   // Quản trị nhà cung cấp TTS & khoá API (ADMIN) — cùng cơ chế với nhà cung cấp LLM
   ttsProviders: def({ method: 'GET', path: '/admin/tts/providers', source: 'PROPOSED', auth: ['ADMIN'] }),
   ttsProviderCreate: def({ method: 'POST', path: '/admin/tts/providers', source: 'PROPOSED', auth: ['ADMIN'] }),

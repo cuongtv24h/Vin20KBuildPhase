@@ -784,6 +784,14 @@ export function LlmUsageTab() {
                 <p className="text-[11px] text-muted-foreground">
                   Lỗi {(s.error_rate * 100).toFixed(1)}% ({s.failed_calls} lượt)
                 </p>
+                {/* Đọc thành tiếng tính tiền theo KÝ TỰ, không theo token ⇒ tách riêng cho khỏi hiểu nhầm. */}
+                {(s.tts_calls ?? 0) > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    trong đó đọc thành tiếng: {(s.tts_calls ?? 0).toLocaleString('vi-VN')} lượt ·{' '}
+                    {(s.tts_chars ?? 0).toLocaleString('vi-VN')} ký tự ·{' '}
+                    {fmtMoney(s.tts_cost ?? 0, s.currency)}
+                  </p>
+                )}
               </CardHeader>
             </Card>
             <Card>

@@ -1,4 +1,5 @@
 import type { TtsProviderAdmin, TtsProviderPayload } from '@pricepolicy/api-client/contracts'
+import { recordMockTtsCall } from './llmAdmin'
 import { MockError } from '../services/errors'
 import { route } from './route'
 import {
@@ -315,6 +316,82 @@ export const ttsAdminHandlers = [
           'Không kiểm tra tự động được với nhà cung cấp này (endpoint kiểm tra không mở). Cách kiểm bằng tay: bấm nút “Đọc” một câu trả lời ngắn trong workspace Sale. (mô phỏng trong mock)',
         method: null,
         url: baseUrl,
+      },
+    }
+  }),
+]
+
+/**
+ * Đường **đọc thành tiếng qua nhà cung cấp** — bản mock song song với `src/api/endpoints/tts_speak.py`.
+ *
+ * Mock chạy offline nên trả một đoạn WAV ngắn cố định (không gọi mạng), nhưng giữ đúng hành vi quan
+ * trọng của backend thật: trình duyệt thì KHÔNG đi đường này; thiếu khoá/chưa nối adapter thì nói thật;
+ * chi phí quy theo ký tự và ghi vào nhật ký để tab “Chi phí & hiệu năng” cộng đúng.
+ */
+const MOCK_AUDIO_BASE64 =
+  'UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YQAAAAA='  // WAV im lặng, đủ để trình phát chạy
+
+const UNWIRED = new Set(['google_cloud', 'azure', 'viettel', 'vbee', 'fpt'])
+
+export const ttsSpeakHandlers = [
+  route('ttsQuota', () => {
+    const used = getProviderRows().length ? 0 : 0  // mock không giới hạn; số liệu thật nằm ở backend
+    return { body: { daily_budget: 300_000, chars_today: used, remaining: 300_000 } }
+  }),
+
+  route('ttsSpeak', async ({ json }) => {
+    const body = await json<{ text?: string; provider?: string; voice?: string; summary_only?: boolean }>()
+    const text = (body?.text ?? '').trim()
+    if (!text) throw new MockError(422, 'INPUT_VALIDATION_ERROR', 'Không có nội dung để đọc.')
+
+    const catalog = effectiveCatalog()
+    const wanted = (body?.provider ?? 'browser').trim().toLowerCase()
+    const entry = catalog.find((c) => c.provider === wanted)
+    if (!entry) throw new MockError(422, 'INPUT_VALIDATION_ERROR', `Nhà cung cấp TTS '${wanted}' không có trong danh mục.`)
+    if (entry.mode === 'browser') {
+      throw new MockError(
+        409,
+        'BROWSER_PROVIDER',
+        'Nhà cung cấp đang chọn là giọng trình duyệt — giao diện đọc trực tiếp tại máy, không gửi qua backend.',
+      )
+    }
+    // Khoá lấy từ DB trước, rồi tới ENV; mock không cấu hình ENV nào ⇒ nhà cung cấp dựng sẵn chưa nhập khoá
+    // thì phải nói thật là thiếu khoá (đúng như backend thật).
+    const hasKey = (entry.key_source ?? 'none') !== 'none'
+    if (!hasKey) {
+      throw new MockError(
+        503,
+        'MISSING_KEY',
+        `Chưa có khoá cho ${entry.label}. Nhập khoá trong Quản trị CP → Giọng đọc → Nhà cung cấp TTS.`,
+      )
+    }
+    if (!entry.custom && UNWIRED.has(entry.provider)) {
+      throw new MockError(
+        501,
+        'ADAPTER_NOT_WIRED',
+        `Chưa nối adapter tổng hợp audio cho ${entry.label} (${entry.provider}). Hiện chạy được: OpenAI và máy chủ/gateway theo giao thức OpenAI-compatible.`,
+      )
+    }
+
+    // Cắt theo hạn mức ký tự như backend (mock lấy mặc định 600) — đủ để UI thấy số ký tự thật.
+    const spoken = body?.summary_only ? text.slice(0, 240) : text.slice(0, 600)
+    const chars = spoken.length
+    const cost = Math.round((chars / 1_000_000) * entry.price_per_1m_chars * 1e6) / 1e6
+    const latency = 320 + (chars % 30) * 4
+    recordMockTtsCall(entry.provider, body?.voice ?? entry.voices[0]?.code ?? '', chars, cost, latency)
+    return {
+      body: {
+        provider: entry.provider,
+        voice: body?.voice ?? entry.voices[0]?.code ?? '',
+        model: entry.default_model,
+        mime: 'audio/wav',
+        audio_base64: MOCK_AUDIO_BASE64,
+        chars,
+        cached: false,
+        cost,
+        currency: entry.currency,
+        latency_ms: latency,
+        quota: { daily_budget: 300_000, chars_today: chars, remaining: 300_000 - chars },
       },
     }
   }),

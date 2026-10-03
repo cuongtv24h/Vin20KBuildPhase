@@ -1491,6 +1491,50 @@ Người dùng nhắc lại đúng câu chốt ở đầu lượt ⇒ rà lại 
 - Đợt này **chỉ** quản lý nhà cung cấp & khoá: phần **tổng hợp audio qua backend** (`POST /api/v1/tts/speak`,
   cache, ghi chi phí) vẫn là việc kế tiếp của `tts_integration_plan.md` §7; hiện tiếng đọc do trình duyệt tổng hợp.
 
+### 16.5i Đợt 23 (2026-10-03) — Đọc thành tiếng **qua nhà cung cấp thật** (nối tiếp §7 của kế hoạch TTS)
+
+Tiếp mạch đợt 22 (đã có chỗ khai báo nhà cung cấp + khoá): lượt này nối **đường đọc thật** —
+
+```
+POST /api/v1/tts/speak   (staff)  → audio_base64, mime, chars, cached, cost, currency, latency_ms, quota
+GET  /api/v1/tts/quota   (staff)  → daily_budget, chars_today, remaining
+```
+
+| Việc | Cách làm |
+|---|---|
+| Gọi nhà cung cấp | `POST {base}/audio/speech` (giao thức OpenAI-compatible) — dùng cho OpenAI, gateway nội bộ và máy chủ tự dựng kiểu OpenAI (ví dụ VieNeu-TTS). Chưa nối adapter cho Google/Azure/Viettel/Vbee/FPT ⇒ trả **501** kèm việc cần làm, **không** giả vờ đọc được |
+| Giọng trình duyệt | Không đi qua backend (409 + giải thích) — vẫn là đường **0 đồng** mặc định |
+| Che PII | SĐT (`0912345678` → `091***78`) và email (`***@***`) bị che **trước khi** văn bản rời hệ thống (việc còn thiếu của kế hoạch §6) |
+| Cắt chữ | Theo `max_chars_per_turn`; chế độ rảnh tay (`summary_only`) chỉ đọc **240 ký tự đầu** — vừa đỡ tốn tiền vừa không bắt khách chờ |
+| Cache | `data/tts_cache/<sha256(text\|provider\|voice\|model\|speed)>`, TTL 7 ngày, trần 200 MB, tự dọn file cũ nhất. `cached: true` ⇒ **không tốn thêm tiền** |
+| Đo chi phí | Ghi `llm_usage.jsonl` với `kind="tts"` + `chars` + `cost` (ký tự × đơn giá/1M **ký tự**, không nhồi vào token). Tab “Chi phí & hiệu năng” hiện thêm dòng “trong đó đọc thành tiếng: …” |
+| Hạn mức | `TTS_DAILY_CHAR_BUDGET` (mặc định **300.000 ký tự/ngày**); vượt ⇒ **402 và KHÔNG gọi nhà cung cấp** (test chứng minh không phát sinh request) |
+| Lỗi nhà cung cấp | 502/503 với câu đọc được; giao diện **tự lùi về giọng trình duyệt** + nói lý do — Sale không bị “bấm mà không có gì xảy ra” |
+| Giao diện | Workspace Sale gọi `api.tts.speak`, phát audio bằng thẻ `<audio>` (bấm lần hai là dừng); mock server phản chiếu hành vi để có test hợp đồng |
+
+**Vì sao 300.000 ký tự/ngày:** khoảng 9.000 ký tự/ngày/nhân viên với ~30 người — thoải mái cho dùng thật,
+nhưng chặn được ca một phiên bị lặp đọc câu trả lời dài hàng nghìn lần (rủi ro tiền thật, khác với LLM vốn
+đã có ngân sách riêng).
+
+#### Kiểm chứng
+
+- `pytest -q` → **749 passed** (+11 ca `tests/test_api/test_tts_speak.py`), `ruff` sạch.
+  Các ca đáng chú ý: che PII + cắt chữ **trước khi** gửi (đọc lại thân request mà server giả nhận được);
+  cache không gọi nhà cung cấp lần hai; ghi `kind="tts"`/`chars`/`cost` rồi tab chi phí cộng đúng;
+  vượt hạn mức ⇒ 402 và **không** có request nào ra ngoài; nhà cung cấp tự thêm (OpenAI-compatible) đọc được.
+- Frontend: `npm test` **85 ca** (mock-server 48 · api-client 14 · ui 17 · internal 6), `tsc -b apps/internal`
+  0 lỗi, build OK, oxlint không phát sinh cảnh báo mới.
+- Không đụng đường trả lời Copilot ⇒ golden/bank không phải chạy lại.
+
+#### Còn lại (nói thẳng)
+
+- Adapter cho Google/Azure/Viettel/Vbee/FPT **chưa làm** (hiện báo 501 rõ ràng, tự lùi về giọng máy).
+- Chưa gọi được nhà cung cấp thật từ sandbox (không có khoá) — mới kiểm bằng server giả; cần bấm tay trên VM
+  với một khoá thật để xác nhận chất lượng giọng.
+- Cache và hạn mức đang ở **một máy**: nhiều instance backend sẽ không dùng chung cache/hạn mức
+  (hạn mức đọc từ file `llm_usage.jsonl` — khi log lớn nên chuyển sang DB; hiện quét tối đa 20.000 dòng).
+- Chưa có ngân sách theo **tháng** và chưa có cảnh báo khi chi phí TTS tăng bất thường.
+
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
 - `pytest -q` → **633 passed** (572 → 633; thêm 5 file test: `test_copilot_anchors.py` 12 ca,
@@ -1524,10 +1568,13 @@ giá trị tư vấn cao hơn một câu khẳng định chung.
 
 ### 16.8 Còn lại (nói thẳng)
 
-0. **Đợt 22 (chưa xong)**: màn hình quản trị nhà cung cấp TTS mới chỉ xác nhận ở mức mã nguồn + typecheck +
-   test hợp đồng (mock) — chưa bấm trên trình duyệt (sandbox không có Chromium) và chưa chạy trên VM; phần
-   **tổng hợp audio qua nhà cung cấp** vẫn là việc kế tiếp (`tts_integration_plan.md` §7). Chi tiết: §16.5h.
-0b. **Đợt 20 (chưa xong)**: chưa kiểm giao diện bằng trình duyệt (sandbox không có Chromium) và chưa deploy
+0. **Đợt 23 (chưa xong)**: đường đọc qua nhà cung cấp đã nối (`POST /tts/speak`) nhưng mới kiểm bằng server
+   giả — chưa gọi nhà cung cấp thật (sandbox không có khoá) và chưa bấm trên trình duyệt/VM; adapter cho
+   Google/Azure/Viettel/Vbee/FPT chưa làm (báo 501 rõ ràng). Chi tiết + việc còn lại: §16.5i.
+0b. **Đợt 22 (chưa xong)**: màn hình quản trị nhà cung cấp TTS mới chỉ xác nhận ở mức mã nguồn + typecheck +
+   test hợp đồng (mock) — chưa bấm trên trình duyệt (sandbox không có Chromium) và chưa chạy trên VM.
+   Chi tiết: §16.5h.
+0c. **Đợt 20 (chưa xong)**: chưa kiểm giao diện bằng trình duyệt (sandbox không có Chromium) và chưa deploy
    lên VM; câu trả lời ở chế độ **LLM thật** chưa chạy được ở đây (không có API key) — phần hình thức đã có
    lớp tất định chạy sau nên không phụ thuộc model.
 1. **Phần văn phong do LLM viết chưa đo được trong sandbox** (không có API key/egress): luật prompt P0.5/P1.7/K2

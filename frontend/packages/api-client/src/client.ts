@@ -62,6 +62,9 @@ import type {
   TtsProviderTestResult,
   TtsSettingsPayload,
   TtsSettingsResponse,
+  TtsQuota,
+  TtsSpeakRequest,
+  TtsSpeakResponse,
   UnitSnapshot,
   UpdateUserPayload,
 } from './contracts'
@@ -276,6 +279,14 @@ export const api = {
     /** Ai cũng gửi được (kèm danh tính trong token) — dữ liệu để chọn giọng theo thực tế. */
     feedback: (body: TtsFeedbackPayload, o: CommandOptions = {}) =>
       call<TtsFeedbackResponse>('ttsFeedback', {}, { json: body, ...o }),
+    /**
+     * Đọc qua **nhà cung cấp TTS** (backend gọi nhà cung cấp thật, trả audio base64 + chi phí).
+     * Nhà cung cấp trình duyệt không đi đường này — giao diện tự đọc bằng Web Speech.
+     */
+    speak: (body: TtsSpeakRequest, o: CommandOptions = {}) =>
+      call<TtsSpeakResponse>('ttsSpeak', {}, { json: body, timeoutMs: 60_000, ...o }),
+    /** Hạn mức ký tự đọc thành tiếng còn lại trong ngày. */
+    quota: (signal?: AbortSignal) => call<TtsQuota>('ttsQuota', {}, { signal }),
   },
 
   /** Quản trị nhà cung cấp TTS (ADMIN) — nhập khoá, test kết nối, thêm nhà cung cấp mới. */

@@ -98,6 +98,10 @@ export interface LlmUsageByDay {
 }
 
 export interface LlmUsageSummary {
+  /** Số liệu riêng cho lượt đọc thành tiếng (TTS). */
+  tts_calls?: number
+  tts_chars?: number
+  tts_cost?: number
   window_days: number
   total_calls: number
   failed_calls: number
@@ -116,8 +120,12 @@ export interface LlmUsageSummary {
 
 export interface LlmUsageRecord {
   at: string
+  /** 'llm' (mặc định) hoặc 'tts' cho lượt đọc thành tiếng — chi phí TTS tính theo ký tự. */
+  kind?: 'llm' | 'tts'
   provider: string
   model_name: string
+  /** Chỉ có ở lượt TTS: số ký tự đã gửi đi đọc. */
+  chars?: number
   input_tokens: number
   output_tokens: number
   latency_ms: number

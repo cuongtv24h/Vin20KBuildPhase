@@ -748,9 +748,11 @@ export function TtsProvidersFootnote() {
         từng nhân viên nằm trong workspace ở nút “Giọng đọc”.
       </p>
       <p className="text-[11px] text-muted-foreground">
-        Mức độ hoàn thiện: màn hình này quản lý <strong>nhà cung cấp &amp; khoá</strong>. Tiếng đọc hiện vẫn do
-        trình duyệt tổng hợp (0 đồng); đường gọi nhà cung cấp trả phí qua backend (đã chốt trong tài liệu §7) là
-        bước kế tiếp — khi nối xong, các nhà cung cấp có khoá ở trên sẽ được dùng để đọc.
+        Mức độ hoàn thiện: nhà cung cấp <strong>OpenAI và mọi máy chủ/gateway theo giao thức
+        OpenAI-compatible</strong> (kể cả máy chủ tự dựng khai ở trên) đã <strong>đọc được qua backend</strong> —
+        văn bản được che PII, cắt theo hạn mức ký tự, lưu cache và ghi chi phí vào tab “Chi phí &amp; hiệu năng”.
+        Các nhà cung cấp khác (Google/Azure/Viettel/Vbee/FPT) cần adapter riêng: chọn nhà cung cấp đó sẽ báo
+        “chưa nối adapter” và tự lùi về giọng trình duyệt (0 đồng) thay vì im lặng.
       </p>
     </div>
   )

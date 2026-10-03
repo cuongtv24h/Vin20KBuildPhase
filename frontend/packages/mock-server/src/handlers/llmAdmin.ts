@@ -109,10 +109,14 @@ function summary(days: number): LlmUsageSummary {
     slot.tokens += r.input_tokens + r.output_tokens
     byDayMap.set(day, slot)
   }
+  const ttsRecords = records.filter((r) => (r as { kind?: string }).kind === 'tts')
   return {
     window_days: days,
     total_calls: records.length,
     failed_calls: records.filter((r) => !r.ok).length,
+    tts_calls: ttsRecords.length,
+    tts_chars: ttsRecords.reduce((sum, r) => sum + Number((r as { chars?: number }).chars ?? 0), 0),
+    tts_cost: Math.round(ttsRecords.reduce((sum, r) => sum + r.cost, 0) * 1e6) / 1e6,
     error_rate: records.length ? Math.round((records.filter((r) => !r.ok).length / records.length) * 1e4) / 1e4 : 0,
     total_input_tokens: totalIn,
     total_output_tokens: totalOut,
@@ -158,6 +162,33 @@ const ENV_PROVIDERS = [
     source: 'env',
   },
 ]
+
+/**
+ * Ghi một lượt **đọc thành tiếng** (mock dùng khi Sale đọc câu trả lời qua nhà cung cấp) — chi phí quy
+ * theo ký tự, đúng cách backend thật ghi (`kind: 'tts'`, `chars`), để tab “Chi phí & hiệu năng” cộng đúng.
+ */
+export function recordMockTtsCall(provider: string, voice: string, chars: number, cost: number, latencyMs: number) {
+  usage = [
+    ...usage,
+    {
+      at: new Date().toISOString(),
+      provider,
+      model_name: voice,
+      input_tokens: 0,
+      output_tokens: 0,
+      latency_ms: Math.round(latencyMs * 100) / 100,
+      ok: true,
+      error: null,
+      is_fallback: false,
+      currency: 'USD',
+      cost,
+      chars,
+      kind: 'tts',
+      conversation_id: null,
+      user_id: null,
+    },
+  ].slice(-500)
+}
 
 export const llmAdminHandlers = [
   route('llmProviders', () => ({

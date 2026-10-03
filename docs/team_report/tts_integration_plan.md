@@ -111,6 +111,15 @@ hướng dẫn triển khai lại là `cp .env.example .env`, và hàm kiểm tr
 3. `llm_providers._env_configs` **bỏ qua** khoá mẫu và ghi cảnh báo — tránh cảnh mang khoá giả đi gọi
    nhà cung cấp rồi trả về lỗi 401 khó hiểu.
 
+**Đã nối đường đọc thật (đợt 23):** `POST /api/v1/tts/speak` + `GET /api/v1/tts/quota` — backend gọi nhà
+cung cấp, trả audio base64 kèm số ký tự/chi phí; văn bản được **che PII** (SĐT/email khách) và **cắt theo
+`max_chars_per_turn`** trước khi rời hệ thống; **cache trên đĩa** theo nội dung (đọc lại không tốn thêm tiền);
+chi phí ghi vào `llm_usage.jsonl` với `kind = "tts"` và hiện trong tab “Chi phí & hiệu năng”; **hạn mức ký tự
+mỗi ngày** (`TTS_DAILY_CHAR_BUDGET`, mặc định 300.000) chặn trước khi gọi nhà cung cấp. Giao diện tự **lùi về
+giọng trình duyệt** khi nhà cung cấp lỗi/thiếu khoá/chưa nối adapter — Sale không bao giờ bị “bấm mà không có
+gì xảy ra”. Hiện nối **giao thức OpenAI-compatible** (`POST {base}/audio/speech`): OpenAI, gateway nội bộ và
+máy chủ tự dựng kiểu OpenAI; Google/Azure/Viettel/Vbee/FPT trả **501 “chưa nối adapter”** kèm việc cần làm.
+
 **Đã triển khai ở đợt 22** (người dùng chốt *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2
 nhà cung cấp sẵn”*): đúng đề xuất trên — bảng `tts_providers` + `GET/POST /admin/tts/providers`,
 `PUT/DELETE /admin/tts/providers/{id}`, `POST /admin/tts/providers/{id}/test` (chỉ ADMIN), khoá mã hoá Fernet
@@ -204,7 +213,7 @@ hoặc tin nhắn Sale soạn, phải chạy qua guardrail như phần chat (đ�
 
 ---
 
-## 7. Hợp đồng API đề xuất cho bước kế tiếp
+## 7. Hợp đồng API cho bước kế tiếp — **đã nối (đợt 23)**
 
 ```http
 POST /api/v1/tts/speak          (staff; Idempotency-Key bắt buộc như các POST khác)
@@ -222,12 +231,18 @@ POST /api/v1/tts/speak          (staff; Idempotency-Key bắt buộc như các P
 → 402/403 khi vượt hạn mức hoặc thiếu quyền; 503 khi nhà cung cấp lỗi (UI tự lùi về giọng trình duyệt)
 ```
 
-Kèm theo:
+Kèm theo — **trạng thái thực tế sau đợt 23**:
 
-- Ghi mỗi lượt vào `llm_usage.jsonl` với `kind: "tts"` để tab **Chi phí & hiệu năng** cộng đúng (hiện log
-  đang dành cho LLM: token vào/ra; cần thêm nhánh ký tự cho TTS thay vì nhồi vào token).
-- Cache `data/tts_cache/<sha256(text|provider|voice|speed)>.<ext>` (kèm TTL/trần dung lượng) — dọn định kỳ.
-- `GET /api/v1/tts/quota` trả hạn mức còn lại trong ngày cho người gọi.
+- ✅ Ghi mỗi lượt vào `llm_usage.jsonl` với `kind: "tts"` + `chars` + `cost` (không nhồi ký tự vào token);
+  tab **Chi phí & hiệu năng** hiện thêm dòng “trong đó đọc thành tiếng: N lượt · X ký tự · Y chi phí”.
+- ✅ Cache `data/tts_cache/<sha256(text|provider|voice|model|speed)>` (TTL `TTS_CACHE_TTL_DAYS` = 7 ngày,
+  trần `TTS_CACHE_MAX_MB` = 200 MB, tự dọn file cũ nhất); `cached: true` nghĩa là **không tốn thêm tiền**.
+- ✅ `GET /api/v1/tts/quota` trả `{daily_budget, chars_today, remaining}`; vượt hạn mức ⇒ **402** và
+  **không gọi nhà cung cấp** (đã có test chứng minh không phát sinh request).
+- ➕ Thêm ngoài hợp đồng: **che PII trước khi gửi** (SĐT/email khách) và `summary_only` (chế độ rảnh tay chỉ
+  đọc 240 ký tự đầu) — hai việc trước đây nằm trong danh sách “chưa làm” của kế hoạch.
+- ⏳ Chưa làm: adapter cho Google/Azure/Viettel/Vbee/FPT (hiện trả 501 đọc được), ngân sách theo tháng và
+  cache xuyên máy chủ (nhiều instance backend dùng chung cache).
 
 ---
 

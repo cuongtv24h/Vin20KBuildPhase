@@ -218,3 +218,47 @@ describe('Admin quản trị nhà cung cấp TTS', () => {
     await expect(api.ttsAdmin.testProvider('browser')).rejects.toMatchObject({ status: 403 })
   })
 })
+
+
+describe('Đọc thành tiếng qua nhà cung cấp (backend gọi nhà cung cấp thật)', () => {
+  it('giọng trình duyệt không đi qua backend; thiếu khoá thì nói thật; chưa nối adapter thì nói thẳng', async () => {
+    await loginAsAdmin()
+    // Nhà cung cấp trình duyệt: giao diện tự đọc tại máy, gửi lên backend là sai đường.
+    await expect(
+      api.tts.speak({ text: 'Xin chào', provider: 'browser' }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    // Nhà cung cấp dựng sẵn chưa nhập khoá ⇒ phải chỉ chỗ nhập, không hứa hão.
+    await expect(api.tts.speak({ text: 'Xin chào', provider: 'viettel' })).rejects.toMatchObject({ status: 503 })
+
+    // Đã nhập khoá nhưng chưa nối adapter ⇒ 501 kèm việc cần làm.
+    await api.ttsAdmin.createProvider({
+      ...CUSTOM,
+      provider: 'viettel',
+      label: 'Viettel AI TTS (đã nhập khoá)',
+      price_per_1m_chars: 320_000,
+      api_key: 'viettel-token-1234',
+    })
+    await expect(api.tts.speak({ text: 'Xin chào', provider: 'viettel' })).rejects.toMatchObject({ status: 501 })
+  })
+
+  it('nhà cung cấp tự thêm (OpenAI-compatible) đọc được: trả audio, số ký tự, chi phí và ghi vào nhật ký', async () => {
+    await loginAsAdmin()
+    await api.ttsAdmin.createProvider(CUSTOM) // vieneu — tự thêm, có Base URL ⇒ coi là OpenAI-compatible
+    const res = await api.tts.speak({ text: 'Dạ, căn ZEN-A-1205 còn hàng.', provider: 'vieneu', voice: 'vi-female-01' })
+    expect(res.provider).toBe('vieneu')
+    expect(res.mime).toBe('audio/wav')
+    expect(res.audio_base64.length).toBeGreaterThan(0)
+    expect(res.chars).toBeGreaterThan(0)
+    expect(res.quota.daily_budget).toBeGreaterThan(0)
+
+    // Chi phí đi vào tab “Chi phí & hiệu năng” đúng loại TTS (không nhồi vào token).
+    const summary = await api.llmAdmin.usageSummary(14)
+    expect(summary.tts_calls).toBe(1)
+    expect(summary.tts_chars).toBe(res.chars)
+
+    // Chế độ rảnh tay chỉ đọc phần đầu.
+    const long = await api.tts.speak({ text: 'Câu dài. '.repeat(80), provider: 'vieneu', summary_only: true })
+    expect(long.chars).toBeLessThanOrEqual(240)
+  })
+})

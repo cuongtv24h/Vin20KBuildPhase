@@ -54,6 +54,7 @@ import {
   useAppendCopilotTurnSync,
   useDeleteCopilotConversation,
   useTtsSettings,
+  useTtsSpeak,
   useUpdateTtsSettings,
   useTtsVoiceFeedback,
 } from '@pricepolicy/api-client/hooks'
@@ -1108,14 +1109,25 @@ export function SalesWorkspacePage() {
   const ttsSettings = useTtsSettings()
   const updateTtsSettings = useUpdateTtsSettings()
   const sendVoiceFeedback = useTtsVoiceFeedback()
+  const speakViaProvider = useTtsSpeak()
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [voicePickerOpen, setVoicePickerOpen] = useState(false)
   const [localVoices, setLocalVoices] = useState<Array<{ code: string; label: string }>>([])
   const tts = ttsSettings.data
   const ttsEffective = tts?.effective
   const ttsProvider = tts?.catalog.find((c) => c.provider === ttsEffective?.provider)
-  /** Nhà cung cấp trả phí nhưng chưa nối endpoint tổng hợp audio → vẫn đọc bằng giọng máy. */
+  /** Nhà cung cấp trình duyệt (hoặc chưa có thiết lập) ⇒ đọc tại máy, 0 đồng. */
   const usesBrowserVoice = !ttsProvider || ttsProvider.mode === 'browser'
+  /** Thẻ <audio> đang phát bản tổng hợp từ backend — giữ để bấm lần hai là dừng được. */
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const stopAllVoices = () => {
+    stopSpeaking()
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current = null
+    }
+  }
 
   useEffect(() => {
     if (!isSpeechSupported()) return
@@ -1125,14 +1137,67 @@ export function SalesWorkspacePage() {
     })
     return () => {
       alive = false
-      stopSpeaking()
+      stopAllVoices()
     }
   }, [])
+
+  /** Đọc bằng giọng máy (Web Speech API) — đường miễn phí, luôn sẵn sàng. */
+  const speakWithBrowserVoice = (id: string, text: string, summaryOnly: boolean) => {
+    if (!ttsEffective) return false
+    const result = speakText(text, {
+      voice: ttsEffective.voice,
+      speed: ttsEffective.speed,
+      maxChars: summaryOnly ? 240 : ttsEffective.max_chars_per_turn,
+      onEnd: () => setSpeakingId((cur) => (cur === id ? null : cur)),
+      onError: (reason) => {
+        setSpeakingId(null)
+        showToast(reason)
+      },
+    })
+    if (!result.ok) return false
+    setSpeakingId(id)
+    if (result.reason) showToast(result.reason)
+    return true
+  }
+
+  /**
+   * Đọc qua nhà cung cấp TTS (backend gọi nhà cung cấp thật rồi trả audio).
+   *
+   * Lỗi thì **tự lùi về giọng máy** kèm lý do đọc được (đúng hành vi đã chốt trong kế hoạch §7) — Sale
+   * không bao giờ bị “bấm mà không có gì xảy ra”.
+   */
+  const speakWithProvider = async (id: string, text: string, summaryOnly: boolean) => {
+    setSpeakingId(id)
+    try {
+      const res = await speakViaProvider.mutateAsync({
+        text,
+        voice: ttsEffective?.voice,
+        provider: ttsEffective?.provider,
+        conversation_id: conversationId,
+        summary_only: summaryOnly,
+      })
+      const audio = new Audio(`data:${res.mime};base64,${res.audio_base64}`)
+      audioRef.current = audio
+      audio.onended = () => setSpeakingId((cur) => (cur === id ? null : cur))
+      audio.onerror = () => {
+        setSpeakingId(null)
+        showToast('Không phát được audio vừa tổng hợp — thử lại hoặc đổi nhà cung cấp.')
+      }
+      await audio.play()
+      if (res.cached) showToast('Đọc lại từ bản đã lưu — không phát sinh thêm chi phí.')
+      return true
+    } catch (err) {
+      setSpeakingId(null)
+      const reason = err instanceof Error ? err.message : 'Không gọi được nhà cung cấp TTS.'
+      showToast(`${ttsProvider?.label ?? 'Nhà cung cấp TTS'}: ${reason} Đang đọc bằng giọng máy.`)
+      return speakWithBrowserVoice(id, text, summaryOnly)
+    }
+  }
 
   /** Đọc một câu trả lời; bấm lần hai (hoặc câu khác) thì dừng/đổi câu. */
   const handleSpeak = (id: string, text: string) => {
     if (speakingId === id) {
-      stopSpeaking()
+      stopAllVoices()
       setSpeakingId(null)
       return
     }
@@ -1140,40 +1205,21 @@ export function SalesWorkspacePage() {
       showToast('Tính năng đọc thành tiếng đang tắt — bật trong “Giọng đọc”.')
       return
     }
-    const result = speakText(text, {
-      voice: ttsEffective.voice,
-      speed: ttsEffective.speed,
-      maxChars: ttsEffective.max_chars_per_turn,
-      onEnd: () => setSpeakingId((cur) => (cur === id ? null : cur)),
-      onError: (reason) => {
-        setSpeakingId(null)
-        showToast(reason)
-      },
-    })
-    if (result.ok) {
-      setSpeakingId(id)
-      if (result.reason) showToast(result.reason)
-      if (usesBrowserVoice && ttsProvider && ttsProvider.mode === 'api') {
-        showToast(`Chưa nối endpoint tổng hợp audio của ${ttsProvider.label} — đang đọc bằng giọng máy.`)
-      }
-    } else {
-      setSpeakingId(null)
+    stopAllVoices()
+    if (usesBrowserVoice) {
+      speakWithBrowserVoice(id, text, false)
+      return
     }
+    void speakWithProvider(id, text, false)
   }
 
-  /** Tự đọc mỗi câu trả lời mới khi Sale bật chế độ rảnh tay. */
+  /** Tự đọc mỗi câu trả lời mới khi Sale bật chế độ rảnh tay (chỉ đọc phần đầu cho đỡ tốn tiền). */
   useEffect(() => {
     if (!ttsEffective?.auto_speak || !ttsEffective.enabled) return
     const last = [...messages].reverse().find((m) => m.type === 'agent' && (m.text || '').trim())
     if (!last || last.id === speakingId) return
-    const result = speakText(last.text || '', {
-      voice: ttsEffective.voice,
-      speed: ttsEffective.speed,
-      maxChars: ttsEffective.max_chars_per_turn,
-      onEnd: () => setSpeakingId((cur) => (cur === last.id ? null : cur)),
-      onError: () => setSpeakingId(null),
-    })
-    if (result.ok) setSpeakingId(last.id)
+    if (usesBrowserVoice) speakWithBrowserVoice(last.id, last.text || '', true)
+    else void speakWithProvider(last.id, last.text || '', true)
     // Cố ý chỉ phụ thuộc vào câu trả lời cuối + thiết lập: không đọc lại khi gõ phím.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, ttsEffective?.auto_speak, ttsEffective?.enabled, ttsEffective?.voice, ttsEffective?.speed])
