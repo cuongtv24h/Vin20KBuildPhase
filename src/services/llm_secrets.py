@@ -25,6 +25,42 @@ logger = logging.getLogger(__name__)
 _DEV_SECRET = "vlandfuture-dev-secret-change-me"
 _PREFIX = "enc::"
 
+#: Dấu hiệu một giá trị chỉ là **chỗ giữ chỗ** (dán từ `.env.example`/tài liệu), không phải khoá thật.
+#: Vì sao phải nhận diện: `.env.example` có sẵn dòng mẫu, người triển khai `cp .env.example .env` là ENV
+#: có ngay một giá trị "trông như khoá". Nếu chỉ kiểm tra "khác rỗng" thì giao diện báo **Đã có khoá**
+#: trong khi chưa ai cung cấp khoá nào — đúng thắc mắc người dùng nêu ở đợt 21 ("tôi đã cung cấp đâu?").
+_PLACEHOLDER_MARKERS = (
+    "your-",
+    "your_",
+    "yourkey",
+    "changeme",
+    "change-me",
+    "placeholder",
+    "dummy",
+    "example",
+    "todo",
+    "xxxx",
+)
+
+
+def looks_like_placeholder_key(value: str | None) -> bool:
+    """Giá trị này có phải chỗ giữ chỗ (chưa dùng được) hay không.
+
+    Rỗng cũng tính là chỗ giữ chỗ — ngữ nghĩa dùng ở tầng gọi là "chưa có khoá dùng được".
+    """
+    text = str(value or "").strip()
+    if not text:
+        return True
+    if "<" in text or ">" in text:  # mẫu dạng `<your-api-key>`
+        return True
+    lowered = text.lower()
+    return any(marker in lowered for marker in _PLACEHOLDER_MARKERS)
+
+
+def is_usable_api_key(value: str | None) -> bool:
+    """`True` khi có khoá **thật** để gọi nhà cung cấp (khác rỗng và không phải chỗ giữ chỗ)."""
+    return not looks_like_placeholder_key(value)
+
 
 def _settings_secret() -> str:
     """Khoá lấy qua `Settings` — nhờ đó **giá trị trong `.env` cũng có tác dụng**.

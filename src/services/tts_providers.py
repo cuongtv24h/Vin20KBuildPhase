@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.config import Settings, get_settings
+from src.services.llm_secrets import is_usable_api_key
 
 #: Giọng đọc mặc định khi Admin chưa chọn gì — 0 đồng, chạy ngay trong trình duyệt.
 BROWSER_PROVIDER = "browser"
@@ -234,9 +235,11 @@ def is_provider_configured(cfg: TtsProviderConfig, *, settings: Settings | None 
     if not cfg.env_key:
         return True  # chế độ trình duyệt: không cần khoá
     resolved = settings or get_settings()
-    if _env_lookup(cfg.env_key):
-        return True
-    return bool(getattr(resolved, cfg.env_key.lower(), ""))
+    # "Khác rỗng" KHÔNG đủ: giá trị mẫu trong `.env.example` (ví dụ `sk-your-openai-or-groq-key`) từng bị
+    # tính là khoá thật ⇒ giao diện báo "Đã có" dù chưa ai cung cấp khoá (đợt 21).
+    return is_usable_api_key(_env_lookup(cfg.env_key)) or is_usable_api_key(
+        getattr(resolved, cfg.env_key.lower(), "")
+    )
 
 
 def _env_lookup(name: str) -> str:

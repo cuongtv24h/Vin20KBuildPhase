@@ -1343,6 +1343,46 @@ giá sau đó mang đúng tên khách.
 - **Chưa deploy lên VM** trong lượt này; muốn thấy trên `demoday.work.gd` cần chạy `git up` (hoặc
   `scripts/deploy.sh`) trên VM.
 
+### 16.5g Đợt 21 (2026-10-03) — “Khoá API của OpenAI ở đâu? Tôi đã cung cấp đâu?”
+
+**Người dùng hỏi** (kèm bảng “Nhà cung cấp TTS & đơn giá” chụp từ màn hình quản trị): khoá API của OpenAI
+nằm ở đâu, người dùng **chưa** cung cấp khoá nào, và hiện **không có chỗ** để khai báo các khoá này.
+
+#### Sự thật (tra trong mã, không đoán)
+
+| Câu hỏi | Trả lời |
+|---|---|
+| Badge “Đã có” lấy từ đâu? | `tts_catalog()[…]["api_key_configured"]` → `tts_providers.is_provider_configured()`; giao diện chỉ hiện `Đã có`/`Chưa có`, **không bao giờ** nhận được chính khoá |
+| Vì sao báo “Đã có” dù chưa ai cung cấp? | `.env.example` bán sẵn `OPENAI_API_KEY=sk-your-openai-or-groq-key`, hướng dẫn triển khai là `cp .env.example .env`, và hàm kiểm tra chỉ hỏi **“khác rỗng?”** ⇒ giá trị **mẫu** bị tính là khoá thật. Đã tái hiện trong sandbox: đặt đúng giá trị đó vào ENV thì `api_key_configured = True` |
+| Chỗ nhập khoá hiện có | **Chỉ cho LLM**: màn hình quản trị → tab “Nhà cung cấp LLM” (`POST/PUT /admin/llm/providers`, khoá mã hoá Fernet qua `llm_secrets`, che khi hiển thị, có “Test kết nối”, ưu tiên DB → ENV) |
+| Chỗ nhập khoá TTS | **Chưa có.** TTS chỉ đọc ENV (`OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_SPEECH_KEY`, `VIETTEL_TTS_TOKEN`, `VBEE_TOKEN`, `FPT_TTS_API_KEY`); API `PUT /settings/tts` chỉ đổi **nhà cung cấp + giọng**, không có trường khoá |
+| Hệ quả phụ | Khoá OpenAI nhập trong CP (DB) **không** làm badge của tab TTS chuyển sang “Đã có”, vì `is_provider_configured` chỉ nhìn ENV/Settings — chưa nối vào kho DB của LLM |
+
+#### Đã sửa trong lượt này (cùng một luật: khoá **mẫu** không phải khoá)
+
+1. `.env.example`: `OPENAI_API_KEY=` để **trống** (kèm ghi chú), nên `cp .env.example .env` không sinh khoá giả.
+2. `llm_secrets.is_usable_api_key()` / `looks_like_placeholder_key()`: rỗng hoặc giá trị mẫu (`your-`, `changeme`,
+   `placeholder`, `dummy`, `example`, `todo`, `<…>`) ⇒ coi như **chưa có khoá**; dùng chung cho TTS và LLM.
+3. `tts_providers.is_provider_configured()`: chỉ trả `True` khi khoá **dùng được** ⇒ badge phản ánh đúng thực tế.
+4. `llm_providers._env_configs()`: **bỏ qua** khoá mẫu + ghi cảnh báo (trước đây dựng thành nhà cung cấp ENV và
+   mang khoá giả đi gọi ⇒ lỗi 401 khó hiểu).
+5. `docs/team_report/tts_integration_plan.md` §4.1b: bảng “khoá đọc từ đâu / đã có chỗ nhập chưa” cho từng
+   nhà cung cấp + việc còn thiếu.
+
+#### Chưa làm (chờ người dùng quyết)
+
+Đưa 6 nhà cung cấp TTS vào **cùng cơ chế khoá của LLM** (ô nhập khoá + “Test kết nối”, lưu DB mã hoá, DB → ENV,
+UI chỉ trả `api_key_configured`) — khi đó màn hình quản trị là **một chỗ duy nhất** khai báo khoá cho cả LLM
+và TTS, đồng thời nối khoá DB của LLM vào badge TTS để hết lệch trạng thái. Chưa triển khai vì người dùng
+đang hỏi để hiểu vấn đề (quy tắc đợt 13).
+
+#### Kiểm chứng
+
+- `pytest -q` → **709 passed** (686 → 709; +23 ca ở `tests/test_services/test_api_key_placeholders.py`).
+- `ruff check src/ tests/ scripts/` → sạch. `OPENAI_API_KEY=sk-your-openai-or-groq-key` ⇒ `openai`
+  `api_key_configured = False`, `browser = True`; khoá thật ⇒ `True`; `GET /api/v1/settings/tts` không trả
+  khoá và cũng không trả chuỗi giá trị.
+
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
 - `pytest -q` → **633 passed** (572 → 633; thêm 5 file test: `test_copilot_anchors.py` 12 ca,

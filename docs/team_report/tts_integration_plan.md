@@ -87,6 +87,34 @@ tối đa bao nhiêu ký tự” rồi phát audio; việc audio đến từ má
 | Kiểm soát | Giới hạn ký tự/lượt, chặn đọc nội dung ngoài phạm vi, ghi log ai đọc gì (kiểm toán), tránh lạm dụng. |
 | Che PII | Chỗ duy nhất nhìn thấy **toàn văn câu trả lời trước khi phát** là server — nơi tốt nhất để che số điện thoại/email. |
 
+### 4.1b Khoá API nằm ở đâu **hôm nay** (và chỗ nhập còn thiếu)
+
+Người dùng đã hỏi đúng một điểm dễ hiểu nhầm ở bảng “Nhà cung cấp TTS & đơn giá”: cột **Khoá API** hiện
+chữ **“Đã có”** cho OpenAI dù chưa ai cung cấp khoá. Sự thật như sau.
+
+| Nhà cung cấp | Khoá đọc từ đâu | Có chỗ nhập trên giao diện chưa? |
+| :--- | :--- | :--- |
+| Trình duyệt (Web Speech API) | Không cần khoá | — (không cần) |
+| OpenAI (`OPENAI_API_KEY`) | ENV / `.env`; **dùng chung với khoá LLM đang cấu hình** | LLM: **có** (màn hình quản trị → “Nhà cung cấp LLM”, khoá lưu DB đã mã hoá). TTS: chưa có ô nhập riêng — dùng chung khoá LLM |
+| Google Cloud (`GOOGLE_APPLICATION_CREDENTIALS`) | ENV (đường dẫn file service account) | **Chưa có** |
+| Azure (`AZURE_SPEECH_KEY`) | ENV | **Chưa có** |
+| Viettel / Vbee / FPT | ENV (`VIETTEL_TTS_TOKEN`, `VBEE_TOKEN`, `FPT_TTS_API_KEY`) | **Chưa có** |
+
+**Vì sao bảng báo “Đã có” oan:** `.env.example` bán sẵn dòng `OPENAI_API_KEY=sk-your-openai-or-groq-key`,
+hướng dẫn triển khai lại là `cp .env.example .env`, và hàm kiểm tra chỉ hỏi “giá trị có khác rỗng không”.
+⇒ giá trị **mẫu** bị tính là khoá thật. Đã sửa ở ba chỗ, cùng một luật:
+
+1. `.env.example` để **trống** `OPENAI_API_KEY=` (kèm ghi chú), nên `cp` xong cũng không sinh khoá giả;
+2. `llm_secrets.is_usable_api_key()` — khoá rỗng/giá trị mẫu (`your-`, `changeme`, `placeholder`, `dummy`,
+   `example`, `<your-key>`) bị coi là **chưa có**; dùng chung cho cả TTS và LLM;
+3. `llm_providers._env_configs` **bỏ qua** khoá mẫu và ghi cảnh báo — tránh cảnh mang khoá giả đi gọi
+   nhà cung cấp rồi trả về lỗi 401 khó hiểu.
+
+**Việc còn thiếu (đề xuất, chưa triển khai):** đưa 6 nhà cung cấp TTS vào cùng cơ chế khoá của LLM —
+một ô nhập khoá + nút “Test kết nối”, lưu DB đã mã hoá bằng Fernet (`llm_secrets`), thứ tự ưu tiên
+**DB → ENV**, giao diện chỉ trả `api_key_configured` (không bao giờ trả khoá). Khi đó màn hình quản trị
+là **một chỗ duy nhất** để khai báo khoá cho cả LLM lẫn TTS, và cột “Khoá API” phản ánh đúng thực tế.
+
 ### 4.2 Trình tự một lượt đọc
 
 ```
