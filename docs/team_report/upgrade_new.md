@@ -1245,13 +1245,100 @@ sửa kỳ vọng), B (sửa code cho trung thực + bóc tên dự án — đ�
 
 #### Nói thẳng phần chưa làm được
 
-- **DB vận hành không lưu `diện tích` và `hướng`** (bảng `units` chỉ có mã căn, dự án, loại căn, tầng, giá,
-  ngày bàn giao, trạng thái). Vì vậy hai cột này hiện in `—` cho căn đọc từ DB, và cột hướng in `—` cho mọi
-  căn. Muốn có số thật phải **thêm cột + nạp dữ liệu** (việc này cần quyền ghi DB, chưa làm ở đây).
+- ~~**DB vận hành không lưu `diện tích` và `hướng`**…~~ → **đã làm ở đợt 20** (xem §16.5f): thêm 2 cột
+  `area_m2`, `view` và sinh giá trị cho 40 căn hiện có bằng script migration chạy được nhiều lần.
 - **Chưa kiểm bằng trình duyệt** (sandbox không có Chromium): cột mở rộng ở PC rộng / ẩn ở màn hình nhỏ mới
   xác nhận ở mức mã + typecheck + build + unit test của lớp tiện ích.
 - Ảnh chụp của người dùng **không có trong sandbox** nên phần "bảng lệch" được xử lý theo nguyên nhân code
   (model tự viết lại bảng + UI không canh số cột), không phải theo ảnh.
+
+### 16.5f Đợt 20 (2026-10-03) — Hai cột DB `area_m2`/`view`, câu trả lời sẵn sàng gửi khách, và ba lỗi ngữ cảnh
+
+**Người dùng yêu cầu bốn việc** (đây là lần **đảo ngược có chủ ý** quyết định "chưa thêm cột DB" của đợt 19):
+
+1. **Chỉnh lý DB**: thêm 2 cột **diện tích** và **hướng/view** vào bảng `units`, **tự sinh giá trị phù hợp
+   cho 40 căn hiện có**. Người dùng chốt **tên cột là `View`** (bỏ cách gọi "Hướng / view").
+2. **Câu trả lời còn "khá tốt" nhưng chưa có format/canh lề/xuống dòng** — phải tách thành các **đoạn rõ
+   ràng, sẵn sàng gửi khách**.
+3. **Thẻ "Xác nhận tham số tạo báo giá"** sau khi bấm "Chọn PA vay 0%" vẫn ghi *"Chưa chọn căn — chọn trên
+   card báo giá"* dù lượt trước đã nói rõ mã căn; kiểm tra thêm **có bắt được ngữ cảnh khách hàng không**.
+4. **Thẻ khách hàng bóc tách sai**: tên ra *"Chu Thúy Quỳnh, số"*, **"Căn hộ quan tâm: ZEN-A-1101" bịa**,
+   và **mất nguyện vọng 3–5 tỷ**.
+
+#### 1. DB: `area_m2` + `view` (script migration chạy được nhiều lần)
+
+| Thành phần | Nội dung |
+|---|---|
+| Model | `UnitModel` += `area_m2: float \| None`, `view: str(128) \| None` — **đều NULL-able**, không phá dữ liệu cũ |
+| Migration | `scripts/migrate_units_area_view.py`: `ALTER TABLE … ADD COLUMN IF NOT EXISTS` + guard `information_schema` (DB cũ chưa có cột vẫn `--dry-run` được) + backfill **chỉ** các dòng `area_m2 IS NULL`/`view` rỗng; `--dry-run` / `--all` |
+| Nguồn giá trị | `src/contracts/units.py`: `suggest_area_m2(unit_type, floor, code)` (bảng `AREA_BY_UNIT_TYPE`: Studio 35 · 1BR 48,5 · 2BR 72 · 2BR+ 84,2 · 3BR 98,5 · 4BR 128 · Shophouse 135, lệch ±1m² **tất định** theo tầng + 3 số cuối mã căn) và `suggest_view` (mã `R-` → view sông · `G-` → công viên & hồ cảnh quan · `SH-/SHP-` → mặt tiền đại lộ · còn lại → view nội khu) |
+| Seed | `scripts/seed_canonical_inventory.py` ghi luôn 2 cột khi tạo/đối chiếu căn ⇒ DB mới không cần chạy migration |
+| Lớp đọc | `grounding._fetch_db_units` (SELECT + payload), `catalog._unit_model_to_dict` (giá trị thật; `0.0`/`""` chỉ khi NULL), header bảng rộng đổi thành `Tầng* · View*` |
+
+**Nói thẳng: đây là giá trị sinh tự động để hệ thống có đủ trường, KHÔNG phải số đo thực tế.** Công thức
+tất định nên mọi môi trường ra cùng con số; khi có dữ liệu chính thức chỉ cần `UPDATE` đè (hoặc sửa bảng
+`AREA_BY_UNIT_TYPE` rồi chạy `--all`).
+
+#### 2. Hình thức: mục in đậm + mỗi ý một dòng, và **giữ nguyên cấu trúc dòng**
+
+Phát hiện quan trọng hơn cả việc "thêm mục": `commands.strip_command_mentions()` — hàm dọn lệnh gạch chéo
+khỏi câu trả lời — **gom cả câu trả lời theo dấu câu rồi nối bằng khoảng trắng**. Vì hầu như câu nào cũng có
+"anh/chị" (có dấu `/`), hàm này chạy trên **mọi** câu trả lời và **xoá sạch xuống dòng**: kết quả engine 3
+phương án từ 6 dòng có gạch đầu dòng biến thành **một khối chữ**. Đây chính là "chưa có format/canh lề/xuống
+dòng" mà người dùng thấy.
+
+- `commands.strip_command_mentions` xử lý **theo từng dòng**, dòng không nhắc lệnh đi qua nguyên vẹn.
+- `reply_format.structure_sections()`: **mục in đậm** (`**KHUYẾN NGHỊ:**`, `**LƯU Ý:**`…) + **mỗi câu một dòng**,
+  nhãn phương án in đậm (`**PA-NHANH (Thanh toán nhanh):** …`) nằm cùng dòng với mô tả của nó.
+- Hàm chỉ tác động lên **đoạn văn xuôi** (`_apply_sections` theo từng run dòng): bảng, danh sách và kết quả
+  engine do máy dựng **không bị viết lại**; văn xuôi không có nhãn mục giữ nguyên (không biến mọi câu thành
+  gạch đầu dòng).
+- Lớp tool bớt chữ nội bộ: `Phương án thanh toán cho căn … (ưu tiên ít vốn ban đầu nhất):` thay cho
+  `objective MIN_INITIAL_CASH`; dòng "Sanity 6 kiểm tra kế toán" đổi thành câu nghiệp vụ.
+
+#### 3 + 4. Ba lỗi ngữ cảnh — cùng một nguyên nhân: **đoán hộ người dùng**
+
+| Lỗi | Nguyên nhân gốc | Cách sửa |
+|---|---|---|
+| Thẻ khách hiện `ZEN-A-1101`, note bịa "quan tâm căn …" | `intents.build_action_card` **gán cứng** `ZEN-A-1205` khi không tìm thấy mã căn, và `1_500_000_000` khi không có vốn | Bỏ mọi giá trị mặc định: chưa biết căn ⇒ để trống; chưa biết vốn ⇒ `null`. Thêm chốt ở `graph._finalize`: mã căn trên thẻ khách phải **có thật trong giỏ** *và* **xuất hiện trong ngữ cảnh** (câu Sale nói hoặc dữ liệu canonical), nếu không thì bị gỡ |
+| Mất nguyện vọng 3–5 tỷ | `extract_amount` chỉ lấy **mốc tiền đầu tiên** ⇒ câu có 2 loại số (vốn tự có 2 tỷ *và* khoảng 3–5 tỷ) chỉ nhớ 2 tỷ | `intents.match_amount_range` nhận `từ 3 tỷ đến 5 tỷ`, `3-5 tỷ`, `500 triệu - 1 tỷ` (mốc sau quyết định đơn vị); **khoét khoảng ra khỏi câu** rồi mới bóc số đơn ⇒ giữ **cả hai**; thẻ có `budget_min_vnd`/`budget_max_vnd` và `needs_summary` ghi đủ |
+| Tên ra "Chu Thúy Quỳnh, số" | Regex nhãn SĐT chỉ xử lý `sđt\|sdt\|phone\|điện thoại`, không xử lý chữ **"số"** đứng trước | Bổ sung `số (điện thoại/đt)?` vào cả `intents.extract_name` và `graph._sanitize_customer_name` |
+| Thẻ "Chưa chọn căn" | `startQuoteCreationFlow` chỉ đọc `hồ sơ khách`; `handleConfirmQuoteAction` đọc `copilotUnit` — **hai nguồn khác nhau**, và mã căn Sale gõ trong ô chat không được nạp vào ngữ cảnh phiên | Một hàm dùng chung `quoteContext.resolveQuoteUnitCode()` (căn của hành động → ngữ cảnh phiên → hồ sơ khách), bóc mã căn từ câu chat, **dự án suy ra từ chính căn** tra được (hồ sơ thiếu `project_id` không còn chặn báo giá) |
+| Bảng gợi ý kèm cả căn 6,1 tỷ | Bước tra giỏ lấy `gia_toi_da_vnd` từ `amount_vnd` (đã chuyển thành khoảng ⇒ 0 = không lọc) | `planner._budget_ceiling()`: ưu tiên **mốc cao của khoảng** (3–5 tỷ ⇒ 5 tỷ), rồi mới tới mốc tiền đơn |
+| Thẻ khách tự điền SĐT `0900000000`, khả năng trả `25 triệu/tháng`, mức độ `HOT` | FE `SmartCustomerCard` điền mặc định "cho đủ trường" | Bỏ hết; thiếu SĐT thì **báo lỗi ngay trên thẻ** thay vì lưu số giả |
+
+Ngữ cảnh **khách hàng** đã kiểm: `detectContextLeadId` nhận tên/SĐT/mã hồ sơ trong câu chat ⇒ chọn hồ sơ
+tương ứng; khách **vừa tạo** trở thành ngữ cảnh ngay (`setSelectedLeadId` + `setContextLeadId`), nên thẻ báo
+giá sau đó mang đúng tên khách.
+
+#### Kiểm chứng (chạy thật trong sandbox)
+
+- **Postgres tạm, schema `units` KIỂU CŨ** (8 cột, 40 dòng): `--dry-run` in bảng đối chiếu *"— → 36"* (không
+  crash), chạy thật → **"Đã cập nhật 40/40 căn"**, chạy lại → **"40 căn đều đã có đủ"**; DB đếm `(40, 40, 40)`;
+  `grounding.list_units()` 40/40 căn có area + view; bảng máy dựng in `| … | Tầng* | View* |` với
+  `SAP-D-4200 · 36m² · View nội khu · Tầng 42`.
+- `pytest -q` → **685 passed** (657 → 685): 15 ca cho thẻ khách/ngữ cảnh căn, 20 ca cho hình thức câu trả lời.
+- `ruff check src/ tests/ scripts/` → sạch.
+- Frontend: `npm test` → **76 ca** (thêm workspace `@pricepolicy/internal` với 6 ca ngữ cảnh báo giá),
+  `tsc -b apps/internal` 0 lỗi, build nội bộ OK.
+- Eval: câu vàng 34 → tool **100%** · citation **100%** · bịa **0.0%** · cổng nội dung/hình thức **ĐẠT**;
+  bộ kịch bản Sale → tool **100%** · citation **100%** · bịa **0.0%** (các lỗ hổng đã biết giữ nguyên:
+  `RONG-04`, `AT-03`, `AT-05`).
+- Sửa kèm trong bộ kịch bản: câu `PA-05` *"Phương án nào phải nộp đợt 1 ít nhất?"* nay chạy trong ngữ cảnh
+  **đang mở một căn** (`context.current_unit`) — đúng như lúc Sale tư vấn; nhờ vậy tài liệu hoá luôn luật
+  "không bịa mã căn khi ngữ cảnh trống" (tài liệu JSON kèm `docs/team_report/copilot_sale_scenarios.md`
+  đã sinh lại, `--check` khớp).
+
+#### Nói thẳng phần chưa làm được (đợt 20)
+
+- **Giá trị `area_m2`/`view` là số sinh tự động**, không phải số đo; cần người có dữ liệu thật đè lên.
+- **Chưa kiểm bằng trình duyệt** (sandbox không có Chromium): thẻ xác nhận báo giá, thẻ khách hàng, và các
+  mục in đậm trong câu trả lời mới xác nhận ở mức mã + typecheck + unit test + build.
+- **Câu trả lời do LLM viết** (chế độ `--mode llm`) chưa chạy được trong sandbox (không có API key); luật
+  định dạng mới đã đưa vào prompt và **luôn có lớp tất định `structure_sections` chạy sau** để hình thức
+  không phụ thuộc model.
+- **Chưa deploy lên VM** trong lượt này; muốn thấy trên `demoday.work.gd` cần chạy `git up` (hoặc
+  `scripts/deploy.sh`) trên VM.
 
 ### 16.6 Bằng chứng chạy thật (sandbox)
 
@@ -1273,6 +1360,9 @@ sửa kỳ vọng), B (sửa code cho trung thực + bóc tên dự án — đ�
 Giỏ đang mở bán có **4 căn**: ZEN-A-0803 (1PN, 2,5 tỷ) · ZEN-A-1205 (2PN, 4,2 tỷ) · SAP-01-2204 (2PN, 5,8 tỷ)
 · ZEN-B-1502 (3PN, 6,1 tỷ). Phân khúc 3PN: **1 căn**; lọc 3PN ≤ 2 tỷ: **0 căn**.
 
+*(Cập nhật đợt 20: bảng `units` đã có `area_m2` + `view`; giá trị đang là **số sinh tự động** theo loại căn
+và nhóm tháp — ví dụ ZEN-A-1205 72,5m² · SAP-01-2204 81m² · R-02.02 71,5m², view theo tiền tố mã căn.)*
+
 *(Cập nhật đợt 19: đây là số của **fixture canonical** — máy sandbox không có DB vận hành. Trên VM có DB
 thật, giỏ hàng lấy từ DB và fixture chỉ bù cho dự án DB chưa có; số căn vì vậy là số của DB, không phải 4.)*
 
@@ -1283,6 +1373,9 @@ giá trị tư vấn cao hơn một câu khẳng định chung.
 
 ### 16.8 Còn lại (nói thẳng)
 
+0. **Đợt 20 (chưa xong)**: chưa kiểm giao diện bằng trình duyệt (sandbox không có Chromium) và chưa deploy
+   lên VM; câu trả lời ở chế độ **LLM thật** chưa chạy được ở đây (không có API key) — phần hình thức đã có
+   lớp tất định chạy sau nên không phụ thuộc model.
 1. **Phần văn phong do LLM viết chưa đo được trong sandbox** (không có API key/egress): luật prompt P0.5/P1.7/K2
    mới chỉ kiểm được ở chế độ offline (ghép Observation). Cần một vòng chạy `--mode llm` hoặc bấm tay trên VM.
 2. **UI chưa kiểm bằng trình duyệt** (sandbox không có Chromium): mỏ neo bấm được, nút "Copy cho khách",

@@ -301,9 +301,58 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
     )
 
 
+#: Mã mục tiêu tối ưu (enum nội bộ) → cách nói nghiệp vụ trong câu trả lời.
+_OBJECTIVE_LABELS = {
+    "MIN_NET_PRICE": "giá Net thấp nhất",
+    "MIN_INITIAL_CASH": "ít vốn ban đầu nhất",
+    "MIN_MONTHLY_BURDEN": "giảm áp lực trả hàng tháng",
+    "MIN_TOTAL_CASH_OUTFLOW": "tổng chi đến khi nhận nhà thấp nhất",
+    "MAX_BENEFIT_VALUE": "ưu đãi cao nhất",
+    "EARLY_HANDOVER": "nhận nhà sớm nhất",
+}
+
+
 # ---------------------------------------------------------------------------
 # Tool 3 — Tính 3 phương án thanh toán (Deterministic Engine)
 # ---------------------------------------------------------------------------
+def _resolve_unit_by_criteria(
+    so_phong_ngu: int = 0,
+    gia_toi_da_vnd: int = 0,
+) -> tuple[dict[str, Any] | None, str]:
+    """Chọn căn để tính phương án khi Sale nói theo **tiêu chí** (số phòng ngủ / ngân sách).
+
+    Trả `(căn, câu giải thích)`:
+    1. Có căn khớp cả tiêu chí → lấy căn rẻ nhất (đúng ngân sách).
+    2. Không căn nào trong ngân sách nhưng có căn đúng số phòng ngủ → lấy căn **mềm nhất của phân khúc**,
+       ghi rõ giá cao hơn ngân sách (tư vấn hữu ích, KHÔNG bịa căn).
+    3. Không có tiêu chí nào → `(None, "")` để lớp gọi hỏi lại mã căn (không tự chọn hộ một căn bất kỳ).
+    """
+    if not so_phong_ngu and not gia_toi_da_vnd:
+        return None, ""
+    segment = grounding.search_units(bedrooms=so_phong_ngu or None)
+    affordable = [u for u in segment if int(u.get("listed_price_before_tax_vnd", 0)) <= gia_toi_da_vnd] if gia_toi_da_vnd else segment
+    if affordable:
+        unit = affordable[0]
+        note = f"căn {unit['unit_code']}"
+        if so_phong_ngu:
+            note += f" — căn {so_phong_ngu} ngủ"
+        note += " thấp nhất trong giỏ"
+        if gia_toi_da_vnd:
+            note += f" khớp ngân sách {grounding.format_vnd(gia_toi_da_vnd)}"
+        return unit, note
+    if segment:
+        unit = segment[0]
+        note = f"căn {unit['unit_code']} — căn mềm nhất của phân khúc"
+        if so_phong_ngu:
+            note += f" {so_phong_ngu} ngủ"
+        note += (
+            f", giá {grounding.format_vnd(unit.get('listed_price_before_tax_vnd'))} "
+            f"cao hơn ngân sách {grounding.format_vnd(gia_toi_da_vnd)}"
+        )
+        return unit, note
+    return None, ""
+
+
 @tool
 async def tinh_phuong_an_thanh_toan(
     ma_can: str,
@@ -311,29 +360,45 @@ async def tinh_phuong_an_thanh_toan(
     kha_nang_thang_vnd: int = 0,
     muc_tieu: str = "",
     ngay_giao_dich: str = "",
+    so_phong_ngu: int = 0,
+    gia_toi_da_vnd: int = 0,
 ) -> str:
     """Tính 3 phương án thanh toán tất định (PA-CHUDONG / PA-NHANH / PA-VAY) cho một căn.
 
     Dùng engine tài chính Decimal (FCS v2.6) — không để LLM tự tính tiền.
 
     Args:
-        ma_can: Mã căn hộ, ví dụ ZEN-A-1205.
+        ma_can: Mã căn hộ, ví dụ ZEN-A-1205. Để trống **chỉ khi** Sale nói theo tiêu chí
+            (số phòng ngủ / ngân sách) — khi đó tool tự chọn căn phù hợp từ giỏ thật và nói rõ đã chọn căn nào.
         von_tu_co_vnd: Vốn tự có của khách (VNĐ).
         kha_nang_thang_vnd: Khả năng chi trả hàng tháng (VNĐ).
         muc_tieu: Mục tiêu tối ưu (MIN_INITIAL_CASH, MIN_NET_PRICE, MIN_CONTRACT_PRICE,
             MIN_TOTAL_CASH_OUTFLOW, MAX_BENEFIT_VALUE).
         ngay_giao_dich: Ngày giao dịch YYYY-MM-DD (mặc định hôm nay).
+        so_phong_ngu: Số phòng ngủ Sale nêu (0 = không lọc).
+        gia_toi_da_vnd: Ngân sách Sale nêu (0 = không lọc).
     """
     from src.contracts.pricing import PricingInput
     from src.services.pricing.client import PricingClient
 
     unit = grounding.find_unit(ma_can)
+    resolved_note = ""
+    if not unit and not str(ma_can or "").strip():
+        unit, resolved_note = _resolve_unit_by_criteria(so_phong_ngu, gia_toi_da_vnd)
     if not unit:
+        missing = (
+            f"Không tìm thấy căn '{ma_can}' trong giỏ hàng nên chưa thể tính phương án."
+            if str(ma_can or "").strip()
+            else (
+                "Chưa xác định được căn để tính phương án — anh/chị cho em mã căn "
+                "(hoặc chọn căn trong ngữ cảnh trò chuyện) rồi em tính ngay ạ."
+            )
+        )
         return _dump(
             {
                 "tool": "tinh_phuong_an_thanh_toan",
-                "error": f"Không tìm thấy căn '{ma_can}' trong giỏ hàng để tính.",
-                "summary": f"Không tìm thấy căn '{ma_can}' nên chưa thể tính phương án.",
+                "error": missing,
+                "summary": missing,
                 "citations": [],
             }
         )
@@ -359,8 +424,14 @@ async def tinh_phuong_an_thanh_toan(
 
     policy = grounding.resolve_active_policy(str(unit.get("project_id")), date.fromisoformat(tx_date))
     lines = [
-        f"Kết quả engine tất định cho {unit['unit_code']} (objective {objective.value}, ngày {tx_date}):",
+        # Câu mở đầu bằng NGÔN NGỮ NGHIỆP VỤ: Sale bấm "Copy cho khách" là gửi được, không lộ tên
+        # tham số/mã mục tiêu nội bộ (`objective MIN_INITIAL_CASH`).
+        f"Phương án thanh toán cho căn {unit['unit_code']} — ngày giao dịch {tx_date} "
+        f"(ưu tiên {_OBJECTIVE_LABELS.get(objective.value, 'cân bằng các mục tiêu')}):",
     ]
+    if resolved_note:
+        # Nói rõ căn được chọn từ tiêu chí nào — Sale không bị "tự dưng" thấy một mã căn lạ.
+        lines.append(f"(Căn được chọn tự động: {resolved_note}.)")
     citations: list[dict[str, Any]] = []
     for code, detail in result.scenarios.items():
         lines.append(
@@ -371,7 +442,9 @@ async def tinh_phuong_an_thanh_toan(
             f"ưu đãi {grounding.format_vnd(detail.benefit_value_vnd)} · khả thi: {'có' if detail.is_feasible else 'không'}"
         )
     lines.append(f"Đề xuất tối ưu theo mục tiêu: {result.recommended_scenario_code}.")
-    lines.append(f"Sanity 6 kiểm tra kế toán: {'ĐẠT' if result.sanity_passed else 'KHÔNG ĐẠT'}.")
+    lines.append(
+        "Em đã rà lại toàn bộ phép tính của 3 phương án: " + ("khớp." if result.sanity_passed else "CÓ sai lệch, cần kiểm tra lại.")
+    )
 
     citations.append(
         {

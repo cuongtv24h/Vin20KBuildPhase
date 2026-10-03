@@ -86,7 +86,7 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 | PA-02 | So sánh các phương án cho căn ZEN-B-1502, phương án nào net rẻ nhất? | một trong: `tinh_phuong_an_thanh_toan` · phải có: `PA-NHANH` | Câu so sánh: phải trả lời thẳng phương án net rẻ nhất (thanh toán sớm 8%), không liệt kê rồi bỏ lửng. |
 | PA-03 | Tính dòng tiền căn ZEN-A-0803 với vốn tự có 1,5 tỷ | một trong: `tinh_phuong_an_thanh_toan` · phải có: `PA-` | Sale nói rõ 'dòng tiền' ⇒ đi đường tính chi tiết (KHÔNG bị kéo về đánh giá vốn tự có tổng quan — chốt bảo vệ ở intents.py). |
 | PA-04 | Lập báo giá cho căn SAP-01-2204 | một trong: `tinh_phuong_an_thanh_toan` · phải có: `SAP-01-2204` | Báo giá phải gắn đúng mã căn và kèm Smart Card/CTA xem báo giá. |
-| PA-05 | Phương án nào phải nộp đợt 1 ít nhất? | một trong: `tinh_phuong_an_thanh_toan` · phải có: `đợt đầu` | Đây là câu 'sale đang tư vấn gấp': phải nêu đích danh phương án có đợt đầu thấp nhất kèm số tiền. |
+| PA-05 | Phương án nào phải nộp đợt 1 ít nhất? | một trong: `tinh_phuong_an_thanh_toan` · phải có: `đợt đầu` | Đây là câu 'sale đang tư vấn gấp': phải nêu đích danh phương án có đợt đầu thấp nhất kèm số tiền. Câu hỏi không nêu mã căn nên chạy trong ngữ cảnh ĐANG mở một căn (current_unit) — đúng như lúc Sale đang tư vấn; hệ thống KHÔNG tự bịa mã căn khi ngữ cảnh trống (chốt đợt 20). |
 | PA-06 | Bảng tính vay chi tiết cho căn 3 ngủ (ngân sách 2 tỷ) | một trong: `tinh_phuong_an_thanh_toan` · phải có: `PA-` | Đúng câu của chip K4 sau lượt lọc rỗng: bấm là ra bảng tính, không bắt Sale nói lại ngân sách. |
 
 ### Chính sách (kèm hiệu lực theo ngày)

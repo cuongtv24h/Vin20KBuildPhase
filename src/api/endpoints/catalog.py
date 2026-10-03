@@ -205,9 +205,9 @@ def _unit_model_to_dict(u: UnitModel, project_name: str | None = None) -> dict[s
 
     Chỉ trả những trường DB **thật sự lưu** (mã căn, dự án, tầng, loại căn, giá, trạng thái).
     Trước đây hàm này tự "đoán" diện tích theo loại căn (2BR → 72.0m²), gán tháp/view theo tiền tố mã căn
-    và **hardcode tên dự án "VLand Future Riverside"** — Sale sẽ đọc số sai đó cho khách. Nay:
-    `area_m2` không có trong DB ⇒ trả 0 (UI hiển thị "—"), tên dự án lấy từ bảng `projects` và ưu tiên
-    tham số truyền vào.
+    và **hardcode tên dự án "VLand Future Riverside"** — Sale sẽ đọc số sai đó cho khách. Nay `area_m2` và
+    `view` là **cột thật của bảng `units`** (đợt 20); căn nào chưa điền thì trả 0/chuỗi rỗng để UI hiện "—",
+    không suy diễn. Tên dự án lấy từ bảng `projects` (ưu tiên tham số truyền vào).
     """
     return {
         "unit_code": u.unit_code,
@@ -215,12 +215,13 @@ def _unit_model_to_dict(u: UnitModel, project_name: str | None = None) -> dict[s
         "project_name": project_name or u.project_id,
         "floor": u.floor_number,
         "bedrooms": BEDROOMS_BY_UNIT_TYPE.get(str(u.unit_type or "").upper(), 0),
-        "area_m2": 0.0,
+        "area_m2": float(u.area_m2) if u.area_m2 else 0.0,
         "listed_price_before_tax_vnd": u.listed_price_before_tax_vnd,
         "status": u.status,
-        # Hai trường dưới đây KHÔNG có trong bảng `units`; trả rỗng thay vì suy diễn theo mã căn.
+        # `block` (tên tháp) KHÔNG có trong bảng `units`; trả rỗng thay vì suy diễn theo mã căn.
         "block": "",
-        "view": "",
+        # `view` là cột thật của bảng `units` (đợt 20); chưa điền thì trả chuỗi rỗng để UI hiện "—".
+        "view": str(u.view or "").strip(),
     }
 
 

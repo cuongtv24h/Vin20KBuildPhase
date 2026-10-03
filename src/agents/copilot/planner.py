@@ -117,10 +117,27 @@ def _compose_topic(clause: str) -> str:
     return topic
 
 
+def _budget_ceiling(entity: dict) -> int:
+    """Trần ngân sách Sale nêu: mốc tiền đơn, hoặc **mốc cao của khoảng** ("3–5 tỷ" → 5 tỷ).
+
+    Vì sao cần: câu "nguyện vọng mua căn từ 3 tỷ đến 5 tỷ" trước đây bị lọc bằng 0 (không lọc) nên bảng
+    gợi ý trả về cả căn 6,1 tỷ — thông tin vô nghĩa với khách.
+    """
+    amount_range = entity.get("amount_range_vnd")
+    if amount_range:
+        # Khoảng ngân sách là nguyện vọng rõ ràng nhất ("3–5 tỷ") ⇒ lấy mốc cao làm trần.
+        return int(amount_range[1])
+    if entity.get("amount_vnd"):
+        return int(entity["amount_vnd"])
+    return 0
+
+
 def _args_for(intent: str, clause: str, entity: dict) -> dict:
     tx_date = str(entity.get("transaction_date") or "")
     raw_unit = str(entity.get("unit_code") or entity.get("current_unit") or "")
-    unit = raw_unit or "ZEN-A-1205"
+    # Không có mã căn thì để TRỐNG: tool sẽ nói chưa xác định được căn, còn hơn tính nhầm cho một căn
+    # mặc định mà Sale chưa hề nhắc (lỗi bị người dùng bắt ở đợt 20).
+    unit = raw_unit
     project_id = str(entity.get("project_id") or "")
     if not project_id and raw_unit:
         if raw_unit.startswith("ZEN-"):
@@ -134,7 +151,16 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
     if intent == intents.INTENT_BROWSE_UNITS:
         return {
             "so_phong_ngu": entity.get("bedrooms") or 0,
-            "gia_toi_da_vnd": entity.get("amount_vnd") or 0,
+            "gia_toi_da_vnd": _budget_ceiling(entity),
+            "ma_can": entity.get("unit_code") or "",
+            "du_an": project_id,
+        }
+    if intent == intents.INTENT_CREATE_CUSTOMER:
+        # Hồ sơ khách mới: gợi ý luôn các căn TRONG NGÂN SÁCH khách vừa nêu (nếu có) — bảng phải liên
+        # quan tới nguyện vọng, không phải toàn bộ giỏ hàng.
+        return {
+            "so_phong_ngu": entity.get("bedrooms") or 0,
+            "gia_toi_da_vnd": _budget_ceiling(entity),
             "ma_can": entity.get("unit_code") or "",
             "du_an": project_id,
         }
@@ -146,9 +172,13 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
             "ngay_giao_dich": tx_date,
         }
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
+        # Không có mã căn nhưng có tiêu chí (số phòng ngủ / ngân sách) ⇒ để tool tự chọn căn phù hợp
+        # trong giỏ thật, thay vì mượn một mã căn mẫu.
         return {
             "ma_can": unit,
             "von_tu_co_vnd": entity.get("amount_vnd") or 0,
+            "so_phong_ngu": entity.get("bedrooms") or 0,
+            "gia_toi_da_vnd": entity.get("amount_vnd") or 0,
             "muc_tieu": "MIN_INITIAL_CASH",
             "ngay_giao_dich": tx_date,
         }
@@ -169,12 +199,17 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
     return {}
 
 
-def decompose(message: str, entity: dict | None = None) -> list[PlanStep]:
+def decompose(message: str, entity: dict | None = None, context_unit: str | None = None) -> list[PlanStep]:
     """Chia câu lệnh thành các bước nghiệp vụ theo thứ tự thực thi.
+
+    `context_unit` là mã căn đang mở trong phiên/hồ sơ — dùng cho các bước cần căn mà câu lệnh không nêu
+    lại (ví dụ "soạn tin cho khách" ngay sau khi đã hỏi về căn SAP-D-4201).
 
     Trả về danh sách rỗng nếu câu lệnh chỉ là small talk hoặc không có mệnh đề nghiệp vụ nào.
     """
     entity = dict(entity or {})
+    if context_unit and not entity.get("unit_code"):
+        entity["current_unit"] = context_unit
     clauses = split_clauses(message) or [message]
 
     steps: dict[str, PlanStep] = {}

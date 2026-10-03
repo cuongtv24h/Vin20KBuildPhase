@@ -107,6 +107,12 @@ import { formatVnd } from '@pricepolicy/ui/lib/format'
 import { speakText, stopSpeaking, isSpeechSupported, listLocalVoices } from '@pricepolicy/ui/lib/speech'
 import { OBJECTIVE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
 import { cn } from '@pricepolicy/ui/lib/utils'
+import {
+  NO_UNIT_LABEL,
+  extractUnitCodeFromText,
+  resolveQuoteCustomerName,
+  resolveQuoteUnitCode,
+} from './quoteContext'
 
 // --- EVIDENCE KNOWLEDGE BASE ---
 interface LegalEvidence {
@@ -392,9 +398,12 @@ function SmartCustomerCard({
   const [name, setName] = useState(initialData?.customer_name || initialData?.clientName || '')
   const [phone, setPhone] = useState(initialData?.customer_phone || initialData?.phone || '')
   const [unit, setUnit] = useState(initialData?.preferred_unit_code || initialData?.unitCode || '')
-  const [funds, setFunds] = useState<number>(initialData?.own_funds_vnd || initialData?.funds || 1500000000)
+  // Chưa biết vốn tự có thì để TRỐNG, không điền sẵn một con số — trước đây mặc định 1,5 tỷ khiến thẻ
+  // hiển thị một khoản tiền Sale chưa từng nêu (cùng lỗi với "căn hộ quan tâm" bịa mã căn).
+  const [funds, setFunds] = useState<number>(initialData?.own_funds_vnd || initialData?.funds || 0)
   const [notes, setNotes] = useState(initialData?.needs_summary || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState('')
   // Dự án mặc định = dự án THẬT đầu tiên trong danh mục (trước đây ghi cứng `P-001` — mã dự án
   // không tồn tại trong DB, khiến hồ sơ khách gắn vào một dự án ma).
   const projectsQuery = useProjectOverviews()
@@ -402,19 +411,29 @@ function SmartCustomerCard({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    // Chốt đợt 20: KHÔNG tự điền số điện thoại/khả năng chi trả "cho đủ trường" — hồ sơ khách chỉ chứa
+    // thông tin Sale thật sự cung cấp (trước đây tự thêm 0900000000 và 25 triệu/tháng).
+    if (!name.trim()) {
+      setError('Anh/chị nhập tên khách hàng giúp em.')
+      return
+    }
+    if (!phone.trim()) {
+      setError('Anh/chị nhập số điện thoại khách hàng giúp em (bắt buộc khi lưu CRM).')
+      return
+    }
+    setError('')
     setIsSubmitting(true)
     try {
       await onSave({
         customer_name: name.trim(),
-        customer_phone: phone.trim() || '0900000000',
+        customer_phone: phone.trim(),
         customer_segment: 'NEW_CUSTOMER',
-        temperature: 'HOT',
         project_id: defaultProjectId,
         preferred_unit_code: unit.trim() || null,
-        own_funds_vnd: Number(funds) || 1500000000,
-        monthly_capacity_vnd: 25000000,
-        objective: 'MIN_INITIAL_OUTFLOW',
+        bedrooms: initialData?.bedrooms ?? null,
+        own_funds_vnd: Number(funds) || null,
+        monthly_capacity_vnd: initialData?.monthly_capacity_vnd ?? null,
+        objective: initialData?.objective ?? null,
         needs_summary: notes.trim() || (unit.trim() ? `Khởi tạo nhanh qua Smart Card Copilot. Quan tâm căn ${unit.trim()}.` : 'Khởi tạo nhanh qua Smart Card Copilot.'),
       })
     } finally {
@@ -496,6 +515,7 @@ function SmartCustomerCard({
           />
         </div>
         <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/50">
+          {error && <span className="mr-auto text-[11px] font-medium text-destructive">{error}</span>}
           {onCancel && (
             <Button variant="ghost" size="sm" onClick={onCancel} className="h-7 text-xs">
               Bỏ qua
@@ -929,6 +949,14 @@ export function SalesWorkspacePage() {
 
   // Ngữ cảnh Copilot: chip cho Sale kiểm tra/sửa trước khi gửi (D2)
   const [copilotUnit, setCopilotUnit] = useState<string | null>(null)
+  // Mã căn Sale gõ ngay trong ô chat (ví dụ "phương án thanh toán SAP-D-4201") phải trở thành ngữ cảnh
+  // của phiên — trước đây chỉ hồ sơ khách mới đặt được ngữ cảnh, nên thẻ "Xác nhận tham số tạo báo giá"
+  // vẫn báo "Chưa chọn căn" dù câu hỏi vừa nêu rõ mã căn.
+  const noteUnitFromText = (text: string): string | null => {
+    const code = extractUnitCodeFromText(text)
+    if (code) setCopilotUnit(code)
+    return code
+  }
   const [copilotTxDate, setCopilotTxDate] = useState<string | null>('2026-09-26')
   // Lệnh gạch chéo dùng gần đây (D1) — lưu cục bộ, không gửi lên server
   const [recentCommands, setRecentCommands] = useState<string[]>(() => {
@@ -1592,9 +1620,16 @@ export function SalesWorkspacePage() {
   }
 
   // Action: Launch Quote Creation Flow
-  const startQuoteCreationFlow = (targetLeadName?: string) => {
+  const startQuoteCreationFlow = (targetLeadName?: string, unitCodeOverride?: string) => {
     const time = new Date().toTimeString().slice(0, 5)
-    const clientName = targetLeadName || selectedLead?.customer.full_name || 'khách hàng'
+    const clientName = resolveQuoteCustomerName(targetLeadName, selectedLead?.customer.full_name)
+    // Một hàm giải mã căn dùng chung cho MỌI luồng (thẻ xác nhận, chip gợi ý, ngăn hồ sơ) — chốt đợt 20.
+    const cardUnitCode = resolveQuoteUnitCode({
+      actionUnit: unitCodeOverride,
+      sessionUnit: copilotUnit,
+      leadUnit: selectedLead?.constraints?.preferred_unit_code,
+    })
+    if (unitCodeOverride && unitCodeOverride !== copilotUnit) setCopilotUnit(unitCodeOverride)
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, type: 'user', text: `tạo báo giá cho ${clientName}`, time },
@@ -1604,9 +1639,13 @@ export function SalesWorkspacePage() {
         time,
         data: {
           clientName,
-          unitCode: selectedLead?.constraints?.preferred_unit_code || 'Chưa chọn căn — chọn trên card báo giá',
-          date: '10/03/2026 (hôm nay)',
-          goal: 'Ít vốn ban đầu nhất (suy đoán từ nguyện vọng dossier)',
+          // Chỉ ghi "Chưa chọn căn" khi THẬT SỰ chưa có căn trong ngữ cảnh — trước đây thẻ luôn đọc từ
+          // hồ sơ khách nên bỏ qua mã căn vừa nêu trong câu hỏi.
+          unitCode: cardUnitCode || NO_UNIT_LABEL,
+          date: `${new Date().toLocaleDateString('vi-VN')} (hôm nay)`,
+          goal: selectedLead?.constraints?.objective
+            ? `Theo hồ sơ khách: ${selectedLead.constraints.objective}`
+            : 'Ít vốn ban đầu nhất (mặc định của hệ thống)',
         },
       },
     ])
@@ -1620,13 +1659,19 @@ export function SalesWorkspacePage() {
    * Nay: tra giá niêm yết thật của căn → gọi `POST /quotes` → cập nhật tiến trình theo đúng
    * vòng đời thật (gửi yêu cầu → engine trả kết quả). Không suy diễn thêm số liệu nào.
    */
-  const handleConfirmQuoteAction = async () => {
+  const handleConfirmQuoteAction = async (unitOverride?: string) => {
     const time = new Date().toTimeString().slice(0, 5)
     const stepMsgId = `step-${Date.now()}`
-    const unitCode = copilotUnit || selectedLead?.constraints?.preferred_unit_code || null
-    const projectId = selectedLead?.constraints?.project_id ?? null
+    // Cùng một nguồn ngữ cảnh với thẻ xác nhận (thẻ vừa vẽ mã căn nào thì lập báo giá đúng mã đó):
+    // căn của lượt gọi hàm → căn ngữ cảnh Copilot → căn trong hồ sơ khách.
+    const unitCode = resolveQuoteUnitCode({
+      actionUnit: unitOverride,
+      sessionUnit: copilotUnit,
+      leadUnit: selectedLead?.constraints?.preferred_unit_code,
+    })
+    if (unitOverride) setCopilotUnit(unitOverride)
 
-    if (!unitCode || !projectId) {
+    if (!unitCode) {
       // Không đủ dữ kiện thì nói thẳng — không dựng tiến trình cho có.
       setMessages((prev) => [
         ...prev,
@@ -1634,10 +1679,10 @@ export function SalesWorkspacePage() {
           id: `need-unit-${Date.now()}`,
           type: 'agent',
           time,
-          text: 'Anh/chị chọn giúp em **mã căn** và **dự án** trước khi lập báo giá nhé — em không tự suy diễn giá khi thiếu dữ liệu.',
+          text: 'Anh/chị cho em **mã căn** trước khi lập báo giá nhé — em không tự suy diễn giá khi thiếu dữ liệu.',
         },
       ])
-      showToast('Thiếu mã căn/dự án để lập báo giá')
+      showToast('Thiếu mã căn để lập báo giá')
       scrollChatToEnd()
       return
     }
@@ -1661,13 +1706,16 @@ export function SalesWorkspacePage() {
 
     try {
       advance(1)
-      const units = await api.catalog.units({ project_id: projectId })
+      // Dự án suy ra từ chính căn vừa tra được — hồ sơ khách thiếu `project_id` không còn chặn báo giá.
+      const units = await api.catalog.units(
+        selectedLead?.constraints?.project_id ? { project_id: selectedLead.constraints.project_id } : {},
+      )
       const unit = units.find((u) => u.unit_code === unitCode)
-      if (!unit) throw new Error(`Không tìm thấy căn ${unitCode} trong giỏ hàng dự án`)
+      if (!unit) throw new Error(`Không tìm thấy căn ${unitCode} trong giỏ hàng`)
 
       advance(2)
       const created = await api.quotes.create({
-        project_id: projectId,
+        project_id: unit.project_id,
         unit_code: unit.unit_code,
         listed_price_before_tax_vnd: unit.listed_price_before_tax_vnd,
         own_funds_vnd: selectedLead?.constraints?.own_funds_vnd ?? undefined,
@@ -1946,8 +1994,11 @@ export function SalesWorkspacePage() {
       },
     ])
     scrollChatToEnd()
+    // Câu vừa gõ có mã căn ⇒ cập nhật ngữ cảnh phiên trước khi gọi Copilot (dùng ngay giá trị vừa bóc
+    // được, vì state React chỉ cập nhật ở lần render sau).
+    const notedUnit = noteUnitFromText(text)
     const context = {
-      currentUnit: copilotUnit ?? ctxLead?.constraints?.preferred_unit_code ?? null,
+      currentUnit: notedUnit ?? copilotUnit ?? ctxLead?.constraints?.preferred_unit_code ?? null,
       leadDossierId: ctxLead?.dossier_id ?? null,
       transactionDate: copilotTxDate,
       projectId: ctxLead?.constraints?.project_id ?? null,
@@ -2898,8 +2949,9 @@ export function SalesWorkspacePage() {
                     <SmartQuoteCard
                       initialData={m.data}
                       onGenerateQuote={() => {
-                        startQuoteCreationFlow(selectedLead?.customer.full_name)
-                        handleConfirmQuoteAction()
+                        const code = m.data?.unit_code || undefined
+                        startQuoteCreationFlow(selectedLead?.customer.full_name, code)
+                        handleConfirmQuoteAction(code)
                       }}
                     />
                   </div>
@@ -2912,8 +2964,10 @@ export function SalesWorkspacePage() {
                     <SmartScenarioCompareCard
                       unitCode={m.data?.unit_code || undefined}
                       onSelectScenario={() => {
-                        startQuoteCreationFlow(selectedLead?.customer.full_name)
-                        handleConfirmQuoteAction()
+                        // Thẻ so sánh phương án biết mã căn ⇒ chuyển thẳng mã đó vào luồng tạo báo giá.
+                        const code = m.data?.unit_code || undefined
+                        startQuoteCreationFlow(selectedLead?.customer.full_name, code)
+                        handleConfirmQuoteAction(code)
                       }}
                     />
                   </div>

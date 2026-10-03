@@ -15,7 +15,7 @@
     "dev:internal": "npm run dev -w @pricepolicy/internal",
     "build": "npm run build -w @pricepolicy/customer && npm run build -w @pricepolicy/internal",
     "lint": "oxlint",
-    "test": "npm run test -w @pricepolicy/mock-server && npm run test -w @pricepolicy/api-client && npm run test -w @pricepolicy/ui",
+    "test": "npm run test -w @pricepolicy/mock-server && npm run test -w @pricepolicy/api-client && npm run test -w @pricepolicy/ui && npm run test -w @pricepolicy/internal",
     "test:watch": "npm run test:watch -w @pricepolicy/mock-server"
   },
   "devDependencies": {

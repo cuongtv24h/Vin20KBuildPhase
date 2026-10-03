@@ -94,7 +94,12 @@ class CopilotEvent:
 def _sanitize_customer_name(raw: str) -> str:
     name = _NAME_STRIP_RE.sub("", str(raw or "")).strip()
     name = re.sub(r"^(?:mới\s+tên|mới\s+là|tên\s+là|tên|mới|anh|chị)\s*", "", name, flags=re.IGNORECASE).strip()
-    name = re.sub(r"[,;:\-]?\s*(?:sđt|sdt|phone|điện\s*thoại|\b0\d{8,10}\b).*$", "", name, flags=re.IGNORECASE).strip()
+    name = re.sub(
+        r"[,;:\-]?\s*(?:số\s*(?:điện\s*thoại|đt)?|sđt|sdt|phone|điện\s*thoại|\b0\d{8,10}\b).*$",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    ).strip()
     if len(name) < 2 or grounding.normalize(name) in {"moi", "khach", "khach hang", "khach moi", "anh", "chi", "lead", "null", "none"}:
         return ""
     return name
@@ -305,6 +310,16 @@ def _finalize(
 
     if action_type == intents.INTENT_CREATE_CUSTOMER and isinstance(action_data, dict):
         action_data["customer_name"] = _sanitize_customer_name(action_data.get("customer_name", ""))
+        # Chốt đợt 20: thẻ khách chỉ được mang mã căn **có thật trong giỏ** và **đã xuất hiện trong ngữ
+        # cảnh** (câu Sale vừa nói hoặc dữ liệu canonical của phiên). Model tự thêm một mã căn làm ví dụ
+        # ⇒ Sale tưởng khách quan tâm căn đó (lỗi người dùng báo với khách Chu Thúy Quỳnh).
+        unit_code = str(action_data.get("preferred_unit_code") or "").strip()
+        if unit_code:
+            haystack = grounding.normalize(f"{question} {known_context}")
+            known = grounding.normalize(unit_code) in haystack
+            if not known or grounding.find_unit(unit_code) is None:
+                logger.info("Bỏ mã căn không có ngữ cảnh khỏi thẻ khách: %s", unit_code)
+                action_data["preferred_unit_code"] = ""
 
     # Kết luận kiểm duyệt **buộc phải trích lại** câu đang bị kiểm để Sale biết sai ở đâu — nếu quét
     # rò rỉ cả phần trích dẫn đó thì bộ chặn sẽ nuốt mất kết luận F8 (lỗi thật gặp ở đợt 15). Chỉ che
@@ -461,18 +476,26 @@ def _default_suggestions(
     Nhãn phải **mang theo ngữ cảnh** (số phòng ngủ, ngân sách) để khi Sale bấm, câu gửi vào khung chat
     vẫn đủ dữ liệu — không thì Copilot phải hỏi lại, mất đúng cái lợi của nút bấm.
     """
-    unit = unit_code or "ZEN-A-1205"
+    # Không gán cứng một mã căn khi chưa biết (trước đây là `ZEN-A-1205`): chip phải nói đúng thứ đang có
+    # ngữ cảnh, nếu không Sale bấm một nút mang mã căn chưa từng được nhắc tới.
+    unit = unit_code or ""
     entities = entities or {}
     bedrooms = int(entities.get("bedrooms") or 0)
     budget = int(entities.get("amount_vnd") or 0)
     budget_text = f" (ngân sách {_format_budget_short(budget)})" if budget else ""
     if intent == intents.INTENT_CREATE_CUSTOMER:
-        return ["Lưu khách hàng vào CRM", f"Tạo báo giá căn {unit}", f"So sánh 3 phương án căn {unit}"]
+        if unit:
+            return ["Lưu khách hàng vào CRM", f"Tạo báo giá căn {unit}", f"So sánh 3 phương án căn {unit}"]
+        return ["Lưu khách hàng vào CRM", "Lọc giỏ hàng theo ngân sách khách", "Soạn tin nhắn gửi khách"]
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
         return ["Trình duyệt báo giá", "Xem bảng tính vay chi tiết", "Soạn tin nhắn gửi khách"]
     if intent == intents.INTENT_ASSESS_FUNDS:
         # K4: gợi ý bằng NÚT BẤM thay vì viết dài — Sale bấm là ra bảng dòng tiền chi tiết.
-        return ["Xem bảng tính vay chi tiết", f"Tạo báo giá căn {unit}", "Soạn tin nhắn gửi khách"]
+        chips = ["Xem bảng tính vay chi tiết"]
+        if unit:
+            chips.append(f"Tạo báo giá căn {unit}")
+        chips.append("Soạn tin nhắn gửi khách")
+        return chips
     if intent == intents.INTENT_COMPOSE_MESSAGE:
         return ["Kiểm tra lại tuân thủ F8", "Lập báo giá đính kèm", "Đổi văn phong thân mật hơn"]
     if intent == intents.INTENT_BROWSE_UNITS:
@@ -494,7 +517,7 @@ def _default_suggestions(
 
 def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> list[tuple[str, dict[str, Any], str]]:
     """Kế hoạch dự phòng theo intent đơn (giữ tương thích khi planner không tách được gì)."""
-    ctx_unit = request.current_unit or intent.entities.get("unit_code") or "ZEN-A-1205"
+    ctx_unit = request.current_unit or intent.entities.get("unit_code") or ""
     tx_date = request.transaction_date or ""
     if intent.intent == intents.INTENT_LOOKUP_POLICY:
         return [("tra_cuu_chinh_sach", {"cau_hoi": request.message, "ngay_hieu_luc": tx_date}, "Tra cứu chính sách hiệu lực")]
@@ -671,8 +694,9 @@ async def stream_copilot(
     enriched_entity = memory.enrich_entity_with_slots(intent.entities, slots)
     intent = intents.IntentResult(intent.intent, intent.confidence, enriched_entity, intent.matched_keywords)
 
-    # 0b) Planner: chia câu nhiều ý thành nhiều bước
-    plan = planner.decompose(message, enriched_entity)
+    # 0b) Planner: chia câu nhiều ý thành nhiều bước. Truyền thêm **căn đang mở trong phiên** để bước
+    #     soạn tin/báo giá dùng đúng căn Sale đang nói tới thay vì một mã căn mặc định.
+    plan = planner.decompose(message, enriched_entity, context_unit=slots.current_unit or request.current_unit)
     observations: list[dict[str, Any]] = []
     deterministic_action = intents.build_action_card(
         message, intent, {"current_unit": slots.current_unit or request.current_unit}
@@ -875,9 +899,19 @@ async def stream_copilot(
         )
     if intent.intent == intents.INTENT_CREATE_CUSTOMER:
         name = intent.entities.get("customer_name") or "khách hàng"
+        facts: list[str] = []
+        if intent.entities.get("customer_phone"):
+            facts.append(f"SĐT {intent.entities['customer_phone']}")
+        if intent.entities.get("amount_vnd"):
+            facts.append(f"vốn tự có {grounding.format_vnd(intent.entities['amount_vnd'])}")
+        if intent.entities.get("amount_range_vnd"):
+            low, high = intent.entities["amount_range_vnd"]
+            facts.append(f"ngân sách {grounding.format_vnd(low)} – {grounding.format_vnd(high)}")
+        if intent.entities.get("unit_code"):
+            facts.append(f"quan tâm căn {intent.entities['unit_code']}")
         reply = (
             f"Em đã bóc tách hồ sơ cho {name}"
-            + (f" (SĐT {intent.entities.get('customer_phone')})" if intent.entities.get("customer_phone") else "")
+            + (f" ({', '.join(facts)})" if facts else "")
             + ". Anh/chị kiểm tra thông tin trên thẻ và bấm Khởi tạo ngay để lưu vào CRM nhé."
         )
     final = _finalize(

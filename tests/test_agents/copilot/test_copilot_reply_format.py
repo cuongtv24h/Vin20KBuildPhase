@@ -155,3 +155,70 @@ def test_finalize_applies_format_and_scrubs_internal_names() -> None:
     assert len([line for line in lines if line.startswith("|")]) == 5
     # Số bịa trong ví dụ vẫn bị verifier bắt (ghi chú nội bộ), không im lặng cho qua.
     assert "chưa đối chiếu" in final["internal_notes"]
+
+
+# ─── Đợt 20: cấu trúc mục cho câu trả lời nhiều ý (sẵn sàng gửi khách) ──────────────
+
+#: Đúng câu trả lời người dùng dán lại ở đợt 20 (một khối chữ, không format) — dùng nguyên văn làm ca test.
+SCENARIO_REPLY = (
+    "Với căn **SAP-D-4201** (giá niêm yết 4,5 tỷ) và vốn tự có **2 tỷ** (ngân sách anh/chị nhập), "
+    "em đã tính 3 phương án thanh toán "
+    "**PA-CHUDONG (Chủ động):** Trả 100% bằng vốn tự có — nhưng anh/chị chỉ có **2 tỷ**, "
+    "**thiếu 2,5 tỷ** so với giá niêm yết, nên phương án này chưa khả thi. "
+    "**PA-NHANH (Thanh toán nhanh):** Trả trước 30% (1,35 tỷ) trong 3 đợt, phần còn lại 70% (3,15 tỷ) "
+    "thanh toán trong 12 tháng — cần vốn tự có tối thiểu khoảng **1,35 tỷ**, anh/chị **thừa 650 triệu** "
+    "so với mức tối thiểu. "
+    "**PA-VAY (Vay ngân hàng):** Trả trước 30% (1,35 tỷ), vay 70% (3,15 tỷ) trong 20 năm — cần vốn tự có "
+    "tối thiểu **1,35 tỷ**, anh/chị **thừa 650 triệu**. "
+    "**Khuyến nghị:** Với **2 tỷ** vốn tự có, phương án **PA-VAY** hoặc **PA-NHANH** đều khả thi. "
+    "Nếu anh/chị muốn giảm áp lực dòng tiền hàng tháng, chọn PA-VAY nếu muốn sở hữu nhanh và không vay, "
+    "chọn PA-NHANH. Anh/chị muốn em so sánh chi tiết dòng tiền từng đợt của 2 phương án này không?"
+)
+
+
+def test_each_scenario_gets_its_own_line() -> None:
+    """Ba phương án phải nằm trên ba dòng riêng, mỗi dòng còn nguyên nhãn và số liệu của nó."""
+    out = reply_format.structure_sections(SCENARIO_REPLY)
+    lines = out.splitlines()
+    for code in ("PA-CHUDONG", "PA-NHANH", "PA-VAY"):
+        # Dòng của phương án phải BẮT ĐẦU bằng nhãn in đậm của nó (câu khuyến nghị nhắc lại tên
+        # phương án ở giữa dòng là chuyện bình thường, không tính).
+        matching = [line for line in lines if line.startswith(f"- **{code}")]
+        assert len(matching) == 1, f"{code} phải có đúng một dòng riêng"
+        assert ":**" in matching[0], "nhãn phương án vẫn in đậm trong dòng của nó"
+    assert lines[0].startswith("Với căn **SAP-D-4201**"), "đoạn dẫn giữ nguyên ở đầu câu trả lời"
+
+
+def test_recommendation_becomes_bold_heading() -> None:
+    out = reply_format.structure_sections(SCENARIO_REPLY)
+    assert "\n**KHUYẾN NGHỊ:**\n" in out
+    assert any(line.startswith("- Với **2 tỷ** vốn tự có") for line in out.splitlines())
+
+
+def test_structure_is_idempotent_and_keeps_numbers() -> None:
+    once = reply_format.normalize_markdown(SCENARIO_REPLY)
+    twice = reply_format.normalize_markdown(once)
+    assert once == twice, "chuẩn hoá lại không được đổi hình thức"
+    for figure in ("4,5 tỷ", "1,35 tỷ", "3,15 tỷ", "650 triệu", "2,5 tỷ"):
+        assert figure in once, f"không được làm mất số liệu {figure}"
+
+
+def test_plain_prose_is_never_bulleted() -> None:
+    """Văn xuôi thường (không có nhãn mục) phải giữ nguyên — không tự biến thành gạch đầu dòng."""
+    text = "Dạ em chào anh. Hôm nay em gửi anh bảng giá căn 2 ngủ nhé."
+    assert reply_format.structure_sections(text) == text
+    assert not reply_format.normalize_markdown(text).startswith("- ")
+
+
+def test_section_without_colon_is_left_alone() -> None:
+    """Chỉ nhãn có dấu `:` mới thành tiêu đề mục — câu nhắc tới 'lưu ý' giữa dòng không bị cắt."""
+    text = "Em xin lưu ý anh phần chiết khấu chỉ áp dụng khi ký trong tháng này."
+    assert reply_format.structure_sections(text) == text
+
+
+def test_tables_and_lists_inside_reply_survive_structuring() -> None:
+    """Bảng giỏ hàng do máy dựng không bị phá khi câu trả lời cũng có mục."""
+    body = "Giỏ hàng 3 ngủ:\n\n| Mã căn | Giá |\n|---|---|\n| ZEN-B-1502 | 6.100.000.000 ₫ |"
+    out = reply_format.structure_sections(f"{body}\n\n**Lưu ý:** giá chưa gồm VAT.")
+    assert "| Mã căn | Giá |" in out
+    assert "\n**LƯU Ý:**\n" in out

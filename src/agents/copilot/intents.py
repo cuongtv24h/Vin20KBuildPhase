@@ -38,6 +38,22 @@ _NAME_STRIP_PREFIX = re.compile(
 _NAME_STRIP_FILLER = re.compile(r"^(?:mới\s+tên|mới\s+là|tên\s+là|tên|mới|anh|chị|ông|bà|khách\s*hàng)\s*", re.IGNORECASE)
 _AMOUNT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(tỷ|ty|triệu|trieu|tr)\b", re.IGNORECASE)
 
+#: Khoảng giá Sale nêu: "từ 3 tỷ đến 5 tỷ", "3-5 tỷ", "khoảng 2 đến 3 tỷ". Dấu gạch chỉ tính là khoảng khi
+#: mốc SAU nó là con số (tránh nhầm "3 tỷ - vốn tự có").
+_RANGE_SEP = r"(?:đến|tới|->|–|—|-|~)"
+_AMOUNT_RANGE_RES = (
+    re.compile(
+        # Mốc đầu có thể thiếu đơn vị ("3-5 tỷ") nhưng mốc CUỐI phải có đơn vị — nếu không thì "2PN - 3 tỷ"
+        # cũng bị coi là khoảng giá.
+        rf"\b(\d+(?:[.,]\d+)?)\s*(tỷ|ty|triệu|trieu|tr)?\s*{_RANGE_SEP}\s*(\d+(?:[.,]\d+)?)\s*(tỷ|ty|triệu|trieu|tr)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\btừ\s*(\d+(?:[.,]\d+)?)\s*(tỷ|ty|triệu|trieu|tr)\s*(?:đến|tới)\s*(\d+(?:[.,]\d+)?)\s*(tỷ|ty|triệu|trieu|tr)?\b",
+        re.IGNORECASE,
+    ),
+)
+
 
 @dataclass
 class IntentResult:
@@ -64,6 +80,48 @@ def extract_amount(text: str) -> int | None:
     return int(value * multiplier)
 
 
+def _amount_value(raw: str, unit: str | None) -> int:
+    value = float(str(raw).replace(",", "."))
+    multiplier = 1_000_000_000 if (unit or "").lower() in ("tỷ", "ty") else 1_000_000
+    return int(value * multiplier)
+
+
+def match_amount_range(text: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Tìm khoảng ngân sách → `((min, max), (vị trí đầu, vị trí cuối))`.
+
+    Trả kèm vị trí để lớp gọi **khoét khoảng ra khỏi câu** trước khi bóc mốc tiền đơn: câu
+    "tài chính 2 tỷ, nguyện vọng mua căn từ 3 tỷ đến 5 tỷ" có hai loại số khác nhau (vốn tự có vs ngân sách).
+    """
+    for pattern in _AMOUNT_RANGE_RES:
+        match = pattern.search(text)
+        if not match:
+            continue
+        unit = match.group(2) or match.group(4)
+        low = _amount_value(match.group(1), unit)
+        high = _amount_value(match.group(3), match.group(4) or unit)
+        if low > high:
+            low, high = high, low
+        if low != high:
+            return (low, high), (match.start(), match.end())
+    return None
+
+
+def extract_amount_range(text: str) -> tuple[int, int] | None:
+    """Khoảng ngân sách Sale nêu → `(min, max)`; đơn vị của mốc đầu áp cho mốc sau nếu thiếu ("3-5 tỷ").
+
+    Vì sao cần: Sale nói "nguyện vọng mua căn từ 3 tỷ đến 5 tỷ" mà hệ thống chỉ nhớ "2 tỷ" (vốn tự có) thì
+    hồ sơ khách mất đúng thông tin quan trọng nhất khi lọc giỏ hàng.
+    """
+    found = match_amount_range(text)
+    return found[0] if found else None
+
+
+def blank_span(text: str, span: tuple[int, int]) -> str:
+    """Thay một đoạn bằng khoảng trắng (giữ nguyên độ dài) — để không bóc lại số trong đoạn đó."""
+    start, end = span
+    return f"{text[:start]}{' ' * (end - start)}{text[end:]}"
+
+
 def extract_name(text: str) -> str:
     """Bóc họ tên khách khỏi câu lệnh tự nhiên (loại bỏ từ đệm & SĐT)."""
     cleaned = _NAME_STRIP_PREFIX.sub("", text).strip()
@@ -73,7 +131,12 @@ def extract_name(text: str) -> str:
         cleaned = cleaned[: phone.start()].strip()
     else:
         cleaned = cleaned.split(",")[0].split(";")[0].strip()
-    cleaned = re.sub(r"[,;:\-]?\s*(?:sđt|sdt|phone|điện\s*thoại)\s*$", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(
+        r"[,;:\-]?\s*(?:số\s*(?:điện\s*thoại|đt)?|sđt|sdt|phone|điện\s*thoại)\s*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,;:-")
     if len(cleaned) < 2 or grounding.normalize(cleaned) in {
         "moi",
@@ -131,10 +194,16 @@ def detect_intent(text: str) -> IntentResult:
 
     lower = grounding.normalize(text)
     slots = memory.extract_slots_from_text(text)
+    found_range = match_amount_range(text)
+    amount_range = found_range[0] if found_range else None
+    # "từ 3 tỷ đến 5 tỷ" là KHOẢNG ngân sách — khoét khoảng ra trước khi bóc mốc tiền đơn, nhờ vậy câu
+    # "tài chính ban đầu 2 tỷ, nguyện vọng mua căn từ 3 tỷ đến 5 tỷ" giữ được CẢ HAI con số.
+    single_amount_text = blank_span(text, found_range[1]) if found_range else text
     entities: dict[str, Any] = {
         "unit_code": extract_unit_code(text),
         "bedrooms": extract_bedrooms(text),
-        "amount_vnd": extract_amount(text),
+        "amount_vnd": extract_amount(single_amount_text),
+        "amount_range_vnd": amount_range,
         "project_id": extract_project_id(text),
         "transaction_date": slots.get("transaction_date"),
     }
@@ -261,20 +330,39 @@ def build_action_card(text: str, result: IntentResult, context: dict[str, Any] |
     """Sinh Smart Card payload tương thích hợp đồng UI hiện tại (action_type/action_data)."""
     context = context or {}
     current_unit = context.get("current_unit")
-    unit = result.entities.get("unit_code") or current_unit or "ZEN-A-1205"
+    #: Mã căn chỉ được lấy từ **ngữ cảnh thật**: câu Sale vừa nói, hoặc slot của phiên/hồ sơ đang mở.
+    #: Trước đây hàm này gán cứng `ZEN-A-1205` khi không tìm thấy căn ⇒ thẻ khách hàng tự mọc ra một
+    #: "căn hộ quan tâm" mà Sale chưa từng nhắc (lỗi người dùng báo ở đợt 20).
+    unit = result.entities.get("unit_code") or current_unit or ""
 
     if result.intent == INTENT_CREATE_CUSTOMER:
         name = result.entities.get("customer_name") or ""
-        own_funds = result.entities.get("amount_vnd") or 1_500_000_000
+        # Vốn tự có: CHỈ lấy khi câu Sale nêu đúng một mốc tiền; nếu Sale nêu một KHOẢNG (ngân sách dự
+        # kiến) thì không tự quy đổi khoảng đó thành vốn tự có.
+        amount_range = result.entities.get("amount_range_vnd")
+        own_funds = result.entities.get("amount_vnd")
+        needs_bits = [f"Khách {name or 'mới'}"]
+        if unit:
+            needs_bits.append(f"quan tâm căn {unit}")
+        if own_funds:
+            needs_bits.append(f"vốn tự có dự kiến {grounding.format_vnd(own_funds)}")
+        if amount_range:
+            needs_bits.append(
+                f"ngân sách dự kiến {grounding.format_vnd(amount_range[0])} – "
+                f"{grounding.format_vnd(amount_range[1])}"
+            )
         return {
             "action_type": INTENT_CREATE_CUSTOMER,
             "action_data": {
                 "customer_name": name,
                 "customer_phone": result.entities.get("customer_phone") or "",
+                # Để trống khi chưa biết căn — thà trống (Sale tự chọn) hơn là điền một căn không có thật.
                 "preferred_unit_code": unit,
                 "own_funds_vnd": own_funds,
+                "budget_min_vnd": amount_range[0] if amount_range else None,
+                "budget_max_vnd": amount_range[1] if amount_range else None,
                 "bedrooms": result.entities.get("bedrooms"),
-                "needs_summary": f"Khách {name or 'mới'} quan tâm căn {unit}, vốn dự kiến {grounding.format_vnd(own_funds)}.",
+                "needs_summary": ", ".join(needs_bits) + ".",
             },
         }
     if result.intent == INTENT_CREATE_QUOTE:

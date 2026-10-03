@@ -111,7 +111,11 @@ _cached_db_units: list[dict[str, Any]] | None = None
 _cached_db_project_names: dict[str, str] = {}
 
 def _fetch_db_units() -> list[dict[str, Any]]:
-    """Đọc giỏ hàng THẬT từ DB (bảng `units` nối `projects`) — chỉ lấy trường có thật."""
+    """Đọc giỏ hàng THẬT từ DB (bảng `units` nối `projects`) — chỉ lấy trường có thật.
+
+    Từ đợt 20 bảng `units` có thêm `area_m2` và `view`; căn nào chưa điền thì trả None (UI hiện "—"),
+    không suy diễn theo loại căn.
+    """
     global _cached_db_units
     if _cached_db_units is not None:
         return _cached_db_units
@@ -129,13 +133,23 @@ def _fetch_db_units() -> list[dict[str, Any]]:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT u.unit_code, u.project_id, p.project_name, u.floor_number,
-                           u.unit_type, u.listed_price_before_tax_vnd, u.status
+                           u.unit_type, u.listed_price_before_tax_vnd, u.status, u.area_m2, u.view
                     FROM units u
                     LEFT JOIN projects p ON p.project_id = u.project_id;
                 """)
                 rows = cur.fetchall()
                 units: list[dict[str, Any]] = []
-                for unit_code, project_id, project_name, floor_number, unit_type, price, status in rows:
+                for (
+                    unit_code,
+                    project_id,
+                    project_name,
+                    floor_number,
+                    unit_type,
+                    price,
+                    status,
+                    area_m2,
+                    view,
+                ) in rows:
                     name = str(project_name or "").strip() or str(project_id or "")
                     if project_id:
                         _cached_db_project_names[str(project_id)] = name
@@ -146,6 +160,10 @@ def _fetch_db_units() -> list[dict[str, Any]]:
                             "project_name": name,
                             "floor": floor_number,
                             "bedrooms": BEDROOMS_BY_UNIT_TYPE.get(str(unit_type or "").upper(), 0),
+                            # Hai trường có thật trong DB từ đợt 20; dữ liệu cũ chưa điền thì để None
+                            # (hiển thị "—") — tuyệt đối không suy diễn lại theo loại căn.
+                            "area_m2": float(area_m2) if area_m2 else None,
+                            "view": str(view or "").strip() or None,
                             "listed_price_before_tax_vnd": price,
                             "status": status,
                         }

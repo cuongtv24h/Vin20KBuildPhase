@@ -411,6 +411,9 @@
       "id": "PA-05",
       "group": "phuong_an",
       "message": "Phương án nào phải nộp đợt 1 ít nhất?",
+      "context": {
+        "current_unit": "ZEN-A-1205"
+      },
       "any_tools": [
         "tinh_phuong_an_thanh_toan"
       ],
@@ -419,7 +422,7 @@
       "must_contain": [
         "đợt đầu"
       ],
-      "notes": "Đây là câu 'sale đang tư vấn gấp': phải nêu đích danh phương án có đợt đầu thấp nhất kèm số tiền."
+      "notes": "Đây là câu 'sale đang tư vấn gấp': phải nêu đích danh phương án có đợt đầu thấp nhất kèm số tiền. Câu hỏi không nêu mã căn nên chạy trong ngữ cảnh ĐANG mở một căn (current_unit) — đúng như lúc Sale đang tư vấn; hệ thống KHÔNG tự bịa mã căn khi ngữ cảnh trống (chốt đợt 20)."
     },
     {
       "id": "PA-06",

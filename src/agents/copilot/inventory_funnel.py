@@ -31,9 +31,9 @@ TABLE_HEADERS = ("Mã căn", "Dự án", "Phòng ngủ", "Diện tích", "Giá n
 
 #: Cột **mở rộng** — chỉ hiện ở màn hình rộng (PC ≥ 1280px). Giao diện nhận biết bằng dấu `*` ở cuối
 #: tiêu đề (xem `WIDE_COLUMN_MARK`) và ẩn cột đó ở màn hình nhỏ. Cột hẹp trên mobile nhờ vậy không bị bóp.
-#: Cột hướng: DB vận hành **chưa có** cột hướng; dữ liệu canonical chỉ có `view` (hướng nhìn).
-#: Vì vậy tiêu đề ghi rõ "Hướng / view" — không gán nhãn hướng cho một trường view.
-TABLE_HEADERS_WIDE = ("Tầng", "Hướng / view")
+#: Cột mở rộng thứ hai là **View** — đúng tên trường dữ liệu (`units.view`; dữ liệu canonical cũng dùng
+#: `view`), theo chốt đợt 20. Không gọi là "hướng" vì đây là hướng nhìn, không phải hướng ban công.
+TABLE_HEADERS_WIDE = ("Tầng", "View")
 
 #: Dấu đánh vào tiêu đề cột mở rộng — lớp hiển thị bóc dấu này trước khi in ra.
 WIDE_COLUMN_MARK = "*"
@@ -174,7 +174,7 @@ def units_table(units: list[dict[str, Any]]) -> str:
     """Bảng markdown giỏ hàng — **máy dựng**, không để LLM tự viết lại (chống lệch cột/mất cột).
 
     Cột cơ bản: Mã căn · Dự án · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế).
-    Cột mở rộng (PC rộng): Tầng · Hướng — tiêu đề mang dấu `*`, lớp hiển thị ẩn ở màn hình nhỏ.
+    Cột mở rộng (PC rộng): Tầng · View — tiêu đề mang dấu `*`, lớp hiển thị ẩn ở màn hình nhỏ.
     """
     if not units:
         return ""

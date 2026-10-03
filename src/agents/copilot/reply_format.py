@@ -19,6 +19,10 @@ Cách làm — cùng triết lý với `anchors.py` (P2.3): LLM chỉ lo **nội
 - `strip_internal_names()`: bỏ ngoặc chỉ chứa tham số nội bộ, bỏ `ten_tham_so = giá_trị`, đổi tên
   tool thành cách nói nghiệp vụ (`tinh_phuong_an_thanh_toan` → "phương án thanh toán chi tiết"),
   và dọn mọi `snake_case` còn sót.
+- `structure_sections()` (đợt 20): câu trả lời nhiều ý mà model viết liền một khối (kiểu "… em đã tính
+  3 phương án. **PA-CHUDONG:** … **PA-NHANH:** … **Khuyến nghị:** …") được tách thành **mục in đậm +
+  mỗi ý một dòng**, để Sale bấm "Copy cho khách" là gửi được ngay. Chỉ chạy khi văn bản **thật sự** có
+  nhãn mục; đoạn văn bình thường giữ nguyên (không tự biến mọi câu thành gạch đầu dòng).
 
 Vì sao không chỉ sửa prompt: prompt chỉ *giảm* xác suất, còn dữ liệu cũ đã lưu vẫn hỏng. Lớp này bảo
 đảm mọi câu trả lời (kể cả của model yếu) đều ra hình thức đọc được.
@@ -194,6 +198,10 @@ def normalize_markdown(text: str) -> str:
         return text
     lines = [_clean_line(line) for line in _split_tables(text).split("\n")]
 
+    # Câu trả lời nhiều ý → mục in đậm + mỗi ý một dòng (chốt đợt 20: sẵn sàng gửi khách).
+    # CHỈ tác động lên các đoạn văn xuôi: bảng, danh sách, tiêu đề do máy dựng phải giữ nguyên.
+    lines = _apply_sections(lines)
+
     collapsed: list[str] = []
     for line in _spaced_blocks(lines):
         if not line.strip():
@@ -203,6 +211,193 @@ def normalize_markdown(text: str) -> str:
         else:
             collapsed.append(line)
     return "\n".join(collapsed).strip("\n")
+
+
+# ─── 2b. Cấu trúc mục cho câu trả lời nhiều ý (sẵn sàng gửi khách) ────────────────
+
+#: Nhãn mục quen thuộc → tiêu đề in đậm. Dò trên bản "bỏ dấu" nên khớp cả khi model viết không dấu.
+SECTION_LABELS: tuple[tuple[str, str], ...] = (
+    ("phuong an", "PHƯƠNG ÁN"),
+    ("khuyen nghi", "KHUYẾN NGHỊ"),
+    ("luu y", "LƯU Ý"),
+    ("ket luan", "KẾT LUẬN"),
+    ("buoc tiep theo", "BƯỚC TIẾP THEO"),
+    ("ghi chu", "GHI CHÚ"),
+)
+
+#: Bảng bỏ dấu **giữ nguyên độ dài chuỗi** (mỗi ký tự tiếng Việt → một ký tự ASCII) để cắt văn bản gốc
+#: theo đúng vị trí tìm được trên bản bỏ dấu.
+_FOLD_TABLE = str.maketrans(
+    "àáảãạăằắẳẵặâầấẩẫậđèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵ",
+    "aaaaaaaaaaaaaaaaadeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyy",
+)
+
+#: Dấu nhãn mục: `**Khuyến nghị:**`, `Phương án:`, `_Lưu ý_ :`. Nhãn chỉ có hiệu lực khi theo sau là `:`.
+_SCAN_LABEL_RE = re.compile(r"(?:\*\*|__)?\s*([a-z0-9][a-z0-9 .,()+/\-]{1,39}?)\s*[:：]\s*(?:\*\*|__)?")
+
+#: Số ký tự tối thiểu của một câu để còn tách ý (câu cụt như "Vâng." không tạo gạch đầu dòng riêng).
+_MIN_BULLET_CHARS = 12
+
+
+def _fold(text: str) -> str:
+    """Bỏ dấu tiếng Việt, giữ nguyên độ dài — dùng để dò nhãn mà vẫn cắt được văn bản gốc."""
+    return str(text).lower().translate(_FOLD_TABLE)
+
+
+def _label_title(folded: str) -> str | None:
+    """Nhãn (đã bỏ dấu) → tiêu đề chuẩn, nếu nhãn nằm trong danh sách quen thuộc."""
+    head = folded.strip().rstrip(".").strip()
+    for key, title in SECTION_LABELS:
+        if head == key:
+            return title
+    return None
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Tách câu ở ranh giới `.`/`!`/`?` — không cắt ở số (`4.5 tỷ`, `31.8%`) hay viết tắt ngắn."""
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ỸĐ*\"“(])", text.strip())
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _is_plain_line(line: str) -> bool:
+    """Dòng văn xuôi (không phải bảng, danh sách, tiêu đề markdown, trích dẫn, code fence)."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith(("|", "#", ">", "```")) or _FENCE_RE.match(stripped):
+        return False
+    return not _is_list_line(stripped)
+
+
+def _markers(text: str) -> list[tuple[int, int, str, str]]:
+    """Dò mốc nhãn trong một đoạn văn → `(vị trí đầu, vị trí cuối, loại, tiêu đề)`.
+
+    - Loại `section` (`Phương án:`, `Khuyến nghị:`, `Lưu ý:`…) → tiêu đề mục in đậm.
+    - Loại `item` (nhãn in đậm kiểu `**PA-NHANH (Thanh toán nhanh):**`, hoặc mã `PA-…`) → ngắt dòng để
+      mỗi phương án nằm trên một dòng; nhãn được giữ nguyên trong dòng đó.
+    - Loại `text` là phần văn xuôi giữa các mốc (không do hàm này sinh ra).
+    """
+    folded = _fold(text)
+    found: list[tuple[int, int, str, str]] = []
+    for match in _SCAN_LABEL_RE.finditer(folded):
+        raw = text[match.start() : match.end()]
+        title = _label_title(match.group(1))
+        label = match.group(1).strip()
+        # Mốc Ý phải là NHÃN IN ĐẬM mở đầu một dòng/phương án (`**PA-NHANH (…):**`) và là nhãn phương án.
+        # Nhắc tới "PA-CHUDONG" giữa câu (ví dụ trong bảng/dòng kết quả của engine) KHÔNG phải mốc.
+        is_item = raw.lstrip().startswith(("**", "__")) and (
+            label.startswith("pa-") or label.startswith("phuong an")
+        )
+        if title is None and not is_item:
+            continue
+        if found and match.start() < found[-1][1]:
+            continue
+        found.append((match.start(), match.end(), "section" if title else "item", title or ""))
+    return found
+
+
+def _structure_run(lines: list[str]) -> list[str]:
+    """Cấu trúc một đoạn văn xuôi thành mục in đậm + mỗi ý một dòng.
+
+    Không có mốc nhãn nào ⇒ trả nguyên trạng (văn xuôi bình thường không bị biến thành gạch đầu dòng).
+    """
+    text = " ".join(line.strip() for line in lines if line.strip())
+    markers = _markers(text)
+    if not markers:
+        return lines
+
+    # 1) Cắt văn bản tại các mốc; chữ của mốc nằm trong chính khối của nó (giữ nguyên nhãn).
+    chunks: list[tuple[str, str, str]] = []  # (loại, nội dung, tiêu đề)
+    cursor = 0
+    for start, stop, kind, title in markers:
+        prefix = text[cursor:start].strip(" *_-")
+        if prefix:
+            chunks.append(("text", prefix, ""))
+        chunks.append((kind, text[start:stop], title))
+        cursor = stop
+    tail = text[cursor:].strip()
+    if tail:
+        chunks.append(("text", tail, ""))
+
+    # 2) Mỗi câu một dòng: mục in đậm mở tiêu đề; mốc Ý mở dòng mới và **hút luôn câu mô tả ngay sau
+    #    nó** để nhãn với nội dung nằm cùng một dòng; văn xuôi trước mốc đầu tiên giữ làm đoạn dẫn.
+    out: list[str] = []
+    intro: list[str] = []
+    seen_marker = False
+    pending_item: str | None = None
+    for kind, body, title in chunks:
+        if kind == "section":
+            seen_marker = True
+            if pending_item:
+                out.append(f"- {pending_item}")
+                pending_item = None
+            out.append("")
+            out.append(f"**{title}:**")
+            continue
+        if kind == "item":
+            seen_marker = True
+            if pending_item:
+                out.append(f"- {pending_item}")
+            pending_item = body.strip()
+            continue
+        sentences = _split_sentences(body)
+        if pending_item is not None:
+            if sentences:
+                out.append(f"- {pending_item} {sentences[0]}".rstrip())
+                pending_item = None
+                sentences = sentences[1:]
+            else:
+                continue
+        for sentence in sentences:
+            if not seen_marker:
+                intro.append(sentence)
+            else:
+                out.append(f"- {sentence}")
+    if pending_item:
+        out.append(f"- {pending_item}")
+
+    if intro:
+        out = [" ".join(intro), *out]
+    return out
+
+
+def _apply_sections(lines: list[str]) -> list[str]:
+    """Cấu trúc **từng đoạn văn xuôi** trong danh sách dòng; dòng đã có cấu trúc giữ nguyên.
+
+    Vì sao phải theo *đoạn* chứ không theo cả văn bản: phần kết quả của engine (`- PA-CHUDONG (…): giá Net …`)
+    là **danh sách do máy dựng** — gom cả văn bản lại để "cấu trúc" sẽ xoá sạch gạch đầu dòng và số liệu
+    xuống dòng của nó.
+    """
+    out: list[str] = []
+    run: list[str] = []
+    fence = False
+
+    def flush() -> None:
+        if run:
+            out.extend(_structure_run(run))
+            run.clear()
+
+    for line in lines:
+        if _FENCE_RE.match(line):
+            fence = not fence
+        if not fence and _is_plain_line(line):
+            run.append(line)
+            continue
+        flush()
+        out.append(line)
+    flush()
+    return out
+
+
+def structure_sections(text: str) -> str:
+    """Tách câu trả lời nhiều ý thành **mục in đậm + mỗi ý một dòng** (idempotent).
+
+    Chỉ áp cho các **đoạn văn xuôi** có nhãn mục (`Phương án:`, `Khuyến nghị:`, `Lưu ý:`…). Bảng, danh
+    sách và tiêu đề markdown đi qua nguyên vẹn — không phá bảng giỏ hàng do máy dựng ở bước sau.
+    """
+    if not text or not text.strip():
+        return text
+    return "\n".join(_apply_sections(text.split("\n")))
 
 
 # ─── 3. Không lộ tên nội bộ ────────────────────────────────────────────────────────
@@ -220,13 +415,10 @@ _TOOL_LABELS = {
 
 #: Mọi định danh snake_case (tham số, trường dữ liệu, tên tool).
 _SNAKE_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
-
 #: Ngoặc chỉ chứa tham số nội bộ → bỏ cả ngoặc (ví dụ `(gia_toi_da_vnd = 0, …)`).
 _PAREN_RE = re.compile(r"\([^()]*\)")
-
 #: `gia_toi_da_vnd = 0` còn sót ngoài ngoặc.
 _ASSIGN_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b\s*=\s*[^\s,;.)]+")
-
 #: Giới từ lơ lửng sau khi bỏ cụm nội bộ: "với ," → ",".
 _DANGLING_PREP_RE = re.compile(r"\b(với|theo|bằng|dùng|từ|do|qua|của|và)\s*([,.;:!?])")
 

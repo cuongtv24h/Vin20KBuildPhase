@@ -36,6 +36,9 @@ def _seed_units() -> list[UnitModel]:
                 listed_price_before_tax_vnd=3_000_000_000 + index * 150_000_000,
                 handover_date=date(2027, 12, 31),
                 status="AVAILABLE",
+                # Đợt 20: bảng `units` đã có diện tích + view; ca này kiểm chúng đi thẳng ra API.
+                area_m2=round(72.0 + (index % 5) * 0.5, 1),
+                view="View sông Sài Gòn",
             )
         )
     for index in range(20):  # 20 căn Sapphire, 2 căn đã bán
@@ -48,6 +51,10 @@ def _seed_units() -> list[UnitModel]:
                 listed_price_before_tax_vnd=5_000_000_000 + index * 180_000_000,
                 handover_date=date(2027, 12, 31),
                 status="SOLD" if index < 2 else "AVAILABLE",
+                # Cố ý để trống diện tích/view: ca này kiểm việc API trả 0/rỗng (UI in "—")
+                # thay vì suy diễn số theo loại căn.
+                area_m2=None,
+                view=None,
             )
         )
     return units
@@ -99,12 +106,25 @@ async def test_units_endpoint_scoped_by_project_uses_db(client, seeded_inventory
 
 @pytest.mark.asyncio
 async def test_units_payload_has_no_invented_area_or_project_name(client, seeded_inventory):
-    """Không suy diễn: DB không lưu diện tích ⇒ 0.0; tên dự án lấy từ bảng `projects`."""
+    """Không suy diễn: căn chưa điền diện tích/view ⇒ 0.0/rỗng; tên dự án lấy từ bảng `projects`."""
     response = await client.get("/api/v1/units", params={"project_id": "VLANDFUTURE_SAPPHIRE"})
     units = response.json()
     assert {u["project_name"] for u in units} == {"VLandFuture Sapphire"}
-    assert all(u["area_m2"] == 0.0 for u in units), "diện tích không có trong DB thì không được bịa"
-    assert all('Riverside' not in u["project_name"] for u in units)
+    assert all(u["area_m2"] == 0.0 for u in units), "chưa có số trong DB thì KHÔNG được suy diễn theo loại căn"
+    assert {u["view"] for u in units} == {""}
+    assert all("Riverside" not in u["project_name"] for u in units)
+
+
+@pytest.mark.asyncio
+async def test_units_payload_exposes_area_and_view_from_db(client, seeded_inventory):
+    """Đợt 20: căn đã có diện tích/view trong DB ⇒ API trả đúng số đó (không bịa, không bỏ trắng)."""
+    response = await client.get("/api/v1/units", params={"project_id": "THE_ZEN_PARK"})
+    units = response.json()
+    assert len(units) == 20
+    assert all(u["area_m2"] > 0 for u in units)
+    assert {u["view"] for u in units} == {"View sông Sài Gòn"}
+    first = next(u for u in units if u["unit_code"] == "ZEN-T-0001")
+    assert first["area_m2"] == 72.0
 
 
 @pytest.mark.asyncio
@@ -133,3 +153,39 @@ async def test_units_endpoint_falls_back_to_fixture_when_db_empty(client):
     response = await client.get("/api/v1/units", params={"project_id": "THE_ZEN_PARK"})
     assert response.status_code == 200
     assert {u["unit_code"] for u in response.json()} <= FIXTURE_CODES
+
+
+@pytest.mark.asyncio
+async def test_units_endpoint_falls_back_to_dash_when_area_or_view_empty(client):
+    """Căn chưa điền diện tích/view (DB cũ chưa migrate) ⇒ trả 0/rỗng để UI in "—", không bịa số."""
+    import uuid
+    from datetime import date as _date
+
+    code = f"NODATA-{uuid.uuid4().hex[:6]}"
+    async with async_test_session_factory() as session:
+        session.add(
+            UnitModel(
+                unit_code=code,
+                project_id="THE_ZEN_PARK",
+                unit_type="2BR",
+                floor_number=3,
+                listed_price_before_tax_vnd=4_000_000_000,
+                handover_date=_date(2027, 12, 31),
+                status="AVAILABLE",
+                area_m2=None,
+                view=None,
+            )
+        )
+        await session.commit()
+    try:
+        response = await client.get("/api/v1/units", params={"project_id": "THE_ZEN_PARK"})
+        assert response.status_code == 200
+        unit = next(u for u in response.json() if u["unit_code"] == code)
+        assert unit["area_m2"] == 0.0
+        assert unit["view"] == ""
+    finally:
+        async with async_test_session_factory() as session:
+            row = await session.get(UnitModel, code)
+            if row is not None:
+                await session.delete(row)
+                await session.commit()

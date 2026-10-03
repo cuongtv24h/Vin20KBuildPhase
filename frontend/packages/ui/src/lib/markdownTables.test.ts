@@ -64,11 +64,11 @@ describe('ô bảng', () => {
 describe('cột mở rộng cho màn hình rộng', () => {
   it('nhận diện và bóc dấu * của cột mở rộng', () => {
     expect(isWideColumn('Tầng*')).toBe(true)
-    expect(isWideColumn('Hướng / view*')).toBe(true)
+    expect(isWideColumn('View*')).toBe(true)
     expect(isWideColumn('Mã căn')).toBe(false)
     expect(isWideColumn('Dự án')).toBe(false)
     expect(stripColumnMark('Tầng*')).toBe('Tầng')
-    expect(stripColumnMark('Hướng / view*')).toBe('Hướng / view')
+    expect(stripColumnMark('View*')).toBe('View')
     expect(stripColumnMark('Mã căn')).toBe('Mã căn')
   })
 

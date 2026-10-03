@@ -99,7 +99,7 @@ def _units(n: int) -> list[dict]:
 
 #: Tiêu đề bảng giỏ hàng theo chốt R19: 5 cột cơ bản + 2 cột mở rộng (đánh dấu `*`, chỉ hiện ở PC rộng).
 BASKET_HEADER = (
-    "| Mã căn | Dự án | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) | Tầng* | Hướng / view* |"
+    "| Mã căn | Dự án | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) | Tầng* | View* |"
 )
 
 
@@ -115,7 +115,7 @@ def test_table_has_project_and_bedroom_columns_in_data_rows() -> None:
     rendered = inventory_funnel.render_matches(_units(2))
     header_cells = [c.strip() for c in rendered.splitlines()[0].strip("|").split("|")]
     assert header_cells[:5] == ["Mã căn", "Dự án", "Phòng ngủ", "Diện tích", "Giá niêm yết (trước thuế)"]
-    assert header_cells[5:] == ["Tầng*", "Hướng / view*"], "cột mở rộng phải mang dấu *"
+    assert header_cells[5:] == ["Tầng*", "View*"], "cột mở rộng phải mang dấu *"
     row_cells = [c.strip() for c in rendered.splitlines()[3].strip("|").split("|")]
     assert len(row_cells) == len(header_cells), "mọi hàng đúng số cột của tiêu đề (chống lệch bảng)"
     assert row_cells[1] == "The Zen Park", "cột Dự án lấy tên dự án thật, không để trống"

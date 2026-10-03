@@ -100,27 +100,38 @@ def strip_command_mentions(text: str) -> str:
     - Câu chỉ dẫn UI ("Anh/chị gõ /chinh-sach để tra cứu") → bỏ cả câu.
     - Câu nghiệp vụ có nhắc lệnh lẫn trong ngoặc → chỉ bóc token, giữ nội dung.
     - An toàn với "Anh/chị", "km/h", "/api/v1" (chỉ bóc token có trong danh mục).
+    - **Giữ nguyên cấu trúc dòng** (đợt 20): bảng, gạch đầu dòng và mục in đậm không bị dồn thành một
+      đoạn chữ. Trước đây hàm gom cả câu trả lời theo dấu câu rồi nối bằng khoảng trắng, nên mọi câu
+      trả lời có chữ "anh/chị" (tức gần như mọi câu) đều mất hết dòng: kết quả engine 3 phương án thành
+      một khối chữ khó đọc, đúng lỗi hình thức người dùng báo.
     """
     if not text or "/" not in text:
         return text
 
-    kept: list[str] = []
-    for sentence in _SENTENCE_SPLIT_RE.split(text):
-        raw_sentence = sentence.strip()
-        if not raw_sentence:
+    out: list[str] = []
+    for line in text.split("\n"):
+        # Dòng không nhắc lệnh (bảng, danh sách, tiêu đề…) đi qua nguyên vẹn.
+        if not line.strip() or not _SLASH_TOKEN_RE.search(line) and not _INLINE_CMD_RE.search(line):
+            out.append(line)
             continue
-        if _INSTRUCTION_RE.search(raw_sentence):
-            continue  # câu chỉ để dạy bấm lệnh — không phải nội dung trả lời
-        cleaned = _clean_sentence(raw_sentence)
-        # Câu bị bóc lệnh mà teo lại thành mảnh vô nghĩa ("Xem.") → bỏ luôn.
-        if cleaned and (cleaned == raw_sentence or len(cleaned.split()) >= 3):
-            kept.append(cleaned)
+        kept: list[str] = []
+        for sentence in _SENTENCE_SPLIT_RE.split(line):
+            raw_sentence = sentence.strip()
+            if not raw_sentence:
+                continue
+            if _INSTRUCTION_RE.search(raw_sentence):
+                continue  # câu chỉ để dạy bấm lệnh — không phải nội dung trả lời
+            cleaned = _clean_sentence(raw_sentence)
+            # Câu bị bóc lệnh mà teo lại thành mảnh vô nghĩa ("Xem.") → bỏ luôn.
+            if cleaned and (cleaned == raw_sentence or len(cleaned.split()) >= 3):
+                kept.append(cleaned)
+        cleaned_line = re.sub(r"\s{2,}", " ", " ".join(kept).strip())
+        if cleaned_line and not cleaned_line.endswith(("|", ".", "!", "?", "_", ")", "”")):
+            cleaned_line += "."
+        out.append(cleaned_line)
 
-    cleaned_text = " ".join(kept).strip()
-    cleaned_text = re.sub(r"\s{2,}", " ", cleaned_text)
-    if cleaned_text and not cleaned_text.endswith((".", "!", "?", "_", ")", "”")):
-        cleaned_text += "."
-    return cleaned_text
+    result = "\n".join(out).strip("\n")
+    return result if result.strip() else ""
 
 
 def sanitize_history(history: list[dict[str, str]] | None) -> list[dict[str, str]]:

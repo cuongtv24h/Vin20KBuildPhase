@@ -81,7 +81,7 @@ def test_units_listing_has_basket_table_from_the_machine() -> None:
     )}
     table = graph._units_table_from_observations([observation])
     assert table.splitlines()[0] == (
-        "| Mã căn | Dự án | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) | Tầng* | Hướng / view* |"
+        "| Mã căn | Dự án | Phòng ngủ | Diện tích | Giá niêm yết (trước thuế) | Tầng* | View* |"
     )
 
 

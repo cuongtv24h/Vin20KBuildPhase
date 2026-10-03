@@ -193,6 +193,12 @@ class UnitModel(Base):
     listed_price_before_tax_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
     handover_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="AVAILABLE", index=True)
+    #: Diện tích thông thuỷ (m²). Chốt đợt 20: DB vận hành thiếu cột này nên mọi câu trả lời phải in "—"
+    #: hoặc suy diễn theo loại căn. Nay là dữ liệu thật của căn (script `migrate_units_area_view.py` sinh
+    #: giá trị ban đầu cho các căn cũ, sau đó cập nhật trực tiếp khi có số chính thức).
+    area_m2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Hướng nhìn / view của căn. Tên cột `view` theo chốt đợt 20 — khớp trường `view` của dữ liệu canonical.
+    view: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     project: Mapped[ProjectModel] = relationship("ProjectModel", back_populates="units")
 

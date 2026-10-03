@@ -5,7 +5,14 @@ Bối cảnh: bản cũ cộng thẳng hai nguồn nên giỏ hàng báo 40 căn
 
 from __future__ import annotations
 
-from src.contracts.units import BEDROOMS_BY_UNIT_TYPE, merge_units
+from src.contracts.units import (
+    AREA_BY_UNIT_TYPE,
+    BEDROOMS_BY_UNIT_TYPE,
+    DEFAULT_VIEW,
+    merge_units,
+    suggest_area_m2,
+    suggest_view,
+)
 
 
 def _unit(code: str, project_id: str, project_name: str = "") -> dict:
@@ -61,3 +68,42 @@ def test_bedroom_map_covers_every_unit_type_used_in_db() -> None:
         "4BR": 4,
         "SHOPHOUSE": 0,
     }
+
+
+# ─── Sinh diện tích / view cho dữ liệu chưa có (đợt 20) ────────────────────────────
+
+
+def test_suggested_area_is_deterministic_and_near_type_baseline() -> None:
+    """Cùng một căn luôn ra cùng con số (chạy lại script không đổi số), và bám sát mức của loại căn."""
+    first = suggest_area_m2("2BR", 11, "ZEN-A-1101")
+    assert first == suggest_area_m2("2BR", 11, "ZEN-A-1101")
+    assert abs(first - AREA_BY_UNIT_TYPE["2BR"]) <= 1.0, "dao động tối đa ±1m² quanh mức loại căn"
+
+
+def test_suggested_area_separates_unit_types() -> None:
+    """Studio/1PN/2PN/3PN phải ra các mức khác nhau — không dùng chung một số cho mọi loại."""
+    values = {t: suggest_area_m2(t, 10, f"X-{t}") for t in ("STUDIO", "1BR", "2BR", "3BR")}
+    assert values["STUDIO"] < values["1BR"] < values["2BR"] < values["3BR"]
+
+
+def test_suggested_area_handles_unknown_and_missing_type() -> None:
+    """Loại căn lạ/None ⇒ dùng mức trung tính 70m² (±1m²), không vỡ và không trả 0."""
+    assert abs(suggest_area_m2(None, None, "") - 70.0) <= 1.0
+    assert suggest_area_m2("Loai-La", 3, "X-01") > 0
+
+
+def test_suggested_view_follows_tower_prefix() -> None:
+    assert suggest_view("R-02.02") == "View sông Sài Gòn"
+    assert suggest_view("G-03.02") == "View công viên & hồ cảnh quan"
+    assert suggest_view("SH-01.01") == "Mặt tiền đại lộ thương mại"
+    assert suggest_view("ZEN-A-1101") == DEFAULT_VIEW, "không khớp quy ước tháp ⇒ view nội khu"
+
+
+def test_unit_model_has_area_and_view_columns() -> None:
+    """Chốt đợt 20: 2 cột phải có trong model + metadata để migration/seed ghi được."""
+    from src.db.models import UnitModel
+
+    columns = set(UnitModel.__table__.columns.keys())
+    assert {"area_m2", "view"} <= columns
+    assert UnitModel.__table__.columns["area_m2"].nullable is True
+    assert UnitModel.__table__.columns["view"].nullable is True
