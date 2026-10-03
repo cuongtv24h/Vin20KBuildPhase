@@ -1293,6 +1293,9 @@ dòng" mà người dùng thấy.
 - Hàm chỉ tác động lên **đoạn văn xuôi** (`_apply_sections` theo từng run dòng): bảng, danh sách và kết quả
   engine do máy dựng **không bị viết lại**; văn xuôi không có nhãn mục giữ nguyên (không biến mọi câu thành
   gạch đầu dòng).
+- Sửa tiếp một ca biên phát hiện khi thử: đoạn dẫn kết thúc bằng `:` có thể "nuốt" cặp `**` mở đầu của nhãn
+  kế tiếp ⇒ `**PA-NHANH:**` bị coi là nhãn trần và **không tách dòng**. Nay nhận diện in đậm bằng **văn bản
+  gốc** (`_starts_bold`) và mốc lấy lại cặp `**` của chính nó, nên nhãn phương án luôn tách dòng và giữ in đậm.
 - Lớp tool bớt chữ nội bộ: `Phương án thanh toán cho căn … (ưu tiên ít vốn ban đầu nhất):` thay cho
   `objective MIN_INITIAL_CASH`; dòng "Sanity 6 kiểm tra kế toán" đổi thành câu nghiệp vụ.
 

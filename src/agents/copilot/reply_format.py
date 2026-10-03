@@ -269,6 +269,19 @@ def _is_plain_line(line: str) -> bool:
     return not _is_list_line(stripped)
 
 
+def _starts_bold(text: str, label_start: int) -> bool:
+    """Nhãn có được mở bằng `**`/`__` ngay trước nó không (bỏ qua khoảng trắng)?
+
+    Phải nhìn **văn bản gốc** thay vì dựa vào kết quả regex: một nhãn trần kết thúc bằng `:` (ví dụ đoạn
+    dẫn "… em đã tính 3 phương án thanh toán:") có thể "nuốt" cặp `**` mở đầu của nhãn kế tiếp, khiến
+    `**PA-NHANH:**` bị coi là nhãn thường và không được tách dòng.
+    """
+    i = label_start
+    while i > 0 and text[i - 1] in " \t":
+        i -= 1
+    return text[max(0, i - 2) : i] in ("**", "__")
+
+
 def _markers(text: str) -> list[tuple[int, int, str, str]]:
     """Dò mốc nhãn trong một đoạn văn → `(vị trí đầu, vị trí cuối, loại, tiêu đề)`.
 
@@ -280,19 +293,26 @@ def _markers(text: str) -> list[tuple[int, int, str, str]]:
     folded = _fold(text)
     found: list[tuple[int, int, str, str]] = []
     for match in _SCAN_LABEL_RE.finditer(folded):
-        raw = text[match.start() : match.end()]
         title = _label_title(match.group(1))
         label = match.group(1).strip()
+        # Mở rộng mốc về bên trái để **lấy lại cặp `**` mở đầu** nếu nhãn trần phía trước đã "nuốt" nó —
+        # nhờ vậy dòng phương án vẫn giữ nguyên in đậm như văn bản gốc.
+        start = match.start()
+        probe = start
+        while probe > 0 and text[probe - 1] in " \t":
+            probe -= 1
+        if text[max(0, probe - 2) : probe] in ("**", "__"):
+            start = max(0, probe - 2)
         # Mốc Ý phải là NHÃN IN ĐẬM mở đầu một dòng/phương án (`**PA-NHANH (…):**`) và là nhãn phương án.
         # Nhắc tới "PA-CHUDONG" giữa câu (ví dụ trong bảng/dòng kết quả của engine) KHÔNG phải mốc.
-        is_item = raw.lstrip().startswith(("**", "__")) and (
+        is_item = _starts_bold(text, match.start(1)) and (
             label.startswith("pa-") or label.startswith("phuong an")
         )
         if title is None and not is_item:
             continue
         if found and match.start() < found[-1][1]:
             continue
-        found.append((match.start(), match.end(), "section" if title else "item", title or ""))
+        found.append((start, match.end(), "section" if title else "item", title or ""))
     return found
 
 

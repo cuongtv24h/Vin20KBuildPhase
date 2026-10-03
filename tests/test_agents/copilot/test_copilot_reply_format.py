@@ -222,3 +222,21 @@ def test_tables_and_lists_inside_reply_survive_structuring() -> None:
     out = reply_format.structure_sections(f"{body}\n\n**Lưu ý:** giá chưa gồm VAT.")
     assert "| Mã căn | Giá |" in out
     assert "\n**LƯU Ý:**\n" in out
+
+
+def test_items_split_when_intro_ends_with_colon() -> None:
+    """Ca thật: đoạn dẫn kết thúc bằng `:` — nhãn `**PA-…:**` ngay sau đó vẫn phải tách dòng và giữ in đậm.
+
+    Regression: nhãn trần phía trước có thể "nuốt" cặp `**` mở đầu của nhãn kế tiếp, làm dòng phương án
+    mất dấu in đậm (và trước đó là không tách dòng).
+    """
+    text = (
+        "Với căn **ZEN-A-1205** và vốn tự có **2 tỷ**, em đã tính 3 phương án thanh toán: "
+        "**PA-CHUDONG (Chủ động):** Trả 100% bằng vốn tự có nên chưa khả thi. "
+        "**PA-NHANH (Thanh toán sớm — chiết khấu 8%):** Cần tối thiểu **1,26 tỷ**, anh/chị **thừa 740 triệu**. "
+        "**Khuyến nghị:** Chọn PA-NHANH nếu muốn hưởng chiết khấu."
+    )
+    out = reply_format.normalize_markdown(text)
+    assert "\n- **PA-CHUDONG (Chủ động):**" in out
+    assert "\n- **PA-NHANH (Thanh toán sớm — chiết khấu 8%):**" in out
+    assert reply_format.normalize_markdown(out) == out
