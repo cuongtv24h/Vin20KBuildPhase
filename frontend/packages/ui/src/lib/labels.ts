@@ -85,7 +85,7 @@ export const SCENARIO_LABEL: Record<ScenarioCode, string> = {
 
 export const AGENT_STEP_LABEL: Record<AgentStep, string> = {
   POLICY_LOOKUP: 'Tra cứu chính sách theo ngày giao dịch',
-  VECTOR_RETRIEVAL: 'Đối chiếu điều khoản & kiểm tra xung đột',
+  VECTOR_RETRIEVAL: 'Đối chiếu điều khoản và kiểm tra xung đột',
   DETERMINISTIC_CALCULATION: 'Tính 3 phương án thanh toán',
 }
 
@@ -126,7 +126,7 @@ export const AUDIT_EVENT_LABEL: Record<QuoteAuditEvent['event_type'], string> = 
   ANALYSIS_COMPLETED: 'Hoàn tất phân tích',
   ESCALATED: 'Chuyển thẩm định ngoại lệ',
   SUBMITTED: 'Gửi Quản lý duyệt',
-  APPROVED: 'Phê duyệt & ký số',
+  APPROVED: 'Phê duyệt và ký số',
   REJECTED: 'Từ chối',
   REVISION_REQUESTED: 'Yêu cầu chỉnh sửa',
   VERSION_CREATED: 'Tạo phiên bản mới',

@@ -1,48 +1,127 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * DESIGN TOKENS — "Luxury black" (PricePolicy · VLandFuture)
+ * Nguồn sự thật duy nhất cho màu/bo góc/đổ bóng. Component chỉ dùng tên token Tailwind
+ * (bg-card, text-muted-foreground, bg-primary, text-success…), KHÔNG hard-code màu.
+ * Giá trị là bộ ba HSL "H S% L%" để Tailwind ghép được độ trong suốt (bg-primary/15).
+ * Mặc định tối; chế độ sáng bật bằng <html data-theme="light"> (xem lib/theme.ts).
+ *
+ *   Hex tham chiếu (dark): sâu #0A0A0B · nền #121214 · card #1A1A1D · nổi #222226
+ *   chữ #F5F5F4 · chữ phụ #A1A1AA · nhấn champagne #C9A961 (hover #D8BC7A)
+ */
 @layer base {
-  :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+  :root,
+  [data-theme='dark'] {
+    color-scheme: dark;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    /* Bề mặt */
+    --background: 240 5% 7%; /* #121214 */
+    --foreground: 60 5% 96%; /* #F5F5F4 */
+    --card: 240 5% 10%; /* #1A1A1D */
+    --card-foreground: 60 5% 96%;
+    --popover: 240 5% 11%;
+    --popover-foreground: 60 5% 96%;
+    --secondary: 240 5% 14%; /* #222226 */
+    --secondary-foreground: 60 5% 96%;
+    --muted: 240 5% 14%;
+    --muted-foreground: 240 5% 65%; /* #A1A1AA — 7.3:1 trên #121214 */
+    --accent: 240 5% 15%; /* nền hover/được chọn: sáng hơn bề mặt một bậc */
+    --accent-foreground: 60 5% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    /* Màu nhấn duy nhất: vàng champagne */
+    --primary: 42 49% 58%; /* #C9A961 */
+    --primary-hover: 42 55% 67%; /* #D8BC7A */
+    --primary-foreground: 240 5% 4%; /* chữ đen trên nền vàng: 9.6:1 */
+    --gold: 42 49% 58%; /* dạng "chữ vàng" (tối hơn ở chế độ sáng để đủ tương phản) */
+    --gold-foreground: 240 5% 4%;
+    --ring: 42 49% 58%;
 
-    --primary: 222 76% 27%;
-    --primary-foreground: 210 40% 98%;
+    /* Trạng thái (giảm bão hòa cho nền đen) */
+    --success: 142 69% 58%; /* #4ADE80 */
+    --success-foreground: 240 5% 4%;
+    --warning: 38 90% 61%; /* #F5B544 */
+    --warning-foreground: 240 5% 4%;
+    --warning-ink: 38 90% 68%; /* chữ trên nền warning mờ (bg-warning/10) */
+    --destructive: 0 91% 71%; /* #F87171 */
+    --destructive-foreground: 240 5% 4%;
+    --info: 213 70% 72%;
+    --info-foreground: 240 5% 4%;
 
-    --secondary: 210 40% 95%;
-    --secondary-foreground: 222 47% 11%;
+    /* Viền mảnh ≈ rgba(255,255,255,.08) trên #121214 */
+    --border: 240 4% 16%;
+    --input: 240 4% 20%;
 
-    --muted: 210 30% 95%;
-    --muted-foreground: 215 16% 42%;
+    /* Sidebar / màn hình đăng nhập: nền sâu nhất (đổi theo theme, kể cả cột trái đăng nhập) */
+    --sidebar: 240 5% 4%; /* #0A0A0B */
+    --sidebar-foreground: 60 5% 96%;
+    --sidebar-muted: 240 5% 65%;
+    --sidebar-border: 240 4% 14%;
+    --sidebar-active: 240 5% 12%;
 
-    --accent: 214 60% 94%;
-    --accent-foreground: 222 76% 27%;
+    /* Bo góc: lg = nút/input, 2xl = card */
+    --radius: 0.625rem;
 
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
+    --shadow-sm: none;
+    --shadow: 0 1px 0 0 hsl(0 0% 100% / 0.03) inset;
+    --shadow-md: 0 4px 16px -4px hsl(0 0% 0% / 0.5);
+    --shadow-lg: 0 12px 32px -8px hsl(0 0% 0% / 0.6);
+    --shadow-xl: 0 20px 48px -12px hsl(0 0% 0% / 0.7);
+    --glow-gold: 0 0 0 1px hsl(var(--primary) / 0.35), 0 0 24px -6px hsl(var(--primary) / 0.25);
+  }
 
-    --success: 152 60% 32%;
-    --success-foreground: 210 40% 98%;
+  :root[data-theme='light'] {
+    color-scheme: light;
 
-    --warning: 38 92% 45%;
-    --warning-foreground: 30 40% 12%;
+    /* Light "ivory & champagne": nền ngà ấm thay vì trắng lạnh, viền be, chữ đen ấm */
+    --background: 40 33% 96%; /* #F8F5EE */
+    --foreground: 30 10% 9%;
+    --card: 40 45% 99%;
+    --card-foreground: 30 10% 9%;
+    --popover: 40 45% 99%;
+    --popover-foreground: 30 10% 9%;
+    --secondary: 40 24% 91%;
+    --secondary-foreground: 30 10% 9%;
+    --muted: 40 24% 91%;
+    --muted-foreground: 35 8% 35%;
+    --accent: 42 48% 89%;
+    --accent-foreground: 30 10% 9%;
 
-    --gold: 38 78% 49%;
-    --gold-foreground: 30 50% 12%;
+    --primary: 42 48% 45%; /* #A8873A */
+    --primary-hover: 42 48% 40%;
+    --primary-foreground: 240 6% 10%; /* chữ đen trên vàng đậm: 5.2:1 */
+    --gold: 40 62% 30%; /* chữ vàng trên nền sáng: ≥ 6:1 */
+    --gold-foreground: 0 0% 100%;
+    --ring: 42 48% 45%;
 
-    --border: 214 25% 88%;
-    --input: 214 25% 88%;
-    --ring: 222 76% 27%;
+    --success: 152 62% 26%;
+    --success-foreground: 0 0% 100%;
+    --warning: 32 92% 30%;
+    --warning-foreground: 0 0% 100%;
+    --warning-ink: 32 92% 26%;
+    --destructive: 0 70% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --info: 213 70% 36%;
+    --info-foreground: 0 0% 100%;
 
-    --radius: 0.75rem;
+    --border: 38 22% 84%;
+    --input: 38 18% 75%;
+
+    /* Sidebar đổi theo chế độ: sáng ở light, đen ở dark */
+    --sidebar: 40 36% 92%; /* #F2EDE0 */
+    --sidebar-foreground: 30 10% 9%;
+    --sidebar-muted: 35 8% 33%;
+    --sidebar-border: 38 25% 82%;
+    --sidebar-active: 41 50% 86%;
+
+    --shadow-sm: 0 1px 2px 0 hsl(240 6% 10% / 0.05);
+    --shadow: 0 1px 3px 0 hsl(240 6% 10% / 0.08);
+    --shadow-md: 0 4px 12px -2px hsl(240 6% 10% / 0.1);
+    --shadow-lg: 0 12px 28px -8px hsl(240 6% 10% / 0.18);
+    --shadow-xl: 0 20px 44px -12px hsl(240 6% 10% / 0.25);
+    --glow-gold: 0 0 0 1px hsl(var(--primary) / 0.4), 0 0 20px -6px hsl(var(--primary) / 0.3);
   }
 }
 
@@ -54,6 +133,7 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -63,11 +143,61 @@
   }
 
   ::selection {
-    @apply bg-primary/15;
+    @apply bg-primary/30 text-foreground;
+  }
+
+  /* Một bộ icon duy nhất (lucide), nét mảnh 1.5px */
+  svg.lucide {
+    stroke-width: 1.5;
+  }
+
+  /* Thanh cuộn mảnh, hợp nền tối */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+
+  /* Focus-visible thống nhất toàn app: vòng vàng champagne */
+  :where(a, button, [role='button'], [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Nhãn viết hoa nhỏ — tăng letter-spacing nhẹ */
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground;
   }
 }
 
 @layer utilities {
+  /* Nhãn sidebar mờ dần khi thu gọn (kèm chuyển động độ rộng của aside) */
+  .sb-label {
+    transition: opacity 150ms ease-out;
+  }
+  [data-collapsed='true'] .sb-label {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* Con trỏ nhấp nháy khi trợ lý đang trả lời (streaming) */
+  .stream-caret::after {
+    content: '';
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 3px;
+    vertical-align: text-bottom;
+    background: hsl(var(--primary));
+    animation: caret-blink 1s steps(1) infinite;
+  }
+  @keyframes caret-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
@@ -78,5 +208,21 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Ánh vàng mờ ở viền khi hover/focus (dùng tiết kiệm) */
+  .glow-gold {
+    box-shadow: var(--glow-gold);
+  }
+}
+
+/* Tôn trọng người dùng giảm chuyển động */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

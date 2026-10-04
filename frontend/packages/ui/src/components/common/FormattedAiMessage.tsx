@@ -1,3 +1,4 @@
+import { Zap } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { cn } from '@pricepolicy/ui/lib/utils'
 import {
@@ -221,7 +222,7 @@ function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNo
     case 'table': {
       return (
         <div key={key} className="my-2.5 overflow-x-auto rounded-lg border border-border bg-card/60 shadow-xs">
-          <table className="w-full border-collapse text-[11px]">
+          <table className="w-full border-collapse text-xs">
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left font-semibold text-muted-foreground">
                 {block.headers.map((h, hi) => (
@@ -268,7 +269,7 @@ function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNo
       return (
         <blockquote
           key={key}
-          className="my-2 rounded-r-md border-l-2 border-primary bg-primary/[0.04] px-3 py-1.5 text-[11px] text-muted-foreground italic"
+          className="my-2 rounded-r-md border-l-2 border-primary bg-primary/[0.04] px-3 py-1.5 text-xs text-muted-foreground italic"
         >
           {render(block.text)}
         </blockquote>
@@ -293,7 +294,7 @@ function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNo
         <ol key={key} className="my-1.5 space-y-1.5 pl-0.5">
           {block.items.map((item, ii) => (
             <li key={ii} className="flex items-start gap-2 leading-relaxed">
-              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[9.5px] font-bold text-primary mt-0.5">
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary mt-0.5">
                 {item.num}
               </span>
               <div className="flex-1">{render(item.text)}</div>
@@ -372,7 +373,7 @@ function renderInlineText(
     if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
       const inner = part.slice(1, -1)
       return (
-        <code key={index} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-primary">
+        <code key={index} className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-primary">
           {inner}
         </code>
       )
@@ -390,7 +391,7 @@ function renderInlineText(
           onClick={() => onAnchorClick?.({ index, label: meta?.label })}
           title={meta?.label ? `Mở căn cứ: ${meta.label}` : `Mở căn cứ [${index}]`}
           aria-label={meta?.label ? `Mở căn cứ: ${meta.label}` : `Mở căn cứ số ${index}`}
-          className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-1 align-super text-[9.5px] font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+          className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-1 align-super text-xs font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
         >
           {index}
         </button>
@@ -405,9 +406,9 @@ function renderInlineText(
           type="button"
           onClick={() => onCommandClick?.(part)}
           title={`Bấm để dùng lệnh ${part}`}
-          className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 font-mono text-[11px] font-semibold transition-colors cursor-pointer select-none"
+          className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 font-mono text-xs font-semibold transition-colors cursor-pointer select-none"
         >
-          <span>⚡</span>
+          <Zap className="h-3 w-3" aria-hidden="true" />
           <span>{part}</span>
         </button>
       )

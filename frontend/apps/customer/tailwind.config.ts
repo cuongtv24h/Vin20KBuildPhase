@@ -71,6 +71,7 @@ export default {
         warning: {
           DEFAULT: 'hsl(var(--warning))',
           foreground: 'hsl(var(--warning-foreground))',
+          ink: 'hsl(var(--warning-ink))',
         },
         gold: {
           DEFAULT: 'hsl(var(--gold))',

@@ -5,9 +5,9 @@ import { cn } from '@pricepolicy/ui/lib/utils'
 const alertVariants = cva('relative w-full rounded-lg border p-4 [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:h-5 [&>svg]:w-5 [&>svg+div]:translate-y-[-1px] [&:has(svg)]:pl-11', {
   variants: {
     variant: {
-      default: 'bg-background text-foreground border-border',
+      default: 'bg-card text-foreground border-border',
       destructive: 'border-destructive/40 bg-destructive/5 text-destructive [&>svg]:text-destructive',
-      warning: 'border-warning/40 bg-warning/10 text-warning-foreground [&>svg]:text-warning',
+      warning: 'border-warning/40 bg-warning/10 text-warning-ink [&>svg]:text-warning',
       success: 'border-success/40 bg-success/10 text-success [&>svg]:text-success',
       info: 'border-primary/30 bg-primary/5 text-primary [&>svg]:text-primary',
     },

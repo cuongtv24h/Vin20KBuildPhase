@@ -9,11 +9,31 @@ import { PdfStatusBadge, QuoteStatusBadge } from '@pricepolicy/ui/components/com
 import { Alert, AlertDescription, AlertTitle } from '@pricepolicy/ui/components/ui/alert'
 import { Card, CardContent, CardHeader, CardTitle } from '@pricepolicy/ui/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pricepolicy/ui/components/ui/select'
-import { formatDate, formatDateTime, truncateHash } from '@pricepolicy/ui/lib/format'
+import { formatDate, formatDateTime, maskPhone, truncateHash } from '@pricepolicy/ui/lib/format'
 import { AUDIT_EVENT_LABEL, OBJECTIVE_LABEL, QUOTE_STATUS_LABEL, ROLE_LABEL, SEGMENT_LABEL } from '@pricepolicy/ui/lib/labels'
 import { isLatest } from '@pricepolicy/ui/lib/quoteRules'
 import { ClaimRow } from '@pricepolicy/ui/components/quote/Evidence'
 import { useOpenEvidence } from '@pricepolicy/ui/components/quote/evidenceContext'
+
+const hasText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '' && v.trim() !== '—'
+
+function NotUpdated() {
+  return <span className="font-normal text-muted-foreground/70">Chưa cập nhật</span>
+}
+
+/** "ZEN-A-1205 · Dự án" — chỉ hiện một lần nếu tên dự án trống hoặc trùng mã căn. */
+function unitLabel(unit: Quote['unit']): string {
+  const project = hasText(unit.project_name) && unit.project_name.trim() !== unit.unit_code ? unit.project_name.trim() : ''
+  return project ? `${unit.unit_code} · ${project}` : unit.unit_code
+}
+
+/** "2PN · 68 m²" — bỏ phần thiếu dữ liệu (0/null/rỗng). */
+function unitSpecs(unit: Quote['unit']): string {
+  const parts: string[] = []
+  if (Number(unit.bedrooms) > 0) parts.push(`${unit.bedrooms}PN`)
+  if (Number(unit.area_m2) > 0) parts.push(`${unit.area_m2} m²`)
+  return parts.join(' · ')
+}
 
 export function QuoteHeader({
   quote,
@@ -59,10 +79,11 @@ export function QuoteHeader({
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
-              <UserRound className="h-3.5 w-3.5" /> {quote.transaction_context.customer_name}
+              <UserRound className="h-3.5 w-3.5" />{' '}
+              {hasText(quote.transaction_context.customer_name) ? quote.transaction_context.customer_name : <NotUpdated />}
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <Building2 className="h-3.5 w-3.5" /> {quote.unit.unit_code} · {quote.unit.project_name}
+              <Building2 className="h-3.5 w-3.5" /> {unitLabel(quote.unit)}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <CalendarDays className="h-3.5 w-3.5" /> {formatDateTime(quote.updated_at)}
@@ -110,16 +131,17 @@ export function ContextCard({ quote }: { quote: Quote }) {
         <CardTitle className="text-sm">Thông tin giao dịch</CardTitle>
       </CardHeader>
       <CardContent className="divide-y divide-border">
-        <Row label="Khách hàng">{c.customer_name}</Row>
-        <Row label="Điện thoại">{c.customer_phone}</Row>
+        <Row label="Khách hàng">{hasText(c.customer_name) ? c.customer_name : <NotUpdated />}</Row>
+        <Row label="Điện thoại">{hasText(c.customer_phone) ? maskPhone(c.customer_phone) : <NotUpdated />}</Row>
         <Row label="Phân khúc">{SEGMENT_LABEL[c.customer_segment]}</Row>
         <Row label="Căn hộ">
-          {quote.unit.unit_code} · {quote.unit.bedrooms}PN · {quote.unit.area_m2} m²
+          {[quote.unit.unit_code, unitSpecs(quote.unit) || null].filter(Boolean).join(' · ')}
+          {!unitSpecs(quote.unit) && <span className="ml-1 font-normal text-muted-foreground/70">(Chưa có dữ liệu)</span>}
         </Row>
         <Row label="Giá niêm yết">
           <MoneyText amount={quote.unit.listed_price_before_tax_vnd} size="sm" />
         </Row>
-        <Row label="Ngày giao dịch">{c.transaction_date ? formatDate(c.transaction_date) : '—'}</Row>
+        <Row label="Ngày giao dịch">{c.transaction_date ? formatDate(c.transaction_date) : <NotUpdated />}</Row>
         <Row label="Số căn">{c.units_quantity}</Row>
         <Row label="Tiêu chí">{OBJECTIVE_LABEL[c.objective]}</Row>
         <Row label="Chuyên viên">{quote.created_by.full_name}</Row>
@@ -129,7 +151,7 @@ export function ContextCard({ quote }: { quote: Quote }) {
             <p className="font-medium">
               {quote.policy_snapshot_ref.title} · {quote.policy_snapshot_ref.policy_version}
             </p>
-            <p className="font-mono text-[11px] text-muted-foreground" title={quote.policy_snapshot_ref.snapshot_hash}>
+            <p className="font-mono text-xs text-muted-foreground" title={quote.policy_snapshot_ref.snapshot_hash}>
               {truncateHash(quote.policy_snapshot_ref.snapshot_hash, 14)}
             </p>
           </div>
@@ -182,7 +204,7 @@ export function AuditTimeline({ audit }: { audit: QuoteAudit }) {
               {e.actor.role !== 'SYSTEM' && ` · ${ROLE_LABEL[e.actor.role]}`} · {formatDateTime(e.occurred_at)}
             </p>
             {e.note && <p className="mt-1 rounded-md bg-muted/60 px-2.5 py-1.5 text-sm">{e.note}</p>}
-            <p className="mt-0.5 inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground/80" title={e.event_hash}>
+            <p className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-muted-foreground/80" title={e.event_hash}>
               <Link2 className="h-2.5 w-2.5" /> {e.event_hash.slice(0, 10)}
             </p>
           </li>

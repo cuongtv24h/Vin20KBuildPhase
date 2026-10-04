@@ -80,7 +80,7 @@ export function ClaimRow({ claim, onOpen }: { claim: EvidenceBackedClaim; onOpen
   return (
     <div className={cn('rounded-md border p-2.5 text-sm', claim.support_status === 'SUPPORTED' ? 'border-border' : 'border-warning/50 bg-warning/5')}>
       <div className="mb-1 flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{CLAIM_TYPE_LABEL[claim.claim_type]}</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{CLAIM_TYPE_LABEL[claim.claim_type]}</span>
         <SupportBadge status={claim.support_status} />
       </div>
       <p className="leading-relaxed">

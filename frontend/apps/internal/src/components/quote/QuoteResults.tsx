@@ -62,7 +62,7 @@ export function ScenarioComparison({
   const group = (title: string, rows: Metric[]) => (
     <>
       <TableRow className="bg-muted/40 hover:bg-muted/40">
-        <TableCell colSpan={scenarios.length + 1} className="py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <TableCell colSpan={scenarios.length + 1} className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {title}
         </TableCell>
       </TableRow>
@@ -177,7 +177,7 @@ export function PriceBreakdown({ scenario }: { scenario: Scenario }) {
             <Line label="Giá bán sau ưu đãi" strong>
               <MoneyText amount={scenario.total_contract_price_vnd} size="lg" />
             </Line>
-            <p className="pt-2 font-mono text-[11px] text-muted-foreground">{scenario.calculation_hash}</p>
+            <p className="pt-2 font-mono text-xs text-muted-foreground">{scenario.calculation_hash}</p>
           </CardContent>
         </Card>
       </TabsContent>

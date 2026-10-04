@@ -1,41 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, type ComponentProps, type ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import {
-  Inbox,
-  FileStack,
-  MessageSquare,
-  ScrollText,
-  Home,
-  Users,
-  UserPlus,
-  UserCheck,
-  Plus,
-  FileText,
-  Send,
-  FilePlus2,
-  RotateCcw,
-  CheckCircle2,
-  AlertTriangle,
-  ThumbsDown,
-  ThumbsUp,
-  Copy,
-  Clock,
-  ShieldCheck,
-  Sparkles,
-  Layers,
-  RefreshCw,
-  X,
-  Search,
-  ChevronRight,
-  History,
-  Volume2,
-  Square,
-  Mic,
-  MicOff,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Trash2,
-} from 'lucide-react'
+import { Inbox, FileStack, MessageSquare, ScrollText, Home, Users, UserPlus, UserCheck, Plus, FileText, Send, FilePlus2, RotateCcw, CheckCircle2, AlertTriangle, ThumbsDown, ThumbsUp, Copy, Clock, ShieldCheck, Sparkles, Layers, RefreshCw, X, Search, ChevronRight, History, Volume2, Square, Mic, MicOff, PanelLeftClose, PanelLeftOpen, Trash2, Crown, Building2, Scale, MessageSquareText, type LucideIcon, Flame, CloudSun, Snowflake, Lightbulb, Link2, ClipboardCopy, Check, MessageCircle } from 'lucide-react'
 
 // Hooks & Store
 import { useQueryClient } from '@tanstack/react-query'
@@ -70,6 +35,7 @@ import type {
 } from '@pricepolicy/api-client/contracts'
 
 // Design System Components from @pricepolicy/ui
+import { PriorityCard } from '@/components/sale/PriorityCard'
 import { Button } from '@pricepolicy/ui/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@pricepolicy/ui/components/ui/card'
 import { Badge } from '@pricepolicy/ui/components/ui/badge'
@@ -103,8 +69,8 @@ import {
   type SpeechToTextController,
 } from '@pricepolicy/ui/lib/speech'
 import { filterCommands, type SlashCommand } from '@pricepolicy/ui/lib/slashCommands'
-import { CopilotContextChips } from '@pricepolicy/ui/components/common/CopilotContextChips'
-import { formatVnd } from '@pricepolicy/ui/lib/format'
+import { CopilotContextChips, TransactionDateField } from '@pricepolicy/ui/components/common/CopilotContextChips'
+import { formatNote, formatVnd, maskPhone } from '@pricepolicy/ui/lib/format'
 import { speakText, stopSpeaking, isSpeechSupported, listLocalVoices } from '@pricepolicy/ui/lib/speech'
 import { OBJECTIVE_LABEL, PROJECT_LABEL } from '@pricepolicy/ui/lib/labels'
 import { cn } from '@pricepolicy/ui/lib/utils'
@@ -273,7 +239,7 @@ function runLocalComplianceCheck(text: string): ComplianceCheckState {
   if (hasAnchor) {
     return {
       tier: 'GREEN',
-      statusText: 'XANH — Hỗ trợ đầy đủ & Tuân thủ phát ngôn',
+      statusText: 'XANH — Hỗ trợ đầy đủ và Tuân thủ phát ngôn',
       checks: [
         ['ok', 'Các claim số tiền đều có chứng cứ [n] xác thực'],
         ['ok', 'Số liệu khớp Deterministic Math Engine Δ = 0 ₫'],
@@ -443,11 +409,11 @@ function SmartCustomerCard({
   }
 
   return (
-    <Card className="w-full max-w-[95%] border-emerald-500/40 bg-emerald-500/[0.02] shadow-sm">
-      <CardHeader className="bg-emerald-500/10 px-4 py-2.5 border-b border-emerald-500/20">
-        <CardTitle className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+    <Card className="w-full max-w-[95%] border-success/40 bg-success/[0.02] shadow-sm">
+      <CardHeader className="bg-success/10 px-4 py-2.5 border-b border-success/20">
+        <CardTitle className="text-xs font-semibold text-success flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <UserPlus className="h-4 w-4 text-emerald-600" />
+            <UserPlus className="h-4 w-4 text-success" />
             Khởi tạo hồ sơ khách hàng mới (CRM)
           </span>
         </CardTitle>
@@ -455,7 +421,7 @@ function SmartCustomerCard({
       <CardContent className="p-3.5 space-y-3 text-xs">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
-            <Label className="text-[11px] text-muted-foreground font-medium">Họ và tên khách hàng *</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Họ và tên khách hàng *</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -465,7 +431,7 @@ function SmartCustomerCard({
             />
           </div>
           <div>
-            <Label className="text-[11px] text-muted-foreground font-medium">Số điện thoại *</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Số điện thoại *</Label>
             <Input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -474,7 +440,7 @@ function SmartCustomerCard({
             />
           </div>
           <div>
-            <Label className="text-[11px] text-muted-foreground font-medium">Căn hộ quan tâm</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Căn hộ quan tâm</Label>
             <Input
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
@@ -484,8 +450,8 @@ function SmartCustomerCard({
           </div>
           <div>
             <div className="flex items-center justify-between">
-              <Label className="text-[11px] text-muted-foreground font-medium">Vốn tự có sẵn sàng</Label>
-              <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+              <Label className="text-xs text-muted-foreground font-medium">Vốn tự có sẵn sàng</Label>
+              <span className="text-xs font-semibold text-success">
                 {new Intl.NumberFormat('vi-VN').format(funds || 0)} VNĐ
               </span>
             </div>
@@ -500,14 +466,14 @@ function SmartCustomerCard({
                 placeholder="5.000.000.000"
                 className="h-8 text-xs font-semibold pr-12 text-foreground"
               />
-              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-medium text-muted-foreground pointer-events-none">
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground pointer-events-none">
                 VNĐ
               </span>
             </div>
           </div>
         </div>
         <div>
-          <Label className="text-[11px] text-muted-foreground font-medium">Ghi chú nhu cầu / Khẩu vị đầu tư</Label>
+          <Label className="text-xs text-muted-foreground font-medium">Ghi chú nhu cầu / Khẩu vị đầu tư</Label>
           <Input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -516,7 +482,7 @@ function SmartCustomerCard({
           />
         </div>
         <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/50">
-          {error && <span className="mr-auto text-[11px] font-medium text-destructive">{error}</span>}
+          {error && <span className="mr-auto text-xs font-medium text-destructive">{error}</span>}
           {onCancel && (
             <Button variant="ghost" size="sm" onClick={onCancel} className="h-7 text-xs">
               Bỏ qua
@@ -526,7 +492,7 @@ function SmartCustomerCard({
             size="sm"
             onClick={handleSubmit}
             disabled={!name.trim() || isSubmitting}
-            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+            className="h-7 text-xs bg-success hover:bg-success/90 text-success-foreground gap-1.5"
           >
             <UserCheck className="h-3.5 w-3.5" />
             {isSubmitting ? 'Đang lưu vào CRM...' : 'Lưu khách hàng vào CRM'}
@@ -570,9 +536,9 @@ function SmartQuoteCard({
         <CardTitle className="text-xs font-semibold text-primary flex items-center justify-between">
           <span className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary" />
-            Lập báo giá & Phương án tài chính nhanh
+            Lập báo giá và Phương án tài chính nhanh
           </span>
-          <Badge variant="outline" className="text-[10px] border-primary/30 text-primary bg-primary/10">
+          <Badge variant="outline" className="text-xs border-primary/30 text-primary bg-primary/10">
             FCS v2.6 Math Engine
           </Badge>
         </CardTitle>
@@ -580,7 +546,7 @@ function SmartQuoteCard({
       <CardContent className="p-3.5 space-y-3 text-xs">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
-            <Label className="text-[11px] text-muted-foreground font-medium">Chọn căn hộ</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Chọn căn hộ</Label>
             <select
               value={unitCode}
               onChange={(e) => setUnitCode(e.target.value)}
@@ -597,7 +563,7 @@ function SmartQuoteCard({
             </select>
           </div>
           <div>
-            <Label className="text-[11px] text-muted-foreground font-medium">Phương án thanh toán</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Phương án thanh toán</Label>
             <select
               value={scenario}
               onChange={(e) => setScenario(e.target.value)}
@@ -612,13 +578,13 @@ function SmartQuoteCard({
 
         {/* Calculation summary */}
         {selectedUnit ? (
-          <div className="rounded-lg border border-border/80 bg-muted/30 p-2.5 space-y-1.5 text-[11px]">
+          <div className="rounded-lg border border-border/80 bg-muted/30 p-2.5 space-y-1.5 text-xs">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Giá niêm yết (gồm VAT):</span>
               <span className="font-semibold text-foreground">{formatVnd(listPrice)}</span>
             </div>
             {discountAmount > 0 && (
-              <div className="flex justify-between text-emerald-600 font-medium">
+              <div className="flex justify-between text-success font-medium">
                 <span>Chiết khấu thanh toán sớm 8%:</span>
                 <span>- {formatVnd(discountAmount)}</span>
               </div>
@@ -629,7 +595,7 @@ function SmartQuoteCard({
             </div>
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-border bg-muted/20 p-2.5 text-[11px] text-muted-foreground">
+          <div className="rounded-lg border border-dashed border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
             Chọn căn hộ ở trên để xem tạm tính giá theo phương án thanh toán.
           </div>
         )}
@@ -658,14 +624,14 @@ function SmartScenarioCompareCard({
   onSelectScenario: (sc: string) => void
 }) {
   return (
-    <Card className="w-full max-w-[98%] border-purple-500/40 bg-purple-500/[0.02] shadow-sm">
-      <CardHeader className="bg-purple-500/10 px-4 py-2.5 border-b border-purple-500/20">
-        <CardTitle className="text-xs font-semibold text-purple-900 dark:text-purple-300 flex items-center justify-between">
+    <Card className="w-full max-w-[98%] border-info/40 bg-info/[0.02] shadow-sm">
+      <CardHeader className="bg-info/10 px-4 py-2.5 border-b border-info/20">
+        <CardTitle className="text-xs font-semibold text-info flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-purple-600" />
+            <Layers className="h-4 w-4 text-info" />
             {unitCode ? `So sánh 3 phương án thanh toán — Căn ${unitCode}` : 'So sánh 3 phương án thanh toán'}
           </span>
-          <Badge variant="outline" className="text-[10px] border-purple-500/30 text-purple-700 dark:text-purple-400 bg-purple-500/10">
+          <Badge variant="outline" className="text-xs border-info/30 text-info bg-info/10">
             Đối soát Δ = 0 ₫
           </Badge>
         </CardTitle>
@@ -677,9 +643,9 @@ function SmartScenarioCompareCard({
             <div>
               <div className="font-semibold text-foreground text-xs pb-1 border-b border-border/50 flex items-center justify-between">
                 <span>PA 1: Tiến độ chuẩn</span>
-                <Badge variant="secondary" className="text-[9px]">9 đợt</Badge>
+                <Badge variant="secondary" className="text-xs">9 đợt</Badge>
               </div>
-              <ul className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
                 <li>• Đợt 1: <b>30%</b> (~1,39 tỷ)</li>
                 <li>• Đợt 2-8: <b>5-10%</b> / 2 tháng</li>
                 <li>• Nhận nhà: <b>25%</b> + 2% KPBT</li>
@@ -691,26 +657,26 @@ function SmartScenarioCompareCard({
               variant="outline"
               size="sm"
               onClick={() => onSelectScenario('PA-CHUAN')}
-              className="w-full h-6 text-[11px] mt-2"
+              className="w-full h-6 text-xs mt-2"
             >
               Chọn PA Chuẩn
             </Button>
           </div>
 
           {/* Cột 2: PA Sớm 95% */}
-          <div className="rounded-lg border-2 border-emerald-500/50 bg-emerald-500/[0.04] p-2.5 flex flex-col justify-between space-y-2 relative">
-            <span className="absolute -top-2 right-2 rounded-full bg-emerald-600 px-1.5 py-0.2 text-[9px] font-bold text-white uppercase">
+          <div className="rounded-lg border-2 border-success/50 bg-success/[0.04] p-2.5 flex flex-col justify-between space-y-2 relative">
+            <span className="absolute -top-2 right-2 rounded-full bg-success px-1.5 py-0.2 text-xs font-bold text-success-foreground uppercase">
               Tối ưu giá
             </span>
             <div>
-              <div className="font-semibold text-emerald-800 dark:text-emerald-300 text-xs pb-1 border-b border-emerald-500/20 flex items-center justify-between">
+              <div className="font-semibold text-success text-xs pb-1 border-b border-success/20 flex items-center justify-between">
                 <span>PA 2: Đóng sớm 95%</span>
-                <Badge variant="outline" className="text-[9px] border-emerald-500/30 text-emerald-700 bg-emerald-500/10">-8.0% [1]</Badge>
+                <Badge variant="outline" className="text-xs border-success/30 text-success bg-success/10">-8.0% [1]</Badge>
               </div>
-              <ul className="mt-2 space-y-1 text-[11px] text-foreground">
+              <ul className="mt-2 space-y-1 text-xs text-foreground">
                 <li>• Thanh toán: <b>95% trong 30 ngày</b></li>
-                <li>• Chiết khấu: <b className="text-emerald-600">8.0% trước VAT</b></li>
-                <li>• Tiết kiệm: <b className="text-emerald-600">~372 triệu ₫</b></li>
+                <li>• Chiết khấu: <b className="text-success">8.0% trước VAT</b></li>
+                <li>• Tiết kiệm: <b className="text-success">~372 triệu ₫</b></li>
                 <li>• Giá sau CK: <b>~4,28 tỷ ₫</b></li>
                 <li>• Ưu điểm: Giá mua thấp nhất</li>
               </ul>
@@ -718,7 +684,7 @@ function SmartScenarioCompareCard({
             <Button
               size="sm"
               onClick={() => onSelectScenario('PA-SOM')}
-              className="w-full h-6 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white mt-2"
+              className="w-full h-6 text-xs bg-success hover:bg-success/90 text-success-foreground mt-2"
             >
               Chọn PA Sớm 8%
             </Button>
@@ -726,15 +692,15 @@ function SmartScenarioCompareCard({
 
           {/* Cột 3: PA Vay 70% */}
           <div className="rounded-lg border-2 border-primary/50 bg-primary/[0.04] p-2.5 flex flex-col justify-between space-y-2 relative">
-            <span className="absolute -top-2 right-2 rounded-full bg-primary px-1.5 py-0.2 text-[9px] font-bold text-primary-foreground uppercase">
+            <span className="absolute -top-2 right-2 rounded-full bg-primary px-1.5 py-0.2 text-xs font-bold text-primary-foreground uppercase">
               Ít vốn nhất
             </span>
             <div>
               <div className="font-semibold text-primary text-xs pb-1 border-b border-primary/20 flex items-center justify-between">
                 <span>PA 3: Vay ngân hàng 70%</span>
-                <Badge variant="outline" className="text-[9px] border-primary/30 text-primary bg-primary/10">0% lãi [4]</Badge>
+                <Badge variant="outline" className="text-xs border-primary/30 text-primary bg-primary/10">0% lãi [4]</Badge>
               </div>
-              <ul className="mt-2 space-y-1 text-[11px] text-foreground">
+              <ul className="mt-2 space-y-1 text-xs text-foreground">
                 <li>• Vốn tự có: <b className="text-primary">Chỉ 30% (~1,39 tỷ)</b></li>
                 <li>• Ngân hàng giải ngân: <b>70% (~3,25 tỷ)</b></li>
                 <li>• Hỗ trợ lãi suất: <b className="text-primary">0% trong 24 tháng</b></li>
@@ -745,7 +711,7 @@ function SmartScenarioCompareCard({
             <Button
               size="sm"
               onClick={() => onSelectScenario('PA-VAY')}
-              className="w-full h-6 text-[11px] bg-primary hover:bg-primary/90 text-primary-foreground mt-2"
+              className="w-full h-6 text-xs bg-primary hover:bg-primary/90 text-primary-foreground mt-2"
             >
               Chọn PA Vay 0%
             </Button>
@@ -758,9 +724,9 @@ function SmartScenarioCompareCard({
 
 /** Nhãn trạng thái căn theo dữ liệu vận hành (không còn nhãn demo "GIỮ CHỖ 24H"). */
 const UNIT_STATUS_LABEL: Record<string, { label: string; className: string }> = {
-  AVAILABLE: { label: 'CÒN TRỐNG', className: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
-  RESERVED: { label: 'ĐANG GIỮ CHỖ', className: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
-  SOLD: { label: 'ĐÃ BÁN', className: 'bg-slate-500/10 text-slate-600 border-slate-500/30' },
+  AVAILABLE: { label: 'CÒN TRỐNG', className: 'bg-success/10 text-success border-success/30' },
+  RESERVED: { label: 'ĐANG GIỮ CHỖ', className: 'bg-warning/10 text-warning border-warning/30' },
+  SOLD: { label: 'ĐÃ BÁN', className: 'bg-muted-foreground/10 text-muted-foreground border-muted-foreground/30' },
 }
 
 /**
@@ -788,26 +754,26 @@ function SmartUnitsCard({
   )
 
   return (
-    <Card className="w-full max-w-[98%] border-sky-500/40 bg-sky-500/[0.02] shadow-sm">
-      <CardHeader className="bg-sky-500/10 px-4 py-2.5 border-b border-sky-500/20">
-        <CardTitle className="text-xs font-semibold text-sky-900 dark:text-sky-300 flex items-center justify-between">
+    <Card className="w-full max-w-[98%] border-info/40 bg-info/[0.02] shadow-sm">
+      <CardHeader className="bg-info/10 px-4 py-2.5 border-b border-info/20">
+        <CardTitle className="text-xs font-semibold text-info flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <Home className="h-4 w-4 text-sky-600" />
+            <Home className="h-4 w-4 text-info" />
             Rổ hàng căn hộ đang mở bán
           </span>
-          <Badge variant="outline" className="text-[10px] border-sky-500/30 text-sky-700 dark:text-sky-400 bg-sky-500/10">
+          <Badge variant="outline" className="text-xs border-info/30 text-info bg-info/10">
             {unitsQuery.isLoading ? 'Đang tải…' : `${units.length} căn còn trống`}
           </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-3 space-y-2 text-xs">
         {unitsQuery.isError && (
-          <p className="text-[11px] text-destructive">
+          <p className="text-xs text-destructive">
             Không tải được giỏ hàng — anh/chị thử lại sau hoặc hỏi Copilot "Tra cứu rổ hàng căn hộ".
           </p>
         )}
         {!unitsQuery.isLoading && !unitsQuery.isError && units.length === 0 && (
-          <p className="text-[11px] text-muted-foreground">Dữ liệu vận hành chưa có căn nào đang mở bán.</p>
+          <p className="text-xs text-muted-foreground">Dữ liệu vận hành chưa có căn nào đang mở bán.</p>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {units.map((u) => {
@@ -823,9 +789,9 @@ function SmartUnitsCard({
                 <div className="space-y-0.5 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-bold text-foreground text-xs">{u.unit_code}</span>
-                    <Badge variant="outline" className={cn('text-[9px]', status.className)}>{status.label}</Badge>
+                    <Badge variant="outline" className={cn('text-xs', status.className)}>{status.label}</Badge>
                   </div>
-                  <div className="text-[11px] text-muted-foreground truncate">
+                  <div className="text-xs text-muted-foreground truncate">
                     {u.project_name}
                     {u.bedrooms > 0 ? ` · ${u.bedrooms}PN` : ''}
                     {u.floor ? ` · Tầng ${u.floor}` : ''}
@@ -837,7 +803,7 @@ function SmartUnitsCard({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 text-[11px] shrink-0 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground ml-2"
+                  className="h-7 text-xs shrink-0 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground ml-2"
                   onClick={() => onSelectUnit(u.unit_code)}
                 >
                   Báo giá căn này
@@ -859,15 +825,15 @@ function SmartComposeMessageCard({
   onCopy: () => void
 }) {
   return (
-    <Card className="w-full max-w-[95%] border-amber-500/40 bg-amber-500/[0.02] shadow-sm">
-      <CardHeader className="bg-amber-500/10 px-4 py-2.5 border-b border-amber-500/20">
-        <CardTitle className="text-xs font-semibold text-amber-900 dark:text-amber-300 flex items-center justify-between">
+    <Card className="w-full max-w-[95%] border-warning/40 bg-warning/[0.02] shadow-sm">
+      <CardHeader className="bg-warning/10 px-4 py-2.5 border-b border-warning/20">
+        <CardTitle className="text-xs font-semibold text-warning flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-amber-600" />
+            <MessageSquare className="h-4 w-4 text-warning" />
             Bản thảo tin nhắn gửi khách — Chuẩn tuân thủ F8
           </span>
-          <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
-            🟢 XANH: Hợp chuẩn phát ngôn
+          <Badge variant="outline" className="text-xs border-success/30 text-success bg-success/10">
+            <span aria-hidden="true" className="mr-1.5 inline-block h-2 w-2 rounded-full bg-success" />XANH: Hợp chuẩn phát ngôn
           </Badge>
         </CardTitle>
       </CardHeader>
@@ -875,12 +841,12 @@ function SmartComposeMessageCard({
         <div className="rounded-lg border border-border bg-muted/30 p-3 text-[12px] leading-relaxed text-foreground whitespace-pre-line font-sans">
           {draftText}
         </div>
-        <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between pt-1 border-t border-border/50 text-xs text-muted-foreground">
           <span>Đã kiểm tra chứng cứ: [1] POL-EARLY, [4] POL-HLSN</span>
           <Button
             size="sm"
             onClick={onCopy}
-            className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
+            className="h-7 text-xs bg-warning hover:bg-warning/90 text-warning-foreground gap-1.5"
           >
             <Copy className="h-3.5 w-3.5" />
             Sao chép tin nhắn Zalo / SMS
@@ -890,6 +856,57 @@ function SmartComposeMessageCard({
     </Card>
   )
 }
+
+/** Sau chừng này ms chưa có phản hồi từ Copilot thì giao diện dừng chờ và hiện nút "Thử lại". */
+const COPILOT_UI_TIMEOUT_MS = 45_000
+
+/**
+ * Nút phụ ở header khung chat: từ xl trở lên hiện đủ icon + nhãn; hẹp hơn thu thành icon-only
+ * (vẫn có aria-label + title để đọc được bằng trình đọc màn hình / rê chuột). Vùng bấm ≥44px trên mobile.
+ */
+function HeaderAction({
+  label,
+  title,
+  variant = 'outline',
+  className,
+  children,
+  ...rest
+}: {
+  label: string
+  title?: string
+  variant?: ComponentProps<typeof Button>['variant']
+  className?: string
+  children: ReactNode
+} & Omit<ComponentProps<typeof Button>, 'variant' | 'title' | 'className' | 'children'>) {
+  return (
+    <Button
+      size="sm"
+      variant={variant}
+      aria-label={label}
+      title={title ?? label}
+      className={cn('h-11 min-w-11 shrink-0 gap-1.5 px-2.5 text-xs md:h-9 md:min-w-9 xl:px-3', className)}
+      {...rest}
+    >
+      {children}
+      <span className="hidden whitespace-nowrap xl:inline">{label}</span>
+    </Button>
+  )
+}
+
+/** Ngày hôm nay theo giờ máy (YYYY-MM-DD) — ngày giao dịch mặc định, không dùng ngày cố định. */
+function todayISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Gợi ý nhanh ở thanh nhập lệnh — icon line (lucide) thay emoji; lệnh gửi đi giữ nguyên. */
+const QUICK_ACTIONS: { label: string; icon: LucideIcon; command: string }[] = [
+  { label: 'Tạo khách hàng', icon: UserPlus, command: 'Tạo khách hàng mới' },
+  { label: 'Tạo báo giá', icon: FileText, command: 'Tạo báo giá' },
+  { label: 'Tra cứu rổ hàng', icon: Building2, command: 'Tra cứu rổ hàng căn hộ' },
+  { label: 'So sánh 3 phương án', icon: Scale, command: 'So sánh 3 phương án thanh toán' },
+  { label: 'Soạn tin tư vấn F8', icon: MessageSquareText, command: 'Soạn tin nhắn tư vấn gửi khách' },
+]
 
 export function SalesWorkspacePage() {
   const session = useSessionStore((s) => s.session)
@@ -958,7 +975,7 @@ export function SalesWorkspacePage() {
     if (code) setCopilotUnit(code)
     return code
   }
-  const [copilotTxDate, setCopilotTxDate] = useState<string | null>('2026-09-26')
+  const [copilotTxDate, setCopilotTxDate] = useState<string | null>(todayISO)
   // Lệnh gạch chéo dùng gần đây (D1) — lưu cục bộ, không gửi lên server
   const [recentCommands, setRecentCommands] = useState<string[]>(() => {
     try {
@@ -1450,9 +1467,24 @@ export function SalesWorkspacePage() {
     }
   }, [copilot.error, copilot.lastMessage, copilot.lastContext])
 
+  // Timeout phía giao diện: quá COPILOT_UI_TIMEOUT_MS chưa có câu trả lời thì dừng spinner và cho thử lại.
+  // (Chỉ xử lý hiển thị — nguyên nhân treo ở backend chưa sửa.)
+  const [copilotTimedOut, setCopilotTimedOut] = useState(false)
+  useEffect(() => {
+    if (!copilot.streaming) return
+    setCopilotTimedOut(false)
+    const timer = setTimeout(() => {
+      copilot.cancel()
+      setCopilotTimedOut(true)
+    }, COPILOT_UI_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copilot.streaming, copilot.lastMessage])
+
   useEffect(() => {
     const msgId = reasoningMsgIdRef.current
     if (!msgId) return
+    const timedOut = copilotTimedOut && !copilot.streaming && !copilot.final && !copilot.error
     setMessages((prev) =>
       prev.map((m) =>
         m.id === msgId
@@ -1463,13 +1495,13 @@ export function SalesWorkspacePage() {
                 steps: copilot.steps,
                 streaming: copilot.streaming,
                 degraded: copilot.degraded,
-                error: copilot.error,
+                error: timedOut ? 'Trợ lý chưa phản hồi' : copilot.error,
               },
             }
           : m,
       ),
     )
-  }, [copilot.steps, copilot.streaming, copilot.degraded, copilot.error])
+  }, [copilot.steps, copilot.streaming, copilot.degraded, copilot.error, copilot.final, copilotTimedOut])
 
   useEffect(() => {
     const final = copilot.final
@@ -1659,7 +1691,7 @@ export function SalesWorkspacePage() {
           time,
           data: {
             lead: created,
-            message: `✓ Đã khởi tạo thành công hồ sơ khách hàng **${created.customer?.full_name}** (${created.dossier_id}). Copilot đã nạp toàn bộ thông tin & ràng buộc tài chính vào ngữ cảnh làm việc.`,
+            message: `Đã khởi tạo thành công hồ sơ khách hàng **${created.customer?.full_name}** (${created.dossier_id}). Copilot đã nạp toàn bộ thông tin và ràng buộc tài chính vào ngữ cảnh làm việc.`,
           },
         },
       ])
@@ -1745,7 +1777,7 @@ export function SalesWorkspacePage() {
         type: 'stepper',
         time,
         data: {
-          steps: ['Đọc ràng buộc hồ sơ khách', `Tra giá niêm yết căn ${unitCode}`, 'Gọi engine định giá (tất định)', 'Nhận kết quả & mở bảng phương án'],
+          steps: ['Đọc ràng buộc hồ sơ khách', `Tra giá niêm yết căn ${unitCode}`, 'Gọi engine định giá (tất định)', 'Nhận kết quả và mở bảng phương án'],
           current: 0,
           failed: false,
         },
@@ -1784,7 +1816,7 @@ export function SalesWorkspacePage() {
           id: `done-${Date.now()}`,
           type: 'agent',
           time: new Date().toTimeString().slice(0, 5),
-          text: `✓ Hệ thống đã nhận yêu cầu lập báo giá **${quoteCode}** cho căn **${unit.unit_code}** — trạng thái hiện tại: **${status}**. Anh/chị xem chi tiết ở tab Báo giá.`,
+          text: `Hệ thống đã nhận yêu cầu lập báo giá **${quoteCode}** cho căn **${unit.unit_code}** — trạng thái hiện tại: **${status}**. Anh/chị xem chi tiết ở tab Báo giá.`,
         },
       ])
       setActiveTab('baogia')
@@ -1802,7 +1834,7 @@ export function SalesWorkspacePage() {
           id: `quote-error-${Date.now()}`,
           type: 'agent',
           time: new Date().toTimeString().slice(0, 5),
-          text: `⚠️ Chưa lập được báo giá: ${message}. Anh/chị kiểm tra lại kết nối rồi thử lại giúp em.`,
+          text: `Chưa lập được báo giá: ${message}. Anh/chị kiểm tra lại kết nối rồi thử lại giúp em.`,
         },
       ])
       showToast('Lập báo giá thất bại — xem chi tiết trong khung chat')
@@ -1890,7 +1922,7 @@ export function SalesWorkspacePage() {
           id: `submit-error-${Date.now()}`,
           type: 'agent',
           time,
-          text: `⚠️ Trình duyệt thất bại: ${message}. Anh/chị thử lại giúp em.`,
+          text: `Trình duyệt thất bại: ${message}. Anh/chị thử lại giúp em.`,
         },
       ])
       showToast('Trình duyệt thất bại — xem chi tiết trong khung chat')
@@ -2175,6 +2207,8 @@ export function SalesWorkspacePage() {
   }, [quotes])
 
   // Khách cần chăm sóc sớm — xếp theo SLA thật: đã quá hạn trước, rồi đến sắp đến hạn
+  const vipLeads = useMemo(() => leads.filter((l) => /vip/i.test(l.customer.full_name)), [leads])
+
   const urgentLeads = useMemo(() => {
     return [...leads]
       .filter((l) => l.sla_due_at)
@@ -2185,69 +2219,71 @@ export function SalesWorkspacePage() {
   return (
     <div className="flex h-full w-full flex-1 flex-col overflow-hidden bg-background text-foreground antialiased font-sans">
       {/* ================= 1. WORKSPACE HEADER ================= */}
-      <header className="z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4 text-foreground shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600">
+      <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-3 text-foreground sm:px-4">
+        {/* min-w-0 + truncate: tiêu đề không bao giờ bị các nút bên cạnh bóp thành nhiều dòng */}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/30 text-primary sm:flex">
             <Sparkles className="h-4 w-4" />
           </span>
-          <div>
-            <span className="font-display text-xs font-bold tracking-wide">Trợ lý Copilot AI</span>
-          </div>
+          <span className="min-w-0 truncate whitespace-nowrap font-display text-sm font-semibold tracking-wide">Trợ lý Copilot AI</span>
           {/* Nút Lịch sử nằm bên trái, cạnh tiêu đề: khung lịch sử mặc định ẩn, bấm đây mới mở. */}
-          <Button
-            size="sm"
+          <HeaderAction
+            label="Lịch sử"
+            title={historyOpen ? 'Ẩn lịch sử hội thoại' : 'Hiện lịch sử hội thoại'}
             variant={historyOpen ? 'secondary' : 'outline'}
             onClick={() => setHistoryOpen((v) => !v)}
-            title={historyOpen ? 'Ẩn lịch sử hội thoại' : 'Hiện lịch sử hội thoại'}
             aria-expanded={historyOpen}
-            className="h-7 gap-1.5 text-xs"
           >
-            {historyOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
-            <History className="h-3.5 w-3.5" />
-            Lịch sử
+            {historyOpen ? <PanelLeftClose className="h-4 w-4" /> : <History className="h-4 w-4" />}
             {conversations.data && conversations.data.total > 0 && (
-              <Badge variant="secondary" className="ml-0.5 h-4 px-1.5 text-[10px]">
+              <Badge variant="secondary" className="ml-0.5 h-4 px-1.5 text-xs">
                 {conversations.data.total}
               </Badge>
             )}
-          </Button>
+          </HeaderAction>
           {/* Phiên chat mới — luôn hiện, không nằm trong khung lịch sử (trước đây chỉ có nút "Mới"
               bên trong khung lịch sử nên Sale không biết có chức năng này). */}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={startNewChatSession}
+          <HeaderAction
+            label="Phiên chat mới"
             title="Mở phiên chat mới (hội thoại hiện tại đã được lưu vào lịch sử)"
-            className="h-7 gap-1.5 text-xs"
+            onClick={startNewChatSession}
           >
-            <Plus className="h-3.5 w-3.5" />
-            Phiên chat mới
-          </Button>
+            <Plus className="h-4 w-4" />
+          </HeaderAction>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
+        <div className="flex shrink-0 items-center gap-2">
+          <HeaderAction
+            label={ttsEffective?.auto_speak ? 'Tự đọc' : 'Giọng đọc'}
+            title="Chọn giọng đọc câu trả lời"
             variant={ttsEffective?.auto_speak ? 'default' : 'outline'}
             onClick={() => setVoicePickerOpen(true)}
-            title="Chọn giọng đọc câu trả lời"
-            className="h-7 gap-1.5 text-xs"
           >
-            <Volume2 className="h-3.5 w-3.5" />
-            {ttsEffective?.auto_speak ? 'Tự đọc' : 'Giọng đọc'}
-          </Button>
-          <Badge variant="outline" className="text-[10px] border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
-            🟢 Online · FCS v2.6
+            <Volume2 className="h-4 w-4" />
+          </HeaderAction>
+          <Badge variant="outline" className="hidden gap-1.5 border-success/30 bg-success/10 text-xs text-success xl:inline-flex">
+            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-success" />
+            Online · FCS v2.6
           </Badge>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => navigate('/sale/leads')}
-            className="h-7 text-xs gap-1 border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground"
+          <span
+            role="img"
+            aria-label="Online · FCS v2.6"
+            title="Online · FCS v2.6"
+            className="hidden h-2 w-2 rounded-full bg-success sm:block xl:hidden"
+          />
+          {/* Thay cho nút tròn nổi (FAB) cũ — FAB đè lên ô nhập/nút mic ở nhiều độ rộng. */}
+          <HeaderAction
+            label="Bảng dữ liệu"
+            title={isMobilePanelOpen ? 'Đóng bảng dữ liệu' : 'Mở bảng dữ liệu'}
+            variant={isMobilePanelOpen ? 'secondary' : 'outline'}
+            onClick={() => setIsMobilePanelOpen((p) => !p)}
+            aria-expanded={isMobilePanelOpen}
           >
-            <Users className="h-3 w-3" />
-            Mở CRM Khách hàng
-          </Button>
+            <Layers className="h-4 w-4" />
+          </HeaderAction>
+          <HeaderAction label="Mở CRM Khách hàng" onClick={() => navigate('/sale/leads')} className="hidden border-primary/30 text-gold hover:text-gold sm:inline-flex">
+            <Users className="h-4 w-4" />
+          </HeaderAction>
         </div>
       </header>
 
@@ -2260,18 +2296,18 @@ export function SalesWorkspacePage() {
             className="flex w-56 shrink-0 flex-col border-r border-border bg-muted/20"
           >
             <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hội thoại đã lưu</span>
-              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={() => openConversation(null)}>
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hội thoại đã lưu</span>
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => openConversation(null)}>
                 <Plus className="mr-1 h-3 w-3" /> Mới
               </Button>
             </div>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-              {conversations.isLoading && <p className="px-1 py-2 text-[11px] text-muted-foreground">Đang tải lịch sử…</p>}
+              {conversations.isLoading && <p className="px-1 py-2 text-xs text-muted-foreground">Đang tải lịch sử…</p>}
               {conversations.isError && (
-                <p className="px-1 py-2 text-[11px] text-destructive">Không tải được lịch sử. Anh thử lại sau giúp em.</p>
+                <p className="px-1 py-2 text-xs text-destructive">Không tải được lịch sử. Anh thử lại sau giúp em.</p>
               )}
               {conversations.data && conversations.data.items.length === 0 && (
-                <p className="px-1 py-2 text-[11px] text-muted-foreground">
+                <p className="px-1 py-2 text-xs text-muted-foreground">
                   Chưa có hội thoại nào. Hội thoại sẽ được lưu tự động và xem lại được sau khi đổi trang.
                 </p>
               )}
@@ -2287,7 +2323,7 @@ export function SalesWorkspacePage() {
                   onClick={() => openConversation(c.conversation_id)}
                 >
                   <div className="flex items-start justify-between gap-1">
-                    <span className="line-clamp-2 text-[11px] font-medium text-foreground">{c.title}</span>
+                    <span className="line-clamp-2 text-xs font-medium text-foreground">{c.title}</span>
                     <button
                       type="button"
                       aria-label={`Xoá hội thoại ${c.title}`}
@@ -2300,7 +2336,7 @@ export function SalesWorkspacePage() {
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                     <Clock className="h-2.5 w-2.5" />
                     {clockOf(c.updated_at)}
                     <span>· {c.message_count} lượt</span>
@@ -2324,10 +2360,10 @@ export function SalesWorkspacePage() {
               if (m.type === 'user') {
                 return (
                   <div key={m.id} className="flex flex-col items-end gap-1">
-                    <div className="max-w-[85%] rounded-2xl rounded-br-xs bg-primary px-4 py-2.5 text-xs leading-relaxed text-primary-foreground shadow-xs">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
                       {m.text}
                     </div>
-                    <span className="text-[10px] text-muted-foreground">{m.time}</span>
+                    <span className="text-xs text-muted-foreground">{m.time}</span>
                   </div>
                 )
               }
@@ -2335,7 +2371,7 @@ export function SalesWorkspacePage() {
               if (m.type === 'agent') {
                 return (
                   <div key={m.id} className="flex flex-col items-start gap-1.5 w-full">
-                    <div className="max-w-[92%] rounded-2xl rounded-bl-xs border border-border/80 bg-card/95 px-4 py-3 text-xs text-foreground shadow-sm">
+                    <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 text-sm text-foreground">
                       <FormattedAiMessage
                         content={m.text || ''}
                         onCommandClick={(cmd) => triggerSmartAction(cmd)}
@@ -2360,7 +2396,7 @@ export function SalesWorkspacePage() {
                       {/* Mốc thời gian dữ liệu (chốt P1.6): hiển thị ở chrome giao diện, KHÔNG nằm trong
                           văn phong câu trả lời để Sale copy gửi khách được nguyên văn. */}
                       {m.data?.data_as_of && (
-                        <div className="mt-1 text-[10px] text-muted-foreground/80 select-none">
+                        <div className="mt-1 text-xs text-muted-foreground/80 select-none">
                           Dữ liệu cập nhật: {dataAsOfLabel(m.data.data_as_of as string)}
                         </div>
                       )}
@@ -2369,7 +2405,7 @@ export function SalesWorkspacePage() {
                           size="sm"
                           variant="ghost"
                           className={cn(
-                            'h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground',
+                            'h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground',
                             speakingId === m.id && 'text-primary',
                           )}
                           title={speakingId === m.id ? 'Dừng đọc' : 'Đọc câu trả lời thành tiếng'}
@@ -2388,7 +2424,7 @@ export function SalesWorkspacePage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                          className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
                           title="Sao chép bản sạch để gửi khách (bỏ mỏ neo và ghi chú nội bộ)"
                           onClick={() => {
                             // Chốt P2.4/K2: nội dung gửi khách phải sạch — bỏ mỏ neo [n], nhãn
@@ -2404,7 +2440,7 @@ export function SalesWorkspacePage() {
                         {/* Gợi ý phím Enter/Ctrl+Enter đã bỏ theo yêu cầu — chỉ còn trạng thái tự đọc.
                             Phím tắt vẫn giữ nguyên (Enter gửi, Ctrl+Enter xuống dòng). */}
                         {ttsEffective?.auto_speak && (
-                          <span className="text-[10px] text-muted-foreground">Đang tự đọc câu trả lời mới</span>
+                          <span className="text-xs text-muted-foreground">Đang tự đọc câu trả lời mới</span>
                         )}
                       </div>
                     </div>
@@ -2424,9 +2460,9 @@ export function SalesWorkspacePage() {
                       return (
                         <div
                           role="status"
-                          className="max-w-[92%] flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-foreground"
+                          className="max-w-[92%] flex items-start gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-foreground"
                         >
-                          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" />
+                          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
                           <div className="space-y-0.5">
                             <span className="font-semibold">Ghi chú nội bộ (không gửi khách):</span>
                             {notes && <p>{notes}</p>}
@@ -2445,9 +2481,9 @@ export function SalesWorkspacePage() {
                             key={aIdx}
                             type="button"
                             onClick={() => triggerSmartAction(act)}
-                            className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/15 transition-all shadow-2xs"
+                            className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/15 transition-all shadow-2xs"
                           >
-                            <span>✨</span>
+                            <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                             <span>{act}</span>
                           </button>
                         ))}
@@ -2456,7 +2492,7 @@ export function SalesWorkspacePage() {
                     {/* Critic vòng 2: lời nhắc đã được gộp vào banner "Ghi chú nội bộ" phía trên —
                         hiển thị lần nữa ở đây sẽ thành hai khối cảnh báo trùng nhau. */}
                     <div className="ml-1 flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground">Trợ lý AI · {m.time}</span>
+                      <span className="text-xs text-muted-foreground">Trợ lý AI · {m.time}</span>
                       {m.type === 'agent' && !m.id.startsWith('agent-critic') && (
                         <>
                           <button
@@ -2486,7 +2522,7 @@ export function SalesWorkspacePage() {
                             <ThumbsDown className="h-3 w-3" />
                           </button>
                           {m.data?.feedbackGiven && (
-                            <span className="text-[10px] text-muted-foreground">đã ghi nhận cảm ơn anh/chị</span>
+                            <span className="text-xs text-muted-foreground">đã ghi nhận cảm ơn anh/chị</span>
                           )}
                         </>
                       )}
@@ -2496,99 +2532,84 @@ export function SalesWorkspacePage() {
               }
 
               if (m.type === 'welcome') {
+                const openPipeline = () => {
+                  setActiveTab('baogia')
+                  setPanelView('pipeline')
+                  setIsMobilePanelOpen(true)
+                }
+                const openLead = (id: string) => {
+                  setSelectedLeadId(id)
+                  setActiveTab('hoso')
+                  setPanelView('dossier')
+                  setIsMobilePanelOpen(true)
+                }
+                const overdue = urgentLeads.length > 0 && Date.parse(urgentLeads[0].sla_due_at) < Date.now()
+                const hasPriority = kanbanGroups.revision.length + kanbanGroups.review.length + urgentLeads.length + vipLeads.length > 0
                 return (
-                  <div key={m.id} className="mx-auto w-full max-w-lg space-y-5 py-6">
-                    {/* Heading */}
+                  <div key={m.id} className="mx-auto my-auto w-full max-w-3xl space-y-8 py-8">
                     <div className="text-center">
-                      <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-primary/10">
-                        <ShieldCheck className="h-6 w-6 text-primary" />
+                      <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-primary/30 text-primary">
+                        <ShieldCheck className="h-7 w-7" />
                       </div>
-                      <h1 className="font-display text-base font-semibold text-foreground">
-                        Xin chào, {session?.user.full_name || 'Hải Nguyễn'} 👋
+                      <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+                        Xin chào, {session?.user.full_name || 'Hải Nguyễn'}
                       </h1>
-                      <p className="mt-1 text-[11.5px] text-muted-foreground">
-                        Em đã tổng hợp việc cần ưu tiên hôm nay bên dưới — hoặc anh gõ yêu cầu bất kỳ.
-                                            </p>
+                      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                        {hasPriority
+                          ? 'Em đã tổng hợp việc cần ưu tiên hôm nay bên dưới — hoặc anh gõ yêu cầu bất kỳ.'
+                          : 'Hôm nay chưa có việc cần ưu tiên — anh chọn một gợi ý nhanh hoặc gõ yêu cầu bất kỳ.'}
+                      </p>
                     </div>
 
-                    {/* Gợi ý theo luồng công việc thật (chỉ hiện khi có việc) */}
-                    <div className="space-y-2">
-                      {kanbanGroups.revision.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveTab('baogia')
-                            setPanelView('pipeline')
-                            setIsMobilePanelOpen(true)
-                          }}
-                          className="flex w-full items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-left transition-colors hover:bg-destructive/10"
-                        >
-                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-destructive/10 text-destructive">
-                            <AlertTriangle className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-xs font-semibold text-foreground">
-                              {kanbanGroups.revision.length} báo giá cần chỉnh sửa
-                            </span>
-                            <span className="block truncate text-[10.5px] text-muted-foreground">
-                              {kanbanGroups.revision.slice(0, 2).map((q) => q.quote_id).join(', ')} — quản lý đã phản hồi, cần cập nhật
-                            </span>
-                          </span>
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        </button>
-                      )}
-
-                      {kanbanGroups.review.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveTab('baogia')
-                            setPanelView('pipeline')
-                            setIsMobilePanelOpen(true)
-                          }}
-                          className="flex w-full items-center gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3 text-left transition-colors hover:bg-warning/10"
-                        >
-                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-warning/10 text-warning">
-                            <Clock className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-xs font-semibold text-foreground">
-                              {kanbanGroups.review.length} báo giá đang chờ phê duyệt
-                            </span>
-                            <span className="block truncate text-[10.5px] text-muted-foreground">
-                              {kanbanGroups.review.slice(0, 2).map((q) => q.quote_id).join(', ')} — sẽ có thông báo khi có kết quả
-                            </span>
-                          </span>
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        </button>
-                      )}
-
-                      {urgentLeads.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedLeadId(urgentLeads[0].dossier_id)
-                            setActiveTab('hoso')
-                            setPanelView('dossier')
-                            setIsMobilePanelOpen(true)
-                          }}
-                          className="flex w-full items-center gap-3 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3 text-left transition-colors hover:bg-sky-500/10"
-                        >
-                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-500/10 text-sky-600">
-                            <Users className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-xs font-semibold text-foreground">
-                              Khách cần chăm sóc: {urgentLeads.map((l) => l.customer.full_name).slice(0, 2).join(', ')}
-                            </span>
-                            <span className="flex items-center gap-1 truncate text-[10.5px] text-muted-foreground">
-                              <SlaCountdown dueAt={urgentLeads[0].sla_due_at} /> — mở hồ sơ để phản hồi ngay
-                            </span>
-                          </span>
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        </button>
-                      )}
-                    </div>
+                    {/* Việc ưu tiên: cùng một component thẻ (chỉ hiện khi có việc thật) */}
+                    {hasPriority && (
+                      <div className="flex flex-wrap justify-center gap-3">
+                        {urgentLeads.length > 0 && (
+                          <PriorityCard
+                            tone={overdue ? 'danger' : 'info'}
+                            icon={Users}
+                            title={`Khách cần chăm sóc: ${urgentLeads.map((l) => l.customer.full_name).slice(0, 2).join(', ')}`}
+                            description={
+                              <span className="flex flex-wrap items-center gap-x-1">
+                                <SlaCountdown dueAt={urgentLeads[0].sla_due_at} /> <span>— phản hồi ngay</span>
+                              </span>
+                            }
+                            actionLabel="Mở hồ sơ"
+                            onAction={() => openLead(urgentLeads[0].dossier_id)}
+                          />
+                        )}
+                        {kanbanGroups.revision.length > 0 && (
+                          <PriorityCard
+                            tone="danger"
+                            icon={AlertTriangle}
+                            title={`${kanbanGroups.revision.length} báo giá cần chỉnh sửa`}
+                            description={`${kanbanGroups.revision.slice(0, 2).map((q) => q.quote_id).join(', ')} — quản lý đã phản hồi, cần cập nhật`}
+                            actionLabel="Mở báo giá"
+                            onAction={openPipeline}
+                          />
+                        )}
+                        {kanbanGroups.review.length > 0 && (
+                          <PriorityCard
+                            tone="warning"
+                            icon={Clock}
+                            title={`${kanbanGroups.review.length} báo giá đang chờ phê duyệt`}
+                            description={`${kanbanGroups.review.slice(0, 2).map((q) => q.quote_id).join(', ')} — sẽ có thông báo khi có kết quả`}
+                            actionLabel="Xem tiến độ"
+                            onAction={openPipeline}
+                          />
+                        )}
+                        {vipLeads.length > 0 && (
+                          <PriorityCard
+                            tone="gold"
+                            icon={Crown}
+                            title={`Khách VIP: ${vipLeads.map((l) => l.customer.full_name).slice(0, 2).join(', ')}`}
+                            description={`${vipLeads.length} khách VIP đang được theo dõi`}
+                            actionLabel="Mở hồ sơ"
+                            onAction={() => openLead(vipLeads[0].dossier_id)}
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               }
@@ -2618,7 +2639,7 @@ export function SalesWorkspacePage() {
                           </div>
                           <div className="flex justify-between py-1 border-b border-border/50">
                             <span className="text-muted-foreground">Số điện thoại:</span>
-                            <span className="font-semibold text-foreground">{m.data?.phone}</span>
+                            <span className="font-semibold text-foreground">{maskPhone(m.data?.phone)}</span>
                           </div>
                           <div className="flex justify-between py-1 border-b border-border/50">
                             <span className="text-muted-foreground">Căn quan tâm:</span>
@@ -2628,7 +2649,7 @@ export function SalesWorkspacePage() {
                             <span className="text-muted-foreground">Vốn tự có:</span>
                             <span className="font-semibold text-primary">{formatVnd(m.data?.funds || 0)}</span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground pt-1">
+                          <p className="text-xs text-muted-foreground pt-1">
                             Copilot đã bóc tách thông tin từ lệnh của bạn. Bấm <b>Khởi tạo ngay</b> để lưu hồ sơ vào CRM và nạp vào ngữ cảnh.
                           </p>
                         </>
@@ -2642,7 +2663,7 @@ export function SalesWorkspacePage() {
                             <span className="text-muted-foreground">Người phê duyệt:</span>
                             <span className="font-semibold">{m.data?.approver}</span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground pt-1">
+                          <p className="text-xs text-muted-foreground pt-1">
                             Sau khi trình duyệt, phiên bản sẽ được đóng băng (bất biến). Mọi sửa đổi bổ sung sẽ tạo ra phiên bản mới.
                           </p>
                         </>
@@ -2660,7 +2681,7 @@ export function SalesWorkspacePage() {
                             <span className="text-muted-foreground">Mục tiêu:</span>
                             <span className="font-semibold text-primary">{m.data?.goal}</span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground pt-1">
+                          <p className="text-xs text-muted-foreground pt-1">
                             Dữ liệu tự động điền từ hồ sơ tư vấn trực tuyến (C-10) — không yêu cầu nhập lại hai lần.
                           </p>
                         </>
@@ -2783,7 +2804,7 @@ export function SalesWorkspacePage() {
                         <CheckCircle2 className="h-4 w-4" />
                         Đã trình {m.data?.id} cho {m.data?.approver}
                       </div>
-                      <p className="text-muted-foreground text-[11.5px]">
+                      <p className="text-muted-foreground text-xs">
                         Hồ sơ đã chuyển trạng thái <b>READY_FOR_REVIEW</b>. Khi có kết quả xét duyệt hệ thống sẽ thông báo ngay.
                       </p>
                       <div className="flex items-center gap-3 pt-1">
@@ -2797,7 +2818,7 @@ export function SalesWorkspacePage() {
                           <RotateCcw className="mr-1 h-3.5 w-3.5" />
                           {undoActive ? `Yêu cầu sửa (${undoSeconds}s)` : 'Đã khóa'}
                         </Button>
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           {undoActive ? 'Gửi yêu cầu sửa cho quản lý trong 8s' : 'Hồ sơ đang chờ quản lý xử lý'}
                         </span>
                       </div>
@@ -2812,7 +2833,7 @@ export function SalesWorkspacePage() {
                     <AlertTriangle className="h-5 w-5 text-warning shrink-0" />
                     <div className="min-w-0 flex-1">
                       <b className="text-foreground">{m.data?.title}</b>
-                      <p className="text-[11px] text-muted-foreground">{m.data?.sub}</p>
+                      <p className="text-xs text-muted-foreground">{m.data?.sub}</p>
                     </div>
                   </div>
                 )
@@ -2853,22 +2874,22 @@ export function SalesWorkspacePage() {
                     <CardHeader className="bg-primary/5 px-4 py-2.5 border-b border-border">
                       <CardTitle className="text-xs font-semibold text-primary flex items-center justify-between">
                         <span className="flex items-center gap-2">
-                          <UserCheck className="h-4 w-4 text-emerald-600" />
+                          <UserCheck className="h-4 w-4 text-success" />
                           Hồ sơ khách hàng: {lead.customer?.full_name}
                         </span>
                         <TemperatureBadge temperature={lead.temperature} />
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2.5 p-3.5 text-xs">
-                      <FormattedAiMessage content={m.data?.message || ''} className="text-[11.5px]" />
-                      <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2.5 text-[11px]">
+                      <FormattedAiMessage content={m.data?.message || ''} className="text-xs" />
+                      <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2.5 text-xs">
                         <div>
                           <span className="text-muted-foreground">Mã hồ sơ:</span>
                           <div className="font-semibold text-foreground">{lead.dossier_id}</div>
                         </div>
                         <div>
                           <span className="text-muted-foreground">Số điện thoại:</span>
-                          <div className="font-semibold text-foreground">{lead.customer?.phone}</div>
+                          <div className="font-semibold text-foreground">{maskPhone(lead.customer?.phone)}</div>
                         </div>
                         <div>
                           <span className="text-muted-foreground">Căn quan tâm:</span>
@@ -2927,13 +2948,13 @@ export function SalesWorkspacePage() {
                         <span className="flex items-center gap-1.5">
                           <Search className="h-3.5 w-3.5 text-primary" /> Kết quả tìm kiếm: "{queryTerm}"
                         </span>
-                        <Badge variant="secondary" className="text-[10px]">{results.length} hồ sơ</Badge>
+                        <Badge variant="secondary" className="text-xs">{results.length} hồ sơ</Badge>
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="p-2 space-y-1.5 text-xs">
                       {results.length === 0 ? (
                         <div className="p-3 text-center space-y-2">
-                          <p className="text-muted-foreground text-[11px]">
+                          <p className="text-muted-foreground text-xs">
                             Không tìm thấy hồ sơ nào khớp với từ khóa "{queryTerm}".
                           </p>
                           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setCreateCustomerOpen(true)}>
@@ -2948,15 +2969,15 @@ export function SalesWorkspacePage() {
                                 <span className="font-semibold text-foreground truncate">{l.customer?.full_name}</span>
                                 <TemperatureBadge temperature={l.temperature} />
                               </div>
-                              <div className="text-[11px] text-muted-foreground">
-                                {l.customer?.phone} · {l.constraints?.preferred_unit_code || 'Chưa định danh'}
+                              <div className="text-xs text-muted-foreground">
+                                {maskPhone(l.customer?.phone)} · {l.constraints?.preferred_unit_code || 'Chưa định danh'}
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-6 px-2 text-[11px]"
+                                className="h-6 px-2 text-xs"
                                 onClick={() => {
                                   setSelectedLeadId(l.dossier_id)
                                   setContextLeadId(l.dossier_id)
@@ -2969,7 +2990,7 @@ export function SalesWorkspacePage() {
                               </Button>
                               <Button
                                 size="sm"
-                                className="h-6 px-2 text-[11px]"
+                                className="h-6 px-2 text-xs"
                                 onClick={() => startQuoteCreationFlow(l.customer?.full_name)}
                               >
                                 Báo giá
@@ -3044,7 +3065,7 @@ export function SalesWorkspacePage() {
                       draftText={m.data?.draftText || draftContent}
                       onCopy={() => {
                         navigator.clipboard.writeText(m.data?.draftText || draftContent)
-                        showToast('✓ Đã sao chép tin nhắn F8 vào clipboard!')
+                        showToast('Đã sao chép tin nhắn F8 vào clipboard!')
                       }}
                     />
                   </div>
@@ -3056,75 +3077,37 @@ export function SalesWorkspacePage() {
             <div ref={chatBottomRef} />
           </div>
 
-          {/* Bottom Chat Command Bar */}
-          <div className="sticky bottom-0 z-10 relative shrink-0 border-t border-border bg-card p-3 shadow-xs">
-            {/* Smart Action Chips (Natural Sale Commands) */}
-            {/* Ngữ cảnh Copilot (P-07): chỉ gắn theo KHÁCH HÀNG — 1 khách có thể mua nhiều căn,
-                căn hộ sẽ được Copilot tự nhận diện từ nội dung câu lệnh */}
-            <div className="mb-2 flex items-center gap-2 text-xs">
-              <span className="text-[11px] font-semibold text-muted-foreground">Khách hàng:</span>
-              <select
-                value={contextLeadId}
-                onChange={(e) => {
-                  setContextLeadId(e.target.value)
-                  setSelectedLeadId(e.target.value === 'auto' ? null : e.target.value)
-                }}
-                title="Copilot tự nhận diện khách được nhắc tới trong hội thoại. Chọn thủ công khi muốn khóa ngữ cảnh."
-                className="max-w-[240px] rounded-md border border-input bg-background px-2 py-1 text-xs font-medium text-foreground outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="auto">Tự động theo hội thoại</option>
-                <option value="none">— Không gắn ngữ cảnh —</option>
-                {leads.map((l) => (
-                  <option key={l.dossier_id} value={l.dossier_id}>
-                    {l.customer.full_name}
-                  </option>
-                ))}
-              </select>
+          {/* Thanh nhập lệnh nổi (cách mép khung, có bóng) — 3 lớp: (1) ngữ cảnh, (2) gợi ý nhanh, (3) ô nhập */}
+          <div className="relative z-10 mx-3 mb-[max(0.75rem,env(safe-area-inset-bottom))] shrink-0 space-y-3 rounded-2xl border border-border bg-card p-3 shadow-lg sm:mx-4 sm:mb-4 sm:p-4">
+            {/* Lớp 1 — Ngữ cảnh Copilot (P-07): chỉ gắn theo KHÁCH HÀNG — 1 khách có thể mua nhiều căn,
+                căn hộ sẽ được Copilot tự nhận diện từ nội dung câu lệnh. Ngày giao dịch cùng hàng. */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">
+              <div className="flex min-w-0 flex-col gap-1">
+                <label htmlFor="copilot-context-lead" className="eyebrow">
+                  Khách hàng
+                </label>
+                <select
+                  id="copilot-context-lead"
+                  value={contextLeadId}
+                  onChange={(e) => {
+                    setContextLeadId(e.target.value)
+                    setSelectedLeadId(e.target.value === 'auto' ? null : e.target.value)
+                  }}
+                  title="Copilot tự nhận diện khách được nhắc tới trong hội thoại. Chọn thủ công khi muốn khóa ngữ cảnh."
+                  className="h-10 w-full min-w-0 truncate rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-200 hover:border-primary/30 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/60 md:h-9"
+                >
+                  <option value="auto">Tự động theo hội thoại</option>
+                  <option value="none">— Không gắn ngữ cảnh —</option>
+                  {leads.map((l) => (
+                    <option key={l.dossier_id} value={l.dossier_id}>
+                      {l.customer.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <TransactionDateField value={copilotTxDate} onChange={(d) => setCopilotTxDate(d ?? todayISO())} />
             </div>
-            {/* Quick Smart Action Chips for Sale Agents */}
-            <div className="mb-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
-                onClick={() => triggerSmartAction('Tạo khách hàng mới')}
-              >
-                👤 Tạo khách hàng
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
-                onClick={() => triggerSmartAction('Tạo báo giá')}
-              >
-                📑 Tạo báo giá
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
-                onClick={() => triggerSmartAction('Tra cứu rổ hàng căn hộ')}
-              >
-                🏢 Tra cứu rổ hàng
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
-                onClick={() => triggerSmartAction('So sánh 3 phương án thanh toán')}
-              >
-                📊 So sánh 3 phương án
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 rounded-full px-2.5 text-[11px] font-normal border-primary/20 hover:border-primary/40 text-foreground shrink-0 bg-primary/[0.03]"
-                onClick={() => triggerSmartAction('Soạn tin nhắn tư vấn gửi khách')}
-              >
-                ✉️ Soạn tin tư vấn F8
-              </Button>
-            </div>
-            {/* Ngữ cảnh gửi kèm (D2) — Sale thấy đúng căn/hồ sơ/ngày trước khi hỏi */}
+            {/* Ngữ cảnh gửi kèm (D2) — Sale thấy đúng căn/hồ sơ trước khi hỏi */}
             <CopilotContextChips
               value={{
                 unitCode: copilotUnit,
@@ -3137,14 +3120,28 @@ export function SalesWorkspacePage() {
                 setContextLeadId('none')
                 setSelectedLeadId(null)
               }}
-              onTransactionDateChange={setCopilotTxDate}
             />
+
+            {/* Lớp 2 — Gợi ý nhanh: cuộn ngang khi hẹp, vùng bấm ≥ 40px, icon line đồng bộ */}
+            <div role="group" aria-label="Gợi ý nhanh" className="-mx-3 flex items-center gap-2 overflow-x-auto px-3 no-scrollbar sm:-mx-4 sm:px-4 md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
+              {QUICK_ACTIONS.map(({ label, icon: Icon, command }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => triggerSmartAction(command)}
+                  className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-background px-4 text-sm text-foreground transition-colors duration-200 hover:border-primary/50 hover:bg-accent"
+                >
+                  <Icon className="h-4 w-4 text-gold" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
 
             {/* Banner lỗi + thử lại (C4) — mọi lỗi mạng đều có đường thoát */}
             {(copilot.error || failedTurn) && (
               <div
                 role="alert"
-                className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11.5px] text-foreground"
+                className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-foreground"
               >
                 <span className="flex items-center gap-1.5">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
@@ -3153,7 +3150,7 @@ export function SalesWorkspacePage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 shrink-0 px-2 text-[11px]"
+                  className="h-6 shrink-0 px-2 text-xs"
                   onClick={handleRetryFailedTurn}
                   disabled={!failedTurn || copilot.streaming}
                 >
@@ -3163,7 +3160,7 @@ export function SalesWorkspacePage() {
             )}
 
             {/* Input & Send Action */}
-            <div className="relative flex items-center gap-2">
+            <div className="relative flex items-end gap-1.5 rounded-2xl border border-input bg-background p-1.5 transition-[border-color,box-shadow] duration-200 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/40">
               <SlashCommandPalette
                 open={slashOpen}
                 commands={SLASH_COMMANDS}
@@ -3225,16 +3222,16 @@ export function SalesWorkspacePage() {
                 rows={1}
                 aria-label="Nhập yêu cầu cho trợ lý Copilot"
                 placeholder="Ra lệnh cho Copilot…"
-                className="max-h-24 flex-1 resize-none rounded-xl border border-input bg-background px-3.5 py-2 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-base leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none sm:text-sm"
               />
               {/* Nhập bằng giọng nói: bật là nghe liên tục (rảnh tay) cho tới khi bấm dừng. */}
               <Button
                 type="button"
                 size="sm"
-                variant={sttListening ? 'default' : 'outline'}
+                variant={sttListening ? 'default' : 'ghost'}
                 onClick={toggleVoiceInput}
                 disabled={copilot.streaming}
-                className={cn('h-9 px-3', sttListening && 'animate-pulse')}
+                className={cn('h-11 w-11 shrink-0 rounded-xl p-0 text-muted-foreground hover:text-foreground md:h-10 md:w-10', sttListening && 'animate-pulse text-primary-foreground hover:text-primary-foreground')}
                 title={
                   !sttSupported
                     ? SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE
@@ -3256,8 +3253,9 @@ export function SalesWorkspacePage() {
                     copilot.cancel()
                     showToast('Đã dừng yêu cầu cho trợ lý')
                   }}
-                  className="h-9 px-3"
+                  className="h-11 w-11 shrink-0 rounded-xl p-0 md:h-10 md:w-10"
                   title="Dừng suy luận"
+                  aria-label="Dừng suy luận"
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -3266,8 +3264,10 @@ export function SalesWorkspacePage() {
                   type="button"
                   size="sm"
                   onClick={handleSendChatMessage}
-                  className="h-9 px-3"
+                  disabled={!inputVal.trim()}
+                  className="h-11 w-11 shrink-0 rounded-xl p-0 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 md:h-10 md:w-10"
                   aria-label="Gửi yêu cầu"
+                  title="Gửi (Enter) · Xuống dòng (Shift+Enter)"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
@@ -3287,6 +3287,14 @@ export function SalesWorkspacePage() {
           <div className="flex border-b border-border bg-muted/40">
             <button
               type="button"
+              onClick={() => setIsMobilePanelOpen(false)}
+              aria-label="Đóng bảng dữ liệu"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground md:hidden"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setActiveTab('hoso')
                 setPanelView(selectedLead ? 'dossier' : 'leads')
@@ -3297,7 +3305,7 @@ export function SalesWorkspacePage() {
               )}
             >
               Hồ sơ
-              <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
+              <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-xs">
                 {leads.length}
               </Badge>
             </button>
@@ -3314,7 +3322,7 @@ export function SalesWorkspacePage() {
               )}
             >
               Báo giá
-              <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
+              <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-xs">
                 {quotes.length}
               </Badge>
             </button>
@@ -3345,7 +3353,7 @@ export function SalesWorkspacePage() {
               )}
             >
               Chính sách
-              <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">
+              <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-xs">
                 {policies.length}
               </Badge>
             </button>
@@ -3371,7 +3379,7 @@ export function SalesWorkspacePage() {
                   <div className="flex items-center gap-1.5">
                     <Button
                       size="sm"
-                      className="h-6 px-2 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      className="h-6 px-2 text-xs gap-1 bg-success hover:bg-success/90 text-success-foreground"
                       onClick={() => setCreateCustomerOpen(true)}
                     >
                       <Plus className="h-3 w-3" /> Tạo mới
@@ -3382,7 +3390,7 @@ export function SalesWorkspacePage() {
                       className="h-6 text-xs text-primary"
                       onClick={() => askAgent('Khách hàng nào sắp quá hạn SLA phản hồi?')}
                     >
-                      💬 Hỏi agent
+                      <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" /> Hỏi agent
                     </Button>
                   </div>
                 </div>
@@ -3401,7 +3409,7 @@ export function SalesWorkspacePage() {
                         <Button
                           size="sm"
                           onClick={() => setCreateCustomerOpen(true)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                          className="bg-success hover:bg-success/90 text-success-foreground gap-1.5"
                         >
                           <UserPlus className="h-3.5 w-3.5" /> Tạo khách hàng mới
                         </Button>
@@ -3428,9 +3436,9 @@ export function SalesWorkspacePage() {
                             <span className="font-semibold text-foreground">{l.customer.full_name}</span>
                             <TemperatureBadge temperature={l.temperature} />
                           </div>
-                          <p className="line-clamp-2 text-muted-foreground text-[11px]">{l.needs_summary}</p>
-                          <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px]">
-                            <span className="text-muted-foreground">{l.customer.phone}</span>
+                          <p className="line-clamp-2 text-muted-foreground text-xs">{formatNote(l.needs_summary)}</p>
+                          <div className="flex items-center justify-between pt-1 border-t border-border/50 text-xs">
+                            <span className="text-muted-foreground">{maskPhone(l.customer.phone)}</span>
                             <SlaCountdown dueAt={l.sla_due_at} />
                           </div>
                         </CardContent>
@@ -3470,18 +3478,18 @@ export function SalesWorkspacePage() {
                       <span>{selectedLead.customer.full_name}</span>
                       <SlaCountdown dueAt={selectedLead.sla_due_at} />
                     </CardTitle>
-                    <p className="text-xs text-muted-foreground">{selectedLead.customer.phone} · {selectedLead.dossier_id}</p>
+                    <p className="text-xs text-muted-foreground">{maskPhone(selectedLead.customer.phone)} · {selectedLead.dossier_id}</p>
                   </CardHeader>
 
                   <CardContent className="p-3.5 space-y-3">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Tóm tắt nhu cầu</span>
-                      <p className="mt-1 text-foreground leading-relaxed">{selectedLead.needs_summary}</p>
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tóm tắt nhu cầu</span>
+                      <p className="mt-1 text-foreground leading-relaxed">{formatNote(selectedLead.needs_summary)}</p>
                     </div>
 
                     <div className="border-t border-border pt-2 space-y-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Ràng buộc & Nguyện vọng</span>
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Ràng buộc và Nguyện vọng</span>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
                           <span className="text-muted-foreground">Vốn tự có:</span>
                           <div className="font-semibold">{selectedLead.constraints?.own_funds_vnd ? formatVnd(selectedLead.constraints.own_funds_vnd) : '—'}</div>
@@ -3527,7 +3535,7 @@ export function SalesWorkspacePage() {
                     className="h-6 text-xs text-primary"
                     onClick={() => askAgent('Báo giá nào đang chờ phê duyệt lâu nhất?')}
                   >
-                    💬 Hỏi agent
+                    <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" /> Hỏi agent
                   </Button>
                 </div>
 
@@ -3563,7 +3571,7 @@ export function SalesWorkspacePage() {
                               <span className="font-semibold">{q.quote_id}</span>
                               <QuoteStatusBadge status={q.status} />
                             </div>
-                            <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                            <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                               <span>{q.transaction_context?.customer_name || 'Khách hàng'}</span>
                               <MoneyText amount={q.scenarios?.[0]?.total_contract_price_vnd || 4650000000} size="sm" />
                             </div>
@@ -3571,7 +3579,7 @@ export function SalesWorkspacePage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-[11px] text-muted-foreground py-1 text-center">Không có báo giá nháp</div>
+                      <div className="text-xs text-muted-foreground py-1 text-center">Không có báo giá nháp</div>
                     )}
                   </div>
 
@@ -3592,7 +3600,7 @@ export function SalesWorkspacePage() {
                               <span className="font-semibold">{q.quote_id}</span>
                               <QuoteStatusBadge status={q.status} />
                             </div>
-                            <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                            <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                               <span>{q.transaction_context?.customer_name || 'Nguyễn Minh An'}</span>
                               <MoneyText amount={q.scenarios?.[0]?.total_contract_price_vnd || 4650000000} size="sm" />
                             </div>
@@ -3600,7 +3608,7 @@ export function SalesWorkspacePage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-[11px] text-muted-foreground py-1 text-center">Không có báo giá chờ duyệt</div>
+                      <div className="text-xs text-muted-foreground py-1 text-center">Không có báo giá chờ duyệt</div>
                     )}
                   </div>
 
@@ -3620,7 +3628,7 @@ export function SalesWorkspacePage() {
                               <span className="font-semibold">{q.quote_id}</span>
                               <QuoteStatusBadge status={q.status} />
                             </div>
-                            <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                            <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                               <span>{q.transaction_context?.customer_name || 'Lê Hoàng Cường'}</span>
                               <MoneyText amount={q.scenarios?.[0]?.total_contract_price_vnd || 5200000000} size="sm" />
                             </div>
@@ -3628,7 +3636,7 @@ export function SalesWorkspacePage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-[11px] text-muted-foreground py-1 text-center">Chưa có báo giá đã duyệt</div>
+                      <div className="text-xs text-muted-foreground py-1 text-center">Chưa có báo giá đã duyệt</div>
                     )}
                   </div>
                 </div>
@@ -3665,40 +3673,40 @@ export function SalesWorkspacePage() {
                   <Button variant="ghost" size="sm" className="h-6 p-0 text-xs text-primary" onClick={() => setPanelView('pipeline')}>
                     ← Quay lại pipeline
                   </Button>
-                  <span className="text-[11px] font-bold text-muted-foreground">FCS v2.6 · Golden Case</span>
+                  <span className="text-xs font-bold text-muted-foreground">FCS v2.6 · Golden Case</span>
                 </div>
 
                 <div className="rounded-xl border border-border overflow-hidden">
                   <table className="w-full border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-border bg-muted/50 text-[11px] font-semibold text-muted-foreground">
+                      <tr className="border-b border-border bg-muted/50 text-xs font-semibold text-muted-foreground">
                         <th className="p-2 text-left">Tiêu chí</th>
                         <th className="p-2 text-center">Tiến độ chuẩn</th>
                         <th className="p-2 text-center">Trả sớm 95%</th>
-                        <th className="p-2 text-center bg-primary/10 text-primary font-bold">Vay HTLS 0% ⭐</th>
+                        <th className="p-2 text-center bg-primary/10 text-primary font-bold">Vay HTLS 0%</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       <tr>
                         <td className="p-2 font-medium text-muted-foreground">Đợt đầu (kể cọc)</td>
                         <td onClick={() => setEvidenceId(5)} className="cursor-pointer p-2 text-center hover:bg-warning/10 font-mono">
-                          1,397 tỷ <span className="text-[10px] text-warning font-bold">[5]</span>
+                          1,397 tỷ <span className="text-xs text-warning font-bold">[5]</span>
                         </td>
                         <td onClick={() => setEvidenceId(2)} className="cursor-pointer p-2 text-center hover:bg-warning/10 font-mono">
-                          4,422 tỷ <span className="text-[10px] text-warning font-bold">[2]</span>
+                          4,422 tỷ <span className="text-xs text-warning font-bold">[2]</span>
                         </td>
                         <td onClick={() => setEvidenceId(5)} className="cursor-pointer bg-primary/5 p-2 text-center font-bold text-primary hover:bg-warning/10 font-mono">
-                          1,397 tỷ <span className="text-[10px] text-warning font-bold">[5]</span>
+                          1,397 tỷ <span className="text-xs text-warning font-bold">[5]</span>
                         </td>
                       </tr>
                       <tr>
                         <td className="p-2 font-medium text-muted-foreground">Hàng tháng (24T)</td>
                         <td onClick={() => setEvidenceId(5)} className="cursor-pointer p-2 text-center hover:bg-warning/10 font-mono">
-                          ~420 tr × 8 <span className="text-[10px] text-warning font-bold">[5]</span>
+                          ~420 tr × 8 <span className="text-xs text-warning font-bold">[5]</span>
                         </td>
                         <td className="p-2 text-center text-muted-foreground font-mono">—</td>
                         <td onClick={() => setEvidenceId(4)} className="cursor-pointer bg-primary/5 p-2 text-center font-bold text-primary hover:bg-warning/10 font-mono">
-                          ~47 tr <span className="text-[10px] text-warning font-bold">[4]</span>
+                          ~47 tr <span className="text-xs text-warning font-bold">[4]</span>
                         </td>
                       </tr>
                       <tr>
@@ -3706,39 +3714,39 @@ export function SalesWorkspacePage() {
                         <td className="p-2 text-center text-muted-foreground font-mono">—</td>
                         <td className="p-2 text-center text-muted-foreground font-mono">—</td>
                         <td onClick={() => setEvidenceId(4)} className="cursor-pointer bg-primary/5 p-2 text-center hover:bg-warning/10">
-                          Biểu phí NH <span className="text-[10px] text-warning font-bold">[4]</span>
+                          Biểu phí NH <span className="text-xs text-warning font-bold">[4]</span>
                         </td>
                       </tr>
                       <tr>
                         <td className="p-2 font-medium text-muted-foreground">Tổng dòng tiền</td>
                         <td onClick={() => setEvidenceId(2)} className="cursor-pointer p-2 text-center hover:bg-warning/10 font-mono">
-                          4,740 tỷ <span className="text-[10px] text-warning font-bold">[2]</span>
+                          4,740 tỷ <span className="text-xs text-warning font-bold">[2]</span>
                         </td>
                         <td onClick={() => setEvidenceId(2)} className="cursor-pointer p-2 text-center hover:bg-warning/10 font-mono">
-                          4,740 tỷ <span className="text-[10px] text-warning font-bold">[2]</span>
+                          4,740 tỷ <span className="text-xs text-warning font-bold">[2]</span>
                         </td>
                         <td onClick={() => setEvidenceId(2)} className="cursor-pointer bg-primary/5 p-2 text-center font-bold text-primary hover:bg-warning/10 font-mono">
-                          4,781 tỷ <span className="text-[10px] text-warning font-bold">[2]</span>
+                          4,781 tỷ <span className="text-xs text-warning font-bold">[2]</span>
                         </td>
                       </tr>
                       <tr>
                         <td className="p-2 font-medium text-muted-foreground">Ưu đãi áp dụng</td>
                         <td onClick={() => setEvidenceId(5)} className="cursor-pointer p-2 text-center hover:bg-warning/10">
-                          2% tiến độ <span className="text-[10px] text-warning font-bold">[5]</span>
+                          2% tiến độ <span className="text-xs text-warning font-bold">[5]</span>
                         </td>
                         <td onClick={() => setEvidenceId(1)} className="cursor-pointer p-2 text-center hover:bg-warning/10">
-                          8% trả sớm <span className="text-[10px] text-warning font-bold">[1]</span>
+                          8% trả sớm <span className="text-xs text-warning font-bold">[1]</span>
                         </td>
                         <td onClick={() => setEvidenceId(4)} className="cursor-pointer bg-primary/5 p-2 text-center font-bold text-primary hover:bg-warning/10">
-                          HTLS 0% 24T <span className="text-[10px] text-warning font-bold">[4]</span>
+                          HTLS 0% 24T <span className="text-xs text-warning font-bold">[4]</span>
                         </td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/30 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
-                  💡 Bấm trực tiếp vào các ô số tiền để đối soát chính sách pháp lý tương ứng.
+                <div className="rounded-xl border border-border bg-muted/30 p-2.5 text-xs leading-relaxed text-muted-foreground">
+                  <Lightbulb className="mr-1 inline h-3.5 w-3.5 align-text-bottom text-gold" aria-hidden="true" /> Bấm trực tiếp vào các ô số tiền để đối soát chính sách pháp lý tương ứng.
                 </div>
 
                 <div className="flex gap-2">
@@ -3759,7 +3767,7 @@ export function SalesWorkspacePage() {
                   <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     Trình soạn tin nhắn Copilot
                   </span>
-                  <Badge variant="outline" className="text-[10.5px]">
+                  <Badge variant="outline" className="text-xs">
                     {isCheckingCompliance ? 'F8 đang kiểm…' : complianceOffline ? 'F8 · chế độ dự phòng' : 'Live-check F8 (500ms)'}
                   </Badge>
                 </div>
@@ -3775,14 +3783,14 @@ export function SalesWorkspacePage() {
                     />
 
                     <div className="space-y-1">
-                      <span className="text-[10.5px] font-semibold text-muted-foreground">Mỏ neo căn cứ:</span>
+                      <span className="text-xs font-semibold text-muted-foreground">Mỏ neo căn cứ:</span>
                       <div className="flex flex-wrap gap-1.5">
                         {draftAnchors.map((aid) => (
                           <button
                             key={aid}
                             type="button"
                             onClick={() => setEvidenceId(aid)}
-                            className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning hover:bg-warning/20"
+                            className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning hover:bg-warning/20"
                           >
                             <span>[{aid}]</span>
                             <span className="font-normal text-muted-foreground truncate max-w-[120px]">
@@ -3796,7 +3804,7 @@ export function SalesWorkspacePage() {
                 </Card>
 
                 {complianceOffline && (
-                  <div role="alert" className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[11px] text-foreground">
+                  <div role="alert" className="flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-xs text-foreground">
                     <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
                     Chưa gọi được máy chủ kiểm duyệt — đang dùng bộ luật dự phòng tại máy. Kết quả có thể thiếu.
                   </div>
@@ -3815,22 +3823,22 @@ export function SalesWorkspacePage() {
                 >
                   <div className="flex items-center gap-2 font-semibold">
                     <span>
-                      {complianceResult.tier === 'GREEN' ? '✓' : complianceResult.tier === 'AMBER' ? '⚠' : '✗'}
+                      {complianceResult.tier === 'GREEN' ? <Check className="h-4 w-4" aria-hidden="true" /> : complianceResult.tier === 'AMBER' ? <AlertTriangle className="h-4 w-4" aria-hidden="true" /> : <X className="h-4 w-4" aria-hidden="true" />}
                     </span>
                     <span>{complianceResult.statusText}</span>
                   </div>
 
-                  <ul className="space-y-1 text-[11px] text-foreground">
+                  <ul className="space-y-1 text-xs text-foreground">
                     {complianceResult.checks.map(([st, txt], i) => (
                       <li key={i} className="flex items-start gap-1.5">
-                        <span className="font-bold">{st === 'ok' ? '✓' : st === 'warn' ? '⚠' : '✗'}</span>
+                        <span className="mt-0.5 shrink-0">{st === 'ok' ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : st === 'warn' ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : <X className="h-3.5 w-3.5" aria-hidden="true" />}</span>
                         <span>{txt}</span>
                       </li>
                     ))}
                   </ul>
 
                   {complianceResult.suggest && (
-                    <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2 text-[11px] text-foreground">
+                    <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2 text-xs text-foreground">
                       <b>Gợi ý phát ngôn an toàn:</b> {complianceResult.suggest}
                     </div>
                   )}
@@ -3876,7 +3884,7 @@ export function SalesWorkspacePage() {
                     className="h-6 text-xs text-primary"
                     onClick={() => askAgent('Chính sách nào áp dụng chiết khấu thanh toán nhanh cao nhất?')}
                   >
-                    💬 Hỏi agent
+                    <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" /> Hỏi agent
                   </Button>
                 </div>
 
@@ -3902,10 +3910,10 @@ export function SalesWorkspacePage() {
                             <span className="font-semibold text-foreground text-xs">{p.policy_id}</span>
                             <PolicyStatusBadge status={p.status} />
                           </div>
-                          <p className="text-[11.5px] font-medium text-foreground">{p.title}</p>
-                          <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[10.5px] text-muted-foreground">
+                          <p className="text-xs font-medium text-foreground">{p.title}</p>
+                          <div className="flex items-center justify-between pt-1 border-t border-border/50 text-xs text-muted-foreground">
                             <span>Hiệu lực: {p.effective_from} → {p.effective_to || 'Không thời hạn'}</span>
-                            <span className="font-mono text-[10px]">{p.policy_version}</span>
+                            <span className="font-mono text-xs">{p.policy_version}</span>
                           </div>
                         </CardContent>
                       </Card>
@@ -3919,22 +3927,12 @@ export function SalesWorkspacePage() {
         </aside>
       </div>
 
-      {/* ================= PANEL TOGGLE FAB ================= */}
-      <button
-        type="button"
-        onClick={() => setIsMobilePanelOpen((p) => !p)}
-        className="fixed bottom-20 right-4 z-50 grid h-12 w-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-xl"
-        title={isMobilePanelOpen ? 'Đóng bảng dữ liệu' : 'Mở bảng dữ liệu'}
-      >
-        <Layers className="h-5 w-5" />
-      </button>
-
       {/* ================= MODAL: LEGAL EVIDENCE ================= */}
       {evidenceId !== null && (
         <div onClick={() => setEvidenceId(null)} className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs">
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl overflow-hidden text-xs">
             <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3">
-              <span className="font-semibold text-foreground">🔗 Căn cứ pháp lý [{evidenceId}]</span>
+              <span className="inline-flex items-center gap-1.5 font-semibold text-foreground"><Link2 className="h-4 w-4 text-gold" aria-hidden="true" /> Căn cứ pháp lý [{evidenceId}]</span>
               <button type="button" onClick={() => setEvidenceId(null)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>
@@ -3943,7 +3941,7 @@ export function SalesWorkspacePage() {
               <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 leading-relaxed text-foreground">
                 “{EVIDENCE_DB[evidenceId]?.q}”
               </div>
-              <div className="divide-y divide-border text-[11.5px]">
+              <div className="divide-y divide-border text-xs">
                 <div className="flex justify-between py-1.5">
                   <span className="text-muted-foreground">Văn bản:</span>
                   <span className="font-semibold text-foreground text-right">{EVIDENCE_DB[evidenceId]?.p}</span>
@@ -3981,7 +3979,7 @@ export function SalesWorkspacePage() {
             className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-card text-xs shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3">
-              <span className="font-semibold text-foreground">🔗 Căn cứ pháp lý</span>
+              <span className="inline-flex items-center gap-1.5 font-semibold text-foreground"><Link2 className="h-4 w-4 text-gold" aria-hidden="true" /> Căn cứ pháp lý</span>
               <button
                 type="button"
                 onClick={() => setEvidenceDetail(null)}
@@ -3995,7 +3993,7 @@ export function SalesWorkspacePage() {
               <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 leading-relaxed text-foreground">
                 “{evidenceDetail.q}”
               </div>
-              <div className="divide-y divide-border text-[11.5px]">
+              <div className="divide-y divide-border text-xs">
                 <div className="flex justify-between gap-3 py-1.5">
                   <span className="shrink-0 text-muted-foreground">Văn bản:</span>
                   <span className="text-right font-semibold text-foreground">{evidenceDetail.p}</span>
@@ -4045,7 +4043,7 @@ export function SalesWorkspacePage() {
         <div onClick={() => setCopyAuditModalOpen(false)} className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs">
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl overflow-hidden text-xs">
             <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3">
-              <span className="font-semibold text-foreground">📋 Copy sang Zalo — Gửi ngoài cổng</span>
+              <span className="inline-flex items-center gap-1.5 font-semibold text-foreground"><ClipboardCopy className="h-4 w-4 text-gold" aria-hidden="true" /> Copy sang Zalo — Gửi ngoài cổng</span>
               <button type="button" onClick={() => setCopyAuditModalOpen(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>
@@ -4058,10 +4056,10 @@ export function SalesWorkspacePage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Sự kiện kiểm toán:</span>
-                  <span className="font-semibold text-success">ON_COPY ✓ (đã ghi vết)</span>
+                  <span className="font-semibold text-success">ON_COPY (đã ghi vết)</span>
                 </div>
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Hành vi sao chép nội dung ra ngoài hệ thống được lưu lại trong nhật ký kiểm toán phục vụ đối soát giải trình.
               </p>
             </div>
@@ -4089,7 +4087,7 @@ export function SalesWorkspacePage() {
         <div onClick={() => setOfficialSendModalOpen(false)} className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs">
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl overflow-hidden text-xs">
             <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-3">
-              <span className="font-semibold text-foreground">📨 Gửi tin chính thức qua cổng hệ thống</span>
+              <span className="inline-flex items-center gap-1.5 font-semibold text-foreground"><Send className="h-4 w-4 text-gold" aria-hidden="true" /> Gửi tin chính thức qua cổng hệ thống</span>
               <button type="button" onClick={() => setOfficialSendModalOpen(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>
@@ -4109,7 +4107,7 @@ export function SalesWorkspacePage() {
                   </div>
 
                   {sendGateStep > 0 && (
-                    <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-2.5 text-[11px]">
+                    <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-2.5 text-xs">
                       <div className="flex items-center justify-between">
                         <span>Gate 1: Đối soát claim ↔ chứng cứ</span>
                         {sendGateStep >= 1 ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
@@ -4132,7 +4130,7 @@ export function SalesWorkspacePage() {
                   <div className="inline-block rounded-md bg-muted px-3 py-1 font-mono text-xs font-semibold text-foreground">
                     {officialReceiptId}
                   </div>
-                  <p className="text-[11px] text-muted-foreground">Đã xuất biên lai dispatch và lưu vết kiểm toán.</p>
+                  <p className="text-xs text-muted-foreground">Đã xuất biên lai dispatch và lưu vết kiểm toán.</p>
                 </div>
               )}
             </div>
@@ -4160,7 +4158,7 @@ export function SalesWorkspacePage() {
                       }, 400)
                     }}
                   >
-                    {sendGateStep > 0 ? 'Đang xác thực 3 Gate…' : 'Xác nhận & Gửi'}
+                    {sendGateStep > 0 ? 'Đang xác thực 3 Gate…' : 'Xác nhận và Gửi'}
                   </Button>
                 </>
               ) : (
@@ -4192,8 +4190,8 @@ export function SalesWorkspacePage() {
                   showToast('Đã đổi giọng sang Ngắn gọn')
                 }}
               >
-                <b className="text-primary block mb-0.5">Ngắn gọn & Trực tiếp</b>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                <b className="text-primary block mb-0.5">Ngắn gọn và Trực tiếp</b>
+                <p className="text-muted-foreground text-xs leading-relaxed">
                   Tập trung vào số tiền đợt đầu và tỷ lệ chiết khấu rõ ràng.
                 </p>
               </Card>
@@ -4203,11 +4201,11 @@ export function SalesWorkspacePage() {
                 onClick={() => {
                   setDraftContent('Dạ em chào anh An, căn R-02.02 giá niêm yết 4,6 tỷ. Nếu anh chọn thanh toán sớm 95% trong 30 ngày kể từ cọc, anh nhận chiết khấu 8% trước thuế tương đương 368 triệu [1]. Tổng hợp đồng sau VAT là 4.655 tỷ [2]. Đợt 1 anh thanh toán 4.422 tỷ, 5% còn lại khi nhận nhà ạ.')
                   setVoiceVariantModalOpen(false)
-                  showToast('Đã đổi giọng sang Chi tiết & Pháp lý')
+                  showToast('Đã đổi giọng sang Chi tiết và Pháp lý')
                 }}
               >
-                <b className="text-primary block mb-0.5">Chi tiết & Chuẩn xác pháp lý</b>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                <b className="text-primary block mb-0.5">Chi tiết và Chuẩn xác pháp lý</b>
+                <p className="text-muted-foreground text-xs leading-relaxed">
                   Đầy đủ điều kiện ngày cọc, chiết khấu trước thuế và phân tách VAT.
                 </p>
               </Card>
@@ -4226,7 +4224,7 @@ export function SalesWorkspacePage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
-              <UserPlus className="h-5 w-5 text-emerald-600" />
+              <UserPlus className="h-5 w-5 text-success" />
               Khởi tạo hồ sơ khách hàng mới (Lead Dossier)
             </DialogTitle>
             <DialogDescription className="text-xs">
@@ -4309,9 +4307,9 @@ export function SalesWorkspacePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="HOT">🔥 Nóng (HOT - Cần chốt ngay)</SelectItem>
-                    <SelectItem value="WARM">☀️ Ấm (WARM - Đang cân nhắc)</SelectItem>
-                    <SelectItem value="COLD">❄️ Lạnh (COLD - Tham khảo dài hạn)</SelectItem>
+                    <SelectItem value="HOT"><span className="inline-flex items-center gap-2"><Flame className="h-3.5 w-3.5" aria-hidden="true" /> Nóng (HOT - Cần chốt ngay)</span></SelectItem>
+                    <SelectItem value="WARM"><span className="inline-flex items-center gap-2"><CloudSun className="h-3.5 w-3.5" aria-hidden="true" /> Ấm (WARM - Đang cân nhắc)</span></SelectItem>
+                    <SelectItem value="COLD"><span className="inline-flex items-center gap-2"><Snowflake className="h-3.5 w-3.5" aria-hidden="true" /> Lạnh (COLD - Tham khảo dài hạn)</span></SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -4371,7 +4369,7 @@ export function SalesWorkspacePage() {
                   onChange={(e) => setCustomerForm({ ...customerForm, own_funds_vnd: Number(e.target.value) })}
                   className="h-8 text-xs"
                 />
-                <span className="block text-[10px] text-muted-foreground">
+                <span className="block text-xs text-muted-foreground">
                   = {formatVnd(customerForm.own_funds_vnd || 0)}
                 </span>
               </div>
@@ -4388,7 +4386,7 @@ export function SalesWorkspacePage() {
                   onChange={(e) => setCustomerForm({ ...customerForm, monthly_capacity_vnd: Number(e.target.value) })}
                   className="h-8 text-xs"
                 />
-                <span className="block text-[10px] text-muted-foreground">
+                <span className="block text-xs text-muted-foreground">
                   = {formatVnd(customerForm.monthly_capacity_vnd || 0)}/tháng
                 </span>
               </div>
@@ -4407,14 +4405,14 @@ export function SalesWorkspacePage() {
                   <SelectItem value="MIN_INITIAL_OUTFLOW">Ít vốn ban đầu nhất (Ưu tiên gói vay HTLS)</SelectItem>
                   <SelectItem value="MIN_NET_PRICE">Giá nét thấp nhất (Ưu tiên thanh toán sớm nhận chiết khấu lớn)</SelectItem>
                   <SelectItem value="MIN_TOTAL_CASH_OUTFLOW">Tổng chi trả cả đời thấp nhất</SelectItem>
-                  <SelectItem value="MAX_BENEFIT_VALUE">Tối đa giá trị quà tặng & chính sách kèm theo</SelectItem>
+                  <SelectItem value="MAX_BENEFIT_VALUE">Tối đa giá trị quà tặng và chính sách kèm theo</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-1">
               <Label htmlFor="cust-needs" className="text-xs font-medium">
-                Tóm tắt nhu cầu & Ghi chú tư vấn
+                Tóm tắt nhu cầu và Ghi chú tư vấn
               </Label>
               <Textarea
                 id="cust-needs"
@@ -4439,7 +4437,7 @@ export function SalesWorkspacePage() {
                 type="submit"
                 size="sm"
                 disabled={createLeadMutation.isPending}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                className="bg-success hover:bg-success/90 text-success-foreground gap-1.5"
               >
                 {createLeadMutation.isPending ? (
                   <>
@@ -4447,7 +4445,7 @@ export function SalesWorkspacePage() {
                   </>
                 ) : (
                   <>
-                    <UserPlus className="h-3.5 w-3.5" /> Khởi tạo & Nạp vào Copilot
+                    <UserPlus className="h-3.5 w-3.5" /> Khởi tạo và Nạp vào Copilot
                   </>
                 )}
               </Button>
@@ -4507,7 +4505,7 @@ export function SalesWorkspacePage() {
                 ))}
               </select>
               {ttsProvider && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {ttsProvider.price_per_1m_chars > 0
                     ? `Đơn giá ${ttsProvider.price_per_1m_chars.toLocaleString('vi-VN')} ${ttsProvider.currency}/1 triệu ký tự · kiểm chứng ${ttsProvider.verified_at}`
                     : 'Không phát sinh chi phí.'}{' '}
@@ -4537,7 +4535,7 @@ export function SalesWorkspacePage() {
                 ))}
               </select>
               {localVoices.length === 0 && (
-                <p className="text-[11px] text-amber-600">
+                <p className="text-xs text-warning">
                   Máy này chưa có giọng tiếng Việt — cài trong Cài đặt hệ thống để nghe đúng tiếng Việt.
                 </p>
               )}
@@ -4569,17 +4567,17 @@ export function SalesWorkspacePage() {
               </span>
               <span className="ml-auto flex items-center gap-1">
                 <span className="text-muted-foreground">Giọng này ổn không?</span>
-                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe ổn" onClick={() => void rateVoice(1)}>
-                  👍
+                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe ổn" aria-label="Nghe ổn" onClick={() => void rateVoice(1)}>
+                  <ThumbsUp className="h-3.5 w-3.5" />
                 </Button>
-                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe chưa ổn" onClick={() => void rateVoice(-1)}>
-                  👎
+                <Button size="sm" variant="ghost" className="h-6 px-1.5" title="Nghe chưa ổn" aria-label="Nghe chưa ổn" onClick={() => void rateVoice(-1)}>
+                  <ThumbsDown className="h-3.5 w-3.5" />
                 </Button>
               </span>
             </div>
 
             {tts?.feedback_summary.total ? (
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Giọng này được đánh giá: {tts.feedback_summary.up} ổn / {tts.feedback_summary.down} chưa ổn
                 {tts.feedback_summary.satisfaction != null
                   ? ` (${Math.round(tts.feedback_summary.satisfaction * 100)}% hài lòng)`

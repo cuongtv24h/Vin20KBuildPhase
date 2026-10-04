@@ -11,7 +11,7 @@ import { cn } from '@pricepolicy/ui/lib/utils'
 export function Watermark({ text, className }: { text: string; className?: string }) {
   return (
     <div
-      className={cn('rounded-md border border-dashed border-warning/60 bg-warning/10 px-3 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-warning-foreground', className)}
+      className={cn('rounded-md border border-dashed border-warning/60 bg-warning/10 px-3 py-1.5 text-center text-xs font-semibold uppercase tracking-[0.14em] text-warning-ink', className)}
       data-testid="watermark"
     >
       {text}
@@ -49,11 +49,11 @@ export function ReferencePlanView({ plan, compact = false }: { plan: ReferencePl
                   {!s.feasible && <Badge variant="muted">Vượt vốn tự có</Badge>}
                 </div>
                 <div>
-                  <p className="text-[11px] text-muted-foreground">Thanh toán đợt đầu</p>
+                  <p className="text-xs text-muted-foreground">Thanh toán đợt đầu</p>
                   <MoneyText amount={s.initial_payment_vnd} className="font-semibold" />
                 </div>
                 <div>
-                  <p className="text-[11px] text-muted-foreground">Giá bán tham khảo (gồm VAT, KPBT)</p>
+                  <p className="text-xs text-muted-foreground">Giá bán tham khảo (gồm VAT, KPBT)</p>
                   <MoneyText amount={s.total_contract_price_vnd} size="sm" />
                 </div>
                 {s.infeasible_reason && <p className="text-xs text-muted-foreground">{s.infeasible_reason}</p>}

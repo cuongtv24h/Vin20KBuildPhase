@@ -222,7 +222,7 @@ function ProviderFormDialog({
               onChange={(e) => set('provider', e.target.value.toLowerCase().replace(/\s+/g, '_'))}
               placeholder="vieneu / azure / openai"
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Mã trùng nhà cung cấp dựng sẵn = bản ghi đè (giữ nguyên vị trí trong danh mục); mã mới = nhà cung cấp mới.
             </p>
           </div>
@@ -295,7 +295,7 @@ function ProviderFormDialog({
               onChange={(e) => set('env_key', e.target.value.toUpperCase())}
               placeholder="VIENEU_TTS_TOKEN"
             />
-            <p className="text-[11px] text-muted-foreground">Chỉ dùng khi hệ thống chưa có khoá lưu trong DB.</p>
+            <p className="text-xs text-muted-foreground">Chỉ dùng khi hệ thống chưa có khoá lưu trong DB.</p>
           </div>
 
           <div className="space-y-1.5 sm:col-span-2">
@@ -323,7 +323,7 @@ function ProviderFormDialog({
                     : 'sk-... / token nhà cung cấp'
               }
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Khoá được mã hoá khi lưu và chỉ hiển thị dạng che (ví dụ <code>sk-t…abcd</code>).
             </p>
           </div>
@@ -377,7 +377,7 @@ function ProviderFormDialog({
               onChange={(e) => set('voices_text', e.target.value)}
               placeholder={'vi-female-01 | Nữ miền Bắc | female\nvi-male-01 | Nam miền Bắc | male'}
             />
-            <p className="text-[11px] text-muted-foreground">Để trống khi sửa = giữ danh sách giọng hiện có.</p>
+            <p className="text-xs text-muted-foreground">Để trống khi sửa = giữ danh sách giọng hiện có.</p>
           </div>
 
           <div className="space-y-1.5">
@@ -429,8 +429,8 @@ function ProviderFormDialog({
                 className={
                   'flex items-start gap-2 rounded-lg border p-3 text-xs ' +
                   (testResult.ok
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                    : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-500')
+                    ? 'border-success/30 bg-success/10 text-success'
+                    : 'border-warning/40 bg-warning/10 text-warning')
                 }
               >
                 {testResult.ok ? (
@@ -449,7 +449,7 @@ function ProviderFormDialog({
               </div>
             ) : (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                 Đã lưu cấu hình — bấm “Test kết nối” để kiểm tra bằng khoá vừa lưu.
               </p>
             )}
@@ -515,12 +515,12 @@ export function TtsProvidersCard() {
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle className="text-base">Nhà cung cấp TTS &amp; khoá API</CardTitle>
+            <CardTitle className="text-base">Nhà cung cấp TTS và khoá API</CardTitle>
             <CardDescription>
               Nhập khoá ngay trên giao diện (lưu đã mã hoá, chỉ hiển thị dạng che) — không cần sửa biến môi trường.
               Khoá lưu trong hệ thống được ưu tiên hơn ENV. Thêm được cả nhà cung cấp ngoài danh mục dựng sẵn.
             </CardDescription>
-            <p className="pt-1 text-[11px] text-muted-foreground">
+            <p className="pt-1 text-xs text-muted-foreground">
               Đơn giá là giá niêm yết của nhà cung cấp, kèm mốc kiểm chứng — đối chiếu lại trước khi quyết toán.
               Nhà cung cấp gắn nhãn <strong>Tuỳ chỉnh</strong> là do quản trị viên tự thêm.
             </p>
@@ -538,7 +538,7 @@ export function TtsProvidersCard() {
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="outline" className="text-[11px]">
+            <Badge variant="outline" className="text-xs">
               Nguồn: {data?.source === 'db' ? 'DB + danh mục' : 'danh mục dựng sẵn'}
             </Badge>
             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => refetch()} title="Tải lại">
@@ -596,7 +596,7 @@ export function TtsProvidersCard() {
                     <div className="flex items-center gap-2 font-medium">
                       {p.label}
                       {p.custom && (
-                        <Badge variant="outline" className="text-[10px]">
+                        <Badge variant="outline" className="text-xs">
                           <Sparkles className="mr-1 h-3 w-3" />
                           Tuỳ chỉnh
                         </Badge>
@@ -616,16 +616,16 @@ export function TtsProvidersCard() {
                       <span className="text-xs text-muted-foreground">Không cần</span>
                     ) : p.api_key_configured ? (
                       <div className="space-y-0.5">
-                        <Badge className="bg-emerald-600 text-[10px] hover:bg-emerald-700">Đã có</Badge>
-                        <div className="text-[11px] text-muted-foreground">{p.key_source_label}</div>
-                        {p.api_key_masked && <div className="font-mono text-[11px] text-muted-foreground">{p.api_key_masked}</div>}
+                        <Badge variant="success" className="text-xs">Đã có</Badge>
+                        <div className="text-xs text-muted-foreground">{p.key_source_label}</div>
+                        {p.api_key_masked && <div className="font-mono text-xs text-muted-foreground">{p.api_key_masked}</div>}
                       </div>
                     ) : (
                       <div className="space-y-0.5">
-                        <Badge variant="outline" className="text-[10px] text-amber-600">
+                        <Badge variant="outline" className="text-xs text-warning">
                           Chưa có
                         </Badge>
-                        {p.env_key && <div className="text-[11px] text-muted-foreground">ENV: {p.env_key}</div>}
+                        {p.env_key && <div className="text-xs text-muted-foreground">ENV: {p.env_key}</div>}
                       </div>
                     )}
                   </TableCell>
@@ -633,9 +633,9 @@ export function TtsProvidersCard() {
                     {p.last_test_status ? (
                       <div className="flex items-center gap-1.5 text-xs">
                         {p.last_test_status === 'OK' ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                         ) : (
-                          <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                          <AlertCircle className="h-3.5 w-3.5 text-warning" />
                         )}
                         <span>{p.last_test_status}</span>
                         {p.last_test_latency_ms != null && p.last_test_latency_ms > 0 && (
@@ -648,7 +648,7 @@ export function TtsProvidersCard() {
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {p.price_note || p.note}
-                    {p.verified_at && <div className="text-[11px]">Đối chiếu: {p.verified_at}</div>}
+                    {p.verified_at && <div className="text-xs">Đối chiếu: {p.verified_at}</div>}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -756,17 +756,17 @@ export function TtsProvidersCard() {
 export function TtsProvidersFootnote() {
   return (
     <div className="space-y-1">
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Volume2 className="h-3 w-3" />
         Khoá API lấy theo thứ tự: khoá nhập trên giao diện (DB) → biến môi trường máy chủ → khoá nhà cung cấp LLM
         trùng tên. Tài liệu kỹ thuật: <code>docs/team_report/tts_integration_plan.md</code>. Lựa chọn riêng của
         từng nhân viên nằm trong workspace ở nút “Giọng đọc”.
       </p>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Cách đọc: <strong>mọi nhà cung cấp có Base URL + khoá</strong> đều đọc được qua backend theo giao thức
         OpenAI-compatible (<code>POST {'{base_url}'}/audio/speech</code>) — kể cả OpenAI và máy chủ tự dựng khai ở
         trên, không có danh sách mã cứng. Văn bản được che PII, cắt theo hạn mức ký tự, lưu cache và ghi chi phí
-        vào tab “Chi phí &amp; hiệu năng”. Thứ tự đọc theo <strong>Ưu tiên</strong>; nhà cung cấp đứng trước lỗi thì
+        vào tab “Chi phí và hiệu năng”. Thứ tự đọc theo <strong>Ưu tiên</strong>; nhà cung cấp đứng trước lỗi thì
         tự chuyển sang nhà cung cấp kế tiếp và báo cho Sale biết — hết chuỗi thì mới lùi về giọng trình duyệt (0 đồng).
         Nhà cung cấp không dùng giao thức này sẽ trả lỗi 404/405 và được nhắc đổi Base URL (thường kết thúc bằng /v1).
       </p>

@@ -252,7 +252,7 @@ function ProviderFormDialog({
                   : 'sk-...'
               }
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Khoá được mã hoá khi lưu và chỉ hiển thị dạng che (ví dụ <code>sk-t…abcd</code>).
             </p>
           </div>
@@ -329,8 +329,8 @@ function ProviderFormDialog({
                 className={
                   'flex items-start gap-2 rounded-lg border p-3 text-xs ' +
                   (testResult.ok
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                    : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-500')
+                    ? 'border-success/30 bg-success/10 text-success'
+                    : 'border-warning/40 bg-warning/10 text-warning')
                 }
               >
                 {testResult.ok ? (
@@ -349,7 +349,7 @@ function ProviderFormDialog({
               </div>
             ) : (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                 Đã lưu cấu hình — bấm “Test kết nối” để gọi thử nhà cung cấp bằng khoá vừa lưu.
               </p>
             )}
@@ -413,7 +413,7 @@ export function LlmProvidersTab() {
 
   return (
     <div className="space-y-5">
-      <Card className={usingEnvFallback ? 'border-amber-500/40 bg-amber-500/[0.04]' : ''}>
+      <Card className={usingEnvFallback ? 'border-warning/40 bg-warning/[0.04]' : ''}>
         <CardContent className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2">
             <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -447,7 +447,7 @@ export function LlmProvidersTab() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="outline" className="text-[11px]">
+            <Badge variant="outline" className="text-xs">
               Nguồn: {data?.source === 'db' ? 'DB' : data?.source === 'env' ? 'ENV' : 'chưa có'}
             </Badge>
             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => refetch()} title="Tải lại">
@@ -471,7 +471,7 @@ export function LlmProvidersTab() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Nhà cung cấp đã khai báo</CardTitle>
           <CardDescription>
-            Đơn giá (đơn giá/1 triệu token) là cơ sở quy đổi chi phí ở tab “Chi phí &amp; hiệu năng”.
+            Đơn giá (đơn giá/1 triệu token) là cơ sở quy đổi chi phí ở tab “Chi phí và hiệu năng”.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -510,7 +510,7 @@ export function LlmProvidersTab() {
                 providers.map((p) => (
                   <TableRow key={p.provider_id} className={p.is_active ? '' : 'opacity-60'}>
                     <TableCell>
-                      <Badge variant={p.priority === 0 ? 'default' : 'outline'} className="text-[11px]">
+                      <Badge variant={p.priority === 0 ? 'default' : 'outline'} className="text-xs">
                         {p.priority === 0 ? 'Chính' : `#${p.priority}`}
                       </Badge>
                     </TableCell>
@@ -528,9 +528,9 @@ export function LlmProvidersTab() {
                       {p.last_test_status ? (
                         <div className="flex items-center gap-1.5 text-xs">
                           {p.last_test_status === 'OK' ? (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                           ) : (
-                            <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                            <AlertCircle className="h-3.5 w-3.5 text-warning" />
                           )}
                           <span>{p.last_test_status}</span>
                           {p.last_test_latency_ms != null && (
@@ -781,7 +781,7 @@ export function LlmUsageTab() {
               <CardHeader className="p-4 pb-2">
                 <CardDescription className="text-xs">Lượt gọi</CardDescription>
                 <CardTitle className="text-2xl">{s.total_calls.toLocaleString('vi-VN')}</CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Lỗi {(s.error_rate * 100).toFixed(1)}% ({s.failed_calls} lượt)
                 </p>
                 {/* Đọc thành tiếng tính tiền theo KÝ TỰ, không theo token ⇒ tách riêng cho khỏi hiểu nhầm. */}
@@ -798,7 +798,7 @@ export function LlmUsageTab() {
               <CardHeader className="p-4 pb-2">
                 <CardDescription className="text-xs">Token dùng</CardDescription>
                 <CardTitle className="text-2xl">{s.total_tokens.toLocaleString('vi-VN')}</CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   vào {s.total_input_tokens.toLocaleString('vi-VN')} · ra {s.total_output_tokens.toLocaleString('vi-VN')}
                 </p>
               </CardHeader>
@@ -809,7 +809,7 @@ export function LlmUsageTab() {
                 <CardTitle className="text-2xl">
                   {Math.round(s.p50_latency_ms)} / {Math.round(s.p95_latency_ms)} ms
                 </CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Bình quân {fmtMoney(s.avg_cost_per_call, s.currency)}/lượt
                 </p>
               </CardHeader>
@@ -918,7 +918,7 @@ export function LlmUsageTab() {
                         <TableCell className="text-sm">
                           {r.provider} · {r.model_name}
                           {r.is_fallback && (
-                            <Badge variant="outline" className="ml-2 text-[10px]">
+                            <Badge variant="outline" className="ml-2 text-xs">
                               dự phòng
                             </Badge>
                           )}
@@ -930,9 +930,9 @@ export function LlmUsageTab() {
                         <TableCell className="text-right text-xs">{fmtMoney(r.cost, r.currency)}</TableCell>
                         <TableCell>
                           {r.ok ? (
-                            <Badge className="bg-emerald-600 text-[10px] hover:bg-emerald-700">OK</Badge>
+                            <Badge variant="success" className="text-xs">OK</Badge>
                           ) : (
-                            <Badge variant="destructive" className="text-[10px]">
+                            <Badge variant="destructive" className="text-xs">
                               {r.error ?? 'LỖI'}
                             </Badge>
                           )}
@@ -947,7 +947,7 @@ export function LlmUsageTab() {
         </>
       )}
 
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <ExternalLink className="h-3 w-3" />
         Cần đổi khoá hay thêm model? Sang tab “Nhà cung cấp LLM” để khai báo — không cần chỉnh ENV.
       </p>
@@ -1057,7 +1057,7 @@ export function TtsTab() {
                     value={data.default.max_chars_per_turn}
                     onChange={(e) => void save({ max_chars_per_turn: Number(e.target.value) })}
                   />
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Câu trả lời dài hơn sẽ chỉ đọc phần đầu — vừa đỡ tốn tiền vừa không bắt khách chờ.
                   </p>
                 </div>

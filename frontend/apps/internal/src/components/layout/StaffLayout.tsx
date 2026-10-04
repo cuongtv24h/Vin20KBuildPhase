@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Gauge, Inbox, LogOut, Menu, MessageSquare, ScrollText, ShieldCheck, Sparkles, Users, X } from 'lucide-react'
-import { useState, type ComponentType } from 'react'
+import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Gauge, Inbox, LogOut, Menu, MessageSquare, ScrollText, ShieldCheck, Sparkles, PanelLeftClose, PanelLeftOpen, Users, type LucideIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '@pricepolicy/api-client/client'
 import type { UserRole } from '@pricepolicy/api-client/contracts'
 import { useLeads, useQuotes } from '@pricepolicy/api-client/hooks'
 import { useSessionStore } from '@/auth/sessionStore'
+import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { Button } from '@pricepolicy/ui/components/ui/button'
 import { ROLE_LABEL } from '@pricepolicy/ui/lib/labels'
 import { MANAGER_QUEUE } from '@pricepolicy/ui/lib/quoteRules'
@@ -14,7 +15,7 @@ import { cn } from '@pricepolicy/ui/lib/utils'
 interface NavItem {
   to: string
   label: string
-  icon: ComponentType<{ className?: string }>
+  icon: LucideIcon
   end?: boolean
   badgeKey?: 'openLeads' | 'managerQueue'
 }
@@ -67,6 +68,24 @@ export function StaffLayout() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+  // Thu gọn sidebar (chỉ desktop) — nhớ lựa chọn giữa các lần mở app.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('pp-sidebar') === 'collapsed'
+    } catch {
+      return false
+    }
+  })
+  function toggleCollapsed() {
+    setCollapsed((v) => {
+      try {
+        localStorage.setItem('pp-sidebar', v ? 'expanded' : 'collapsed')
+      } catch {
+        /* bỏ qua */
+      }
+      return !v
+    })
+  }
 
   const role = session?.user.role ?? 'SALE'
   const badges = BADGE_HOOK[role]()
@@ -84,8 +103,16 @@ export function StaffLayout() {
 
   const location = useLocation()
 
-  const nav = (
-    <nav className="flex flex-col gap-0.5">
+  // Đóng drawer bằng Esc (trợ năng bàn phím).
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMobileOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileOpen])
+
+  const renderNav = (compact: boolean) => (
+    <nav aria-label="Điều hướng chính" className="flex flex-col gap-1">
       {items.map((item) => {
         const count = item.badgeKey ? badges[item.badgeKey] : 0
         return (
@@ -94,19 +121,29 @@ export function StaffLayout() {
             to={item.to}
             end={item.end}
             onClick={() => setMobileOpen(false)}
+            title={compact ? item.label : undefined}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive ? 'bg-primary-foreground/15 text-primary-foreground' : 'text-primary-foreground/70 hover:bg-primary-foreground/10 hover:text-primary-foreground',
+                'group relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 lg:min-h-10',
+                isActive
+                  ? 'bg-sidebar-active text-sidebar-foreground before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
+                  : 'text-sidebar-muted hover:bg-sidebar-active/60 hover:text-sidebar-foreground',
               )
             }
           >
-            <item.icon className="h-4 w-4 shrink-0" />
-            <span className="flex-1">{item.label}</span>
-            {count > 0 && (
-              <span className="rounded-full bg-gold px-1.5 py-0.5 text-[10px] font-semibold leading-none text-gold-foreground tabular-nums">
-                {count}
-              </span>
+            {({ isActive }) => (
+              <>
+                <item.icon className={cn('h-[18px] w-[18px] shrink-0', isActive && 'text-primary')} />
+                <span className="sb-label min-w-0 flex-1 truncate whitespace-nowrap">{item.label}</span>
+                {count > 0 && (
+                  <span
+                    aria-label={`${count} mục đang chờ`}
+                    className={cn('inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold leading-none text-primary-foreground tabular-nums', compact && 'absolute right-1 top-0.5 h-4 min-w-4 px-1')}
+                  >
+                    {count}
+                  </span>
+                )}
+              </>
             )}
           </NavLink>
         )
@@ -114,41 +151,74 @@ export function StaffLayout() {
     </nav>
   )
 
-  const sidebar = (
-    <div className="flex h-full flex-col gap-6 bg-primary px-3 py-5 text-primary-foreground">
-      <Link to={items[0].to} className="flex items-center gap-2.5 px-2">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-foreground/10">
+  const initials = (session?.user.full_name ?? '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(-2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('')
+
+  const renderSidebar = (compact: boolean, desktop: boolean) => (
+    <div className={cn('flex h-full flex-col gap-6 bg-sidebar px-3 py-5 text-sidebar-foreground', desktop ? 'w-60' : 'w-full border-r border-sidebar-border')}>
+      <div className={cn('flex items-center gap-2', compact ? 'justify-start' : 'justify-between')}>
+      <Link to={items[0].to} title={compact ? 'PricePolicy' : undefined} className={cn('flex min-w-0 items-center gap-3 rounded-lg px-0.5 py-1', compact && 'hidden')}>
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/40 text-primary">
           <ShieldCheck className="h-5 w-5" />
         </span>
-        <span className="leading-tight">
-          <span className="block font-display text-base font-semibold">PricePolicy</span>
-          <span className="block text-[11px] text-primary-foreground/60">VLandFuture</span>
+        <span className="sb-label whitespace-nowrap leading-tight">
+          <span className="block font-display text-lg font-semibold tracking-tight">PricePolicy</span>
+          <span className="block text-xs uppercase tracking-[0.14em] text-sidebar-muted">VLandFuture</span>
         </span>
       </Link>
+        {desktop && (
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={compact ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'}
+            aria-expanded={!compact}
+            title={compact ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sidebar-muted transition-colors hover:bg-sidebar-active hover:text-sidebar-foreground"
+          >
+            {compact ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
+          </button>
+        )}
+      </div>
 
       {role === 'SALE' && (
-        <Button asChild variant="secondary" className="justify-start">
-          <Link to="/sale/quotes/new" onClick={() => setMobileOpen(false)}>
-            <FilePlus2 className="h-4 w-4" /> Báo giá khách tại sàn
+        <Button asChild size="lg" className="w-full justify-start px-3 font-semibold">
+          <Link to="/sale/quotes/new" title={compact ? 'Báo giá khách tại sàn' : undefined} aria-label="Báo giá khách tại sàn" onClick={() => setMobileOpen(false)}>
+            <FilePlus2 /> <span className="sb-label">Báo giá khách tại sàn</span>
           </Link>
         </Button>
       )}
 
-      {nav}
+      {renderNav(compact)}
 
-      <div className="mt-auto space-y-3 border-t border-primary-foreground/15 px-2 pt-4">
-        <div className="leading-tight">
-          <p className="text-sm font-medium">{session?.user.full_name}</p>
-          <p className="text-xs text-primary-foreground/60">{ROLE_LABEL[role]}</p>
-          <p className="truncate text-xs text-primary-foreground/50">{session?.user.email}</p>
+      <div className="mt-auto space-y-3 border-t border-sidebar-border pt-4">
+        <div className="flex items-center gap-3 px-1">
+          <span
+            aria-hidden="true"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-sidebar-active text-sm font-semibold text-primary"
+          >
+            {initials}
+          </span>
+          <div className="sb-label min-w-0 whitespace-nowrap leading-tight">
+            <p className="truncate text-sm font-medium">{session?.user.full_name}</p>
+            <p className="truncate text-xs text-sidebar-muted">{ROLE_LABEL[role]}</p>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="inline-flex items-center gap-1.5 text-xs text-primary-foreground/70 hover:text-primary-foreground"
-        >
-          <LogOut className="h-3.5 w-3.5" /> Đăng xuất
-        </button>
+        <p className="sb-label truncate whitespace-nowrap px-1 text-xs text-sidebar-muted">{session?.user.email}</p>
+        <div className={cn('flex gap-1', compact ? 'flex-col items-start' : 'items-center justify-between')}>
+          <button
+            type="button"
+            onClick={handleLogout}
+            title={compact ? 'Đăng xuất' : undefined}
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-sidebar-muted transition-colors hover:bg-sidebar-active hover:text-sidebar-foreground"
+          >
+            <LogOut className="h-4 w-4 shrink-0" /> <span className="sb-label whitespace-nowrap">Đăng xuất</span>
+          </button>
+          <ThemeToggle />
+        </div>
       </div>
     </div>
   )
@@ -160,24 +230,49 @@ export function StaffLayout() {
 
   return (
     <div className={cn('flex bg-background', isWorkspace ? 'h-dvh overflow-hidden' : 'min-h-screen')}>
-      <aside className={cn('hidden w-60 shrink-0 lg:block', isWorkspace ? 'h-dvh' : 'sticky top-0 h-screen')}>
-        {sidebar}
+      <aside
+        data-collapsed={collapsed}
+        className={cn(
+          'hidden shrink-0 overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-out lg:block',
+          collapsed ? 'w-[4.25rem]' : 'w-60',
+          isWorkspace ? 'h-dvh' : 'sticky top-0 h-screen',
+        )}
+      >
+        {renderSidebar(collapsed, true)}
       </aside>
 
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button type="button" aria-label="Đóng menu" className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <aside className="relative h-full w-64">{sidebar}</aside>
-        </div>
-      )}
+      {/* Menu trượt trên mobile: luôn render để có transition; ẩn khỏi cây trợ năng khi đóng */}
+      <div className={cn('fixed inset-0 z-50 lg:hidden', mobileOpen ? '' : 'pointer-events-none')} aria-hidden={!mobileOpen}>
+        <button
+          type="button"
+          tabIndex={mobileOpen ? 0 : -1}
+          aria-label="Đóng menu"
+          className={cn('absolute inset-0 bg-black/60 transition-opacity duration-200', mobileOpen ? 'opacity-100' : 'opacity-0')}
+          onClick={() => setMobileOpen(false)}
+        />
+        <aside
+          className={cn(
+            'relative h-full w-72 max-w-[85vw] shadow-xl transition-transform duration-200 ease-out',
+            mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          )}
+        >
+          {renderSidebar(false, false)}
+        </aside>
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur lg:hidden">
-          <button type="button" aria-label="Mở menu" onClick={() => setMobileOpen(true)} className="rounded-md p-1.5 hover:bg-muted">
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border bg-background/95 px-2 backdrop-blur lg:hidden">
+          <button
+            type="button"
+            aria-label="Mở menu"
+            aria-expanded={mobileOpen}
+            onClick={() => setMobileOpen(true)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg transition-colors hover:bg-accent"
+          >
+            <Menu className="h-5 w-5" />
           </button>
-          <span className="font-display font-semibold">PricePolicy</span>
-          <span className="text-xs text-muted-foreground">{session?.user.full_name}</span>
+          <span className="font-display text-lg font-semibold tracking-tight">PricePolicy</span>
+          <span className="max-w-[40%] truncate px-2 text-xs text-muted-foreground">{session?.user.full_name}</span>
         </header>
         <main
           className={cn(

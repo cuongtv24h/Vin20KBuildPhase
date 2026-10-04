@@ -34,7 +34,15 @@ export function QuoteTable({ quotes, hrefFor, showOwner, sodUserId }: { quotes: 
                     v{q.quote_version} · {q.unit.unit_code}
                   </p>
                 </TableCell>
-                <TableCell>{q.transaction_context.customer_name}</TableCell>
+                <TableCell>
+                  {q.transaction_context.customer_name?.trim() ? (
+                    q.transaction_context.customer_name
+                  ) : (
+                    <span className="text-muted-foreground/70" title="Hồ sơ này chưa được gắn với khách hàng trong CRM">
+                      Chưa gắn khách
+                    </span>
+                  )}
+                </TableCell>
                 {showOwner && (
                   <TableCell>
                     <span className="inline-flex items-center gap-1">
@@ -56,7 +64,7 @@ export function QuoteTable({ quotes, hrefFor, showOwner, sodUserId }: { quotes: 
                       <p className="text-xs text-muted-foreground">{rec.label}</p>
                     </>
                   ) : (
-                    <span className="text-muted-foreground">—</span>
+                    <span className="text-muted-foreground/70">Chưa có</span>
                   )}
                 </TableCell>
                 <TableCell className="text-right text-xs text-muted-foreground">{formatRelative(q.updated_at)}</TableCell>

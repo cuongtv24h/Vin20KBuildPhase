@@ -62,3 +62,20 @@ export function formatRelative(isoDate: string, now: Date = new Date()): string 
   if (days < 30) return `${days} ngày trước`
   return formatDate(isoDate)
 }
+
+/** Che số điện thoại thống nhất: giữ 3 ký tự đầu và 3 ký tự cuối, phần giữa thay bằng "*". */
+export function maskPhone(phone: string | null | undefined): string {
+  const raw = (phone ?? '').replace(/\s+/g, '')
+  if (!raw) return ''
+  if (raw.length <= 6) return '*'.repeat(raw.length)
+  return `${raw.slice(0, 3)}${'*'.repeat(raw.length - 6)}${raw.slice(-3)}`
+}
+
+/** Ghi chú hiển thị: loại bỏ "None"/"null"/"undefined"/rỗng; không còn nội dung thì "Chưa có ghi chú". */
+export function formatNote(note: string | null | undefined, fallback = 'Chưa có ghi chú'): string {
+  const cleaned = (note ?? '')
+    .replace(/\b(None|null|undefined)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return cleaned || fallback
+}
