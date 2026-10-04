@@ -2,8 +2,8 @@ import type { Config } from 'tailwindcss'
 import animate from 'tailwindcss-animate'
 
 export default {
-  // Mặc định tối; chế độ sáng là <html data-theme="light"> → biến thể dark: áp dụng khi KHÔNG ở chế độ sáng.
-  darkMode: ['selector', ':root:not([data-theme="light"])'],
+  // Mặc định tối; chế độ sáng/dịu mắt bật qua data-theme -> biến thể dark chỉ áp dụng khi KHÔNG ở light và calm.
+  darkMode: ['selector', ':root:not([data-theme="light"]):not([data-theme="calm"])'],
   content: ['./index.html', './src/**/*.{ts,tsx}', '../../packages/ui/src/**/*.{ts,tsx}'],
   theme: {
     container: {

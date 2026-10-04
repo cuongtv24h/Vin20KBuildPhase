@@ -1,12 +1,39 @@
 import { useCallback, useSyncExternalStore } from 'react'
 
-export type Theme = 'dark' | 'light'
+export type Theme = 'dark' | 'light' | 'calm'
+
+export const THEME_CONFIG: Record<
+  Theme,
+  { label: string; next: Theme; nextLabel: string; description: string }
+> = {
+  dark: {
+    label: 'Tối',
+    next: 'light',
+    nextLabel: 'Sáng (Ngà ấm)',
+    description: 'Luxury Black sang trọng, hiện đại',
+  },
+  light: {
+    label: 'Sáng',
+    next: 'calm',
+    nextLabel: 'Dịu mắt (Xanh trắng)',
+    description: 'Ivory & Champagne ấm áp',
+  },
+  calm: {
+    label: 'Dịu mắt',
+    next: 'dark',
+    nextLabel: 'Tối (Luxury Black)',
+    description: 'Xanh trắng cổ điển dịu mắt',
+  },
+}
 
 const KEY = 'pp-theme'
 const listeners = new Set<() => void>()
 
 function read(): Theme {
-  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'
+  const attr = document.documentElement.getAttribute('data-theme')
+  if (attr === 'light') return 'light'
+  if (attr === 'calm') return 'calm'
+  return 'dark'
 }
 
 function apply(theme: Theme) {
@@ -15,8 +42,11 @@ function apply(theme: Theme) {
   const style = document.createElement('style')
   style.textContent = '*,*::before,*::after{transition:none!important}'
   document.head.appendChild(style)
-  if (theme === 'light') root.setAttribute('data-theme', 'light')
-  else root.removeAttribute('data-theme')
+  if (theme === 'dark') {
+    root.removeAttribute('data-theme')
+  } else {
+    root.setAttribute('data-theme', theme)
+  }
   try {
     localStorage.setItem(KEY, theme)
   } catch {
@@ -34,6 +64,10 @@ function subscribe(cb: () => void) {
 
 export function useTheme() {
   const theme = useSyncExternalStore(subscribe, read, () => 'dark' as Theme)
-  const toggle = useCallback(() => apply(read() === 'dark' ? 'light' : 'dark'), [])
-  return { theme, toggle }
+  const setTheme = useCallback((t: Theme) => apply(t), [])
+  const toggle = useCallback(() => {
+    const current = read()
+    apply(THEME_CONFIG[current].next)
+  }, [])
+  return { theme, setTheme, toggle }
 }

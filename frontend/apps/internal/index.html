@@ -10,6 +10,7 @@
       try {
         var t = localStorage.getItem('pp-theme')
         if (t === 'light') document.documentElement.setAttribute('data-theme', 'light')
+        else if (t === 'calm') document.documentElement.setAttribute('data-theme', 'calm')
       } catch (e) {}
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
