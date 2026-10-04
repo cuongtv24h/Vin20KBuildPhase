@@ -22,7 +22,7 @@ export const THEME_CONFIG: Record<
     label: 'Dịu mắt',
     next: 'dark',
     nextLabel: 'Tối (Luxury Black)',
-    description: 'Xanh trắng cổ điển dịu mắt',
+    description: 'Xanh da trời sáng dịu mắt',
   },
 }
 
