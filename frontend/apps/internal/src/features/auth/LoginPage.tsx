@@ -60,7 +60,7 @@ export function LoginPage() {
       </div>
 
       <div className="relative flex items-center justify-center px-4 py-10">
-        <ThemeToggle className="absolute right-4 top-4 text-muted-foreground hover:bg-accent hover:text-foreground" />
+        <div className="absolute right-4 top-4"><ThemeToggle side="bottom" className="text-muted-foreground hover:bg-accent hover:text-foreground" /></div>
         <div className="w-full max-w-sm space-y-6">
           {/* Mobile/tablet: cột trái ẩn nên nhắc lại thương hiệu ở đầu form */}
           <div className="flex items-center gap-2.5 lg:hidden">

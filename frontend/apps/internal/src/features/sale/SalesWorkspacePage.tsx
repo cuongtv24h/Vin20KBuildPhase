@@ -1039,6 +1039,8 @@ export function SalesWorkspacePage() {
   const appendTurn = useAppendCopilotTurnSync()
   const deleteConversation = useDeleteCopilotConversation()
   const pendingQuestionsRef = useRef<Record<string, string>>({})
+  /** Lời hẹn id của phiên đang được tạo ở lượt đầu — các lượt sau ghi vào cùng id đó. */
+  const creatingSessionRef = useRef<Promise<string | null> | null>(null)
 
   /**
    * `reloadNonce` tăng mỗi lần người dùng **chủ động mở lại** một cuộc (bấm vào lịch sử) — nhờ đó
@@ -1094,6 +1096,7 @@ export function SalesWorkspacePage() {
       return
     }
     copilotChatStore.setConversationId(null)
+    creatingSessionRef.current = null
     rememberConversationId(null)
     loadedConversationRef.current = null
     setFailedTurn(null)
@@ -1556,18 +1559,26 @@ export function SalesWorkspacePage() {
     if (question) {
       // `turnToAppendPayload` là hàm thuần đã có test (packages/api-client/src/copilotHistory.ts):
       // lưu MỌI lượt, kể cả câu trả lời chế độ dự phòng — nếu không, lịch sử rỗng và đổi trang là mất hội thoại.
-      appendTurn(
-        turnToAppendPayload({ conversationId, question, final }),
-      ).then((detail) => {
+      // Chỉ tạo phiên một lần: nếu lượt đầu chưa ghi xong thì lượt sau chờ id của nó, không tạo phiên thứ hai.
+      const idReady: Promise<string | null> = conversationId
+        ? Promise.resolve(conversationId)
+        : (creatingSessionRef.current ?? Promise.resolve(null))
+      const saved = idReady.then((id) =>
+        appendTurn(turnToAppendPayload({ conversationId: id, question, final })),
+      )
+      if (!conversationId && !creatingSessionRef.current) {
+        creatingSessionRef.current = saved.then((d) => d?.conversation_id ?? null)
+      }
+      saved.then((detail) => {
         if (!detail) return
-        // Lượt đầu tiên của cuộc mới: server đặt tên cuộc → ghi nhớ id để lần sau ghi tiếp.
-        if (!conversationId && detail.conversation_id) {
+        // Lượt đầu tiên của cuộc mới: server cấp id → gán cho phiên đang mở và GIỮ nguyên tin đang hiển thị.
+        // (Không dùng setConversationId: nó đổi khoá và xoá khung chat vì cuộc mới chưa có trong cache.)
+        if (!copilotChatStore.getSnapshot().conversationId && detail.conversation_id) {
+          copilotChatStore.assignConversationId(detail.conversation_id)
           rememberConversationId(detail.conversation_id)
-          setConversationId(detail.conversation_id)
-          // Nội dung đã hiển thị chính là nội dung server vừa lưu → không cần nạp lại và không
-          // được làm rơi mất các thẻ tương tác (confirm/stepper) chỉ có ở phía client.
           loadedConversationRef.current = `${detail.conversation_id}#${reloadNonceRef.current}`
         }
+        creatingSessionRef.current = null
       })
     }
   }, [copilot.final, copilot.steps])
