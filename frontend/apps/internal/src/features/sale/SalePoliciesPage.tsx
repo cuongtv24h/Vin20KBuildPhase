@@ -100,7 +100,7 @@ export function SalePoliciesPage() {
             </Button>
             <Button variant="outline" size="sm" asChild>
               <Link to="/sale/messages">
-                <FileCheck className="mr-1.5 h-3.5 w-3.5" /> Soạn tin & Tuân thủ F8
+                <FileCheck className="mr-1.5 h-3.5 w-3.5" /> Soạn tin và Tuân thủ F8
               </Link>
             </Button>
           </div>
@@ -116,29 +116,29 @@ export function SalePoliciesPage() {
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
             <div className="text-2xl font-bold font-display">{metrics.total}</div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Trên {metrics.projects} dự án đang mở bán</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Trên {metrics.projects} dự án đang mở bán</p>
           </CardContent>
         </Card>
 
         <Card className="border-border shadow-xs">
           <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground">Đang áp dụng (Active)</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <CheckCircle2 className="h-4 w-4 text-success" />
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
-            <div className="text-2xl font-bold font-display text-emerald-600">{metrics.active}</div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Sẵn sàng để lên báo giá và chốt căn</p>
+            <div className="text-2xl font-bold font-display text-success">{metrics.active}</div>
+            <p className="text-xs text-muted-foreground mt-0.5">Sẵn sàng để lên báo giá và chốt căn</p>
           </CardContent>
         </Card>
 
         <Card className="border-border shadow-xs">
           <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground">Chiết khấu tối đa hiện hành</span>
-            <Percent className="h-4 w-4 text-amber-600" />
+            <Percent className="h-4 w-4 text-warning" />
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-0">
-            <div className="text-2xl font-bold font-display text-amber-600">8.0% - 9.5%</div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Áp dụng cho thanh toán sớm 95%</p>
+            <div className="text-2xl font-bold font-display text-warning">8.0% - 9.5%</div>
+            <p className="text-xs text-muted-foreground mt-0.5">Áp dụng cho thanh toán sớm 95%</p>
           </CardContent>
         </Card>
       </div>
@@ -225,7 +225,7 @@ export function SalePoliciesPage() {
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="w-[140px] text-xs">Mã văn bản</TableHead>
-                    <TableHead className="text-xs">Tên chính sách & Dự án</TableHead>
+                    <TableHead className="text-xs">Tên chính sách và Dự án</TableHead>
                     <TableHead className="w-[120px] text-xs">Trạng thái</TableHead>
                     <TableHead className="w-[180px] text-xs">Thời hạn áp dụng</TableHead>
                     <TableHead className="w-[90px] text-xs">Phiên bản</TableHead>
@@ -247,7 +247,7 @@ export function SalePoliciesPage() {
                             <span className="font-medium text-xs text-foreground block">
                               {p.title}
                             </span>
-                            <span className="text-[11px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               {PROJECT_LABEL[p.project_id] || p.project_id}
                             </span>
                           </div>
@@ -256,7 +256,7 @@ export function SalePoliciesPage() {
                           <PolicyStatusBadge status={p.status} />
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
-                          <div className="flex flex-col text-[11px]">
+                          <div className="flex flex-col text-xs">
                             <span>Từ: {formatDate(p.effective_from)}</span>
                             <span>Đến: {p.effective_to ? formatDate(p.effective_to) : 'Không thời hạn'}</span>
                           </div>
@@ -313,25 +313,25 @@ export function SalePoliciesPage() {
             <div className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/30 p-3 border border-border">
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Trạng thái:</span>
+                  <span className="text-muted-foreground block text-xs">Trạng thái:</span>
                   <div className="mt-1">
                     <PolicyStatusBadge status={selectedPolicy.status} />
                   </div>
                 </div>
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Phiên bản:</span>
+                  <span className="text-muted-foreground block text-xs">Phiên bản:</span>
                   <span className="font-mono font-semibold text-foreground mt-1 block">
                     {selectedPolicy.policy_version}
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Ngày bắt đầu:</span>
+                  <span className="text-muted-foreground block text-xs">Ngày bắt đầu:</span>
                   <span className="font-medium text-foreground">
                     {formatDate(selectedPolicy.effective_from)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground block text-[11px]">Ngày kết thúc:</span>
+                  <span className="text-muted-foreground block text-xs">Ngày kết thúc:</span>
                   <span className="font-medium text-foreground">
                     {selectedPolicy.effective_to ? formatDate(selectedPolicy.effective_to) : 'Vô thời hạn'}
                   </span>
@@ -342,22 +342,22 @@ export function SalePoliciesPage() {
                 <div className="flex items-center justify-between rounded-lg border border-border p-2.5">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-primary" />
-                    <span className="font-mono text-[11px] text-foreground">
+                    <span className="font-mono text-xs text-foreground">
                       {selectedPolicy.source_document || selectedPolicy.document_id}
                     </span>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="outline" className="text-xs">
                     Văn bản gốc
                   </Badge>
                 </div>
               )}
 
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-1">
-                <div className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+              <div className="rounded-lg border border-success/30 bg-success/10 p-3 space-y-1">
+                <div className="font-semibold text-success flex items-center gap-1.5">
                   <ShieldCheck className="h-4 w-4" />
                   Được xác thực bởi Deterministic Math Engine (FCS v2.6)
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <p className="text-xs text-muted-foreground leading-relaxed">
                   Tất cả các công thức chiết khấu thanh toán sớm, ân hạn nợ gốc và lãi suất 0% đều được đối soát tự động khi lập báo giá.
                 </p>
               </div>

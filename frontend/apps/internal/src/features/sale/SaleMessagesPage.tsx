@@ -1,20 +1,4 @@
-import {
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
-  Copy,
-  ExternalLink,
-  Info,
-  Layers,
-  MessageSquare,
-  RefreshCw,
-  Send,
-  ShieldAlert,
-  ShieldCheck,
-  Sparkles,
-  Users,
-  X,
-} from 'lucide-react'
+import { AlertTriangle, ArrowRight, CheckCircle2, Copy, ExternalLink, Info, Layers, MessageSquare, RefreshCw, Send, ShieldAlert, ShieldCheck, Sparkles, Users, X, Check } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useLeads, usePolicies } from '@pricepolicy/api-client/hooks'
@@ -138,7 +122,7 @@ export function runLocalComplianceCheck(text: string): ComplianceCheckState {
   if (hasAnchor) {
     return {
       tier: 'GREEN',
-      statusText: 'XANH — Hỗ trợ đầy đủ & Tuân thủ phát ngôn',
+      statusText: 'XANH — Hỗ trợ đầy đủ và Tuân thủ phát ngôn',
       checks: [
         ['ok', 'Các số liệu tài chính đều có chứng cứ [n] xác thực'],
         ['ok', 'Số liệu khớp Deterministic Math Engine Δ = 0 ₫'],
@@ -246,8 +230,8 @@ export function SaleMessagesPage() {
     <div className="space-y-6">
       {/* Top Header */}
       <PageHeader
-        title="Soạn tin & Kiểm định Tuân thủ F8"
-        description="Soạn tin nhắn tư vấn khách hàng, kiểm duyệt tự động mỏ neo pháp lý, tỷ lệ chiết khấu & chính sách bán hàng theo chuẩn FCS v2.6."
+        title="Soạn tin và Kiểm định Tuân thủ F8"
+        description="Soạn tin nhắn tư vấn khách hàng, kiểm duyệt tự động mỏ neo pháp lý, tỷ lệ chiết khấu và chính sách bán hàng theo chuẩn FCS v2.6."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" asChild>
@@ -276,7 +260,7 @@ export function SaleMessagesPage() {
                   <span className="text-xs font-semibold">Khách hàng áp dụng (tùy chọn)</span>
                 </div>
                 {selectedLead && (
-                  <Badge variant="outline" className="text-[11px] bg-primary/5 text-primary">
+                  <Badge variant="outline" className="text-xs bg-primary/5 text-primary">
                     Mã khách: {selectedLead.dossier_id} · {selectedLead.segment || selectedLead.customer_segment}
                   </Badge>
                 )}
@@ -345,10 +329,10 @@ export function SaleMessagesPage() {
                 <MessageSquare className="h-4 w-4 text-primary" />
                 <CardTitle className="text-sm font-semibold">Nội dung tin nhắn tư vấn</CardTitle>
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>{draftContent.length} ký tự</span>
                 <span className="text-border">|</span>
-                <Badge variant="outline" className="font-mono text-[10px]">
+                <Badge variant="outline" className="font-mono text-xs">
                   {isCheckingCompliance ? 'Kiểm tra...' : 'F8 Live-check 400ms'}
                 </Badge>
               </div>
@@ -366,11 +350,11 @@ export function SaleMessagesPage() {
               <div className="space-y-1.5 pt-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-muted-foreground">Mỏ neo căn cứ pháp lý đã nhận diện:</span>
-                  <span className="text-[11px] text-muted-foreground">Bấm vào để xem trích đoạn văn bản</span>
+                  <span className="text-xs text-muted-foreground">Bấm vào để xem trích đoạn văn bản</span>
                 </div>
                 {draftAnchors.length === 0 ? (
-                  <div className="text-xs text-amber-600 bg-amber-500/10 p-2 rounded border border-amber-500/20">
-                    ⚠ Chưa có mỏ neo chứng cứ. Sử dụng cú pháp [1], [2], [4] tương ứng với các điều khoản chính sách.
+                  <div className="text-xs text-warning bg-warning/10 p-2 rounded border border-warning/20">
+                    <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" aria-hidden="true" /> Chưa có mỏ neo chứng cứ. Sử dụng cú pháp [1], [2], [4] tương ứng với các điều khoản chính sách.
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
@@ -379,7 +363,7 @@ export function SaleMessagesPage() {
                         key={aid}
                         type="button"
                         onClick={() => setEvidenceId(aid)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:bg-amber-500/20 transition-colors"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning hover:bg-warning/20 transition-colors"
                       >
                         <span className="font-mono">[{aid}]</span>
                         <span className="font-normal truncate max-w-[200px] text-left">
@@ -393,7 +377,7 @@ export function SaleMessagesPage() {
 
               {/* Action Buttons Row */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -438,21 +422,21 @@ export function SaleMessagesPage() {
           <Card
             className={cn(
               'border shadow-xs transition-colors',
-              complianceResult.tier === 'GREEN' && 'border-emerald-500/40 bg-emerald-500/5',
-              complianceResult.tier === 'AMBER' && 'border-amber-500/40 bg-amber-500/5',
-              complianceResult.tier === 'RED' && 'border-rose-500/40 bg-rose-500/5',
-              complianceResult.tier === 'BLACK' && 'border-neutral-900 bg-neutral-900 text-white dark:bg-neutral-950'
+              complianceResult.tier === 'GREEN' && 'border-success/40 bg-success/5',
+              complianceResult.tier === 'AMBER' && 'border-warning/40 bg-warning/5',
+              complianceResult.tier === 'RED' && 'border-destructive/40 bg-destructive/5',
+              complianceResult.tier === 'BLACK' && 'border-destructive/40 bg-destructive/15 text-destructive'
             )}
           >
             <CardHeader className="py-3.5 px-4 border-b border-border/40">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {complianceResult.tier === 'GREEN' ? (
-                    <ShieldCheck className="h-5 w-5 text-emerald-600" />
+                    <ShieldCheck className="h-5 w-5 text-success" />
                   ) : complianceResult.tier === 'AMBER' ? (
-                    <AlertTriangle className="h-5 w-5 text-amber-600" />
+                    <AlertTriangle className="h-5 w-5 text-warning" />
                   ) : (
-                    <ShieldAlert className="h-5 w-5 text-rose-600" />
+                    <ShieldAlert className="h-5 w-5 text-destructive" />
                   )}
                   <span className="font-semibold text-xs uppercase tracking-wide">
                     Tiêu chuẩn Tuân thủ F8
@@ -466,7 +450,7 @@ export function SaleMessagesPage() {
                       ? 'secondary'
                       : 'destructive'
                   }
-                  className="text-[10px] font-bold"
+                  className="text-xs font-bold"
                 >
                   {complianceResult.tier}
                 </Badge>
@@ -479,23 +463,23 @@ export function SaleMessagesPage() {
                 {complianceResult.checks.map(([st, txt], i) => (
                   <div key={i} className="flex items-start gap-2">
                     <span className="font-bold shrink-0">
-                      {st === 'ok' ? '✓' : st === 'warn' ? '⚠' : '✗'}
+                      {st === 'ok' ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : st === 'warn' ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : <X className="h-3.5 w-3.5" aria-hidden="true" />}
                     </span>
-                    <span className="text-[11.5px] leading-snug">{txt}</span>
+                    <span className="text-xs leading-snug">{txt}</span>
                   </div>
                 ))}
               </div>
 
               {complianceResult.suggest && (
                 <div className="rounded-lg border border-dashed border-primary/40 bg-primary/10 p-2.5 text-xs text-foreground mt-3">
-                  <div className="font-bold text-[11px] text-primary mb-1 flex items-center gap-1">
+                  <div className="font-bold text-xs text-primary mb-1 flex items-center gap-1">
                     <Sparkles className="h-3 w-3" /> Gợi ý phát ngôn an toàn:
                   </div>
-                  <p className="text-[11.5px] leading-relaxed">{complianceResult.suggest}</p>
+                  <p className="text-xs leading-relaxed">{complianceResult.suggest}</p>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 mt-1.5 text-[10px] text-primary hover:bg-primary/20 p-1"
+                    className="h-6 mt-1.5 text-xs text-primary hover:bg-primary/20 p-1"
                     onClick={() => {
                       const cleanSuggest = complianceResult.suggest?.replace(/^Câu an toàn:\s*"?|"?$/g, '') || ''
                       if (cleanSuggest) setDraftContent(cleanSuggest)
@@ -515,7 +499,7 @@ export function SaleMessagesPage() {
                 <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Kho Mỏ neo Chứng cứ (FCS v2.6)
                 </CardTitle>
-                <span className="text-[11px] text-muted-foreground">{Object.keys(EVIDENCE_DB).length} nguồn</span>
+                <span className="text-xs text-muted-foreground">{Object.keys(EVIDENCE_DB).length} nguồn</span>
               </div>
             </CardHeader>
             <CardContent className="p-3 space-y-2">
@@ -534,13 +518,13 @@ export function SaleMessagesPage() {
                     <div className="flex items-center justify-between font-semibold text-foreground">
                       <span className="font-mono text-primary">[{id}] {ev.p}</span>
                       {isSelected && (
-                        <Badge variant="outline" className="text-[9px] h-4 bg-primary/10 text-primary">
+                        <Badge variant="outline" className="text-xs h-4 bg-primary/10 text-primary">
                           Đang dùng
                         </Badge>
                       )}
                     </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 mt-1">{ev.q}</p>
-                    <div className="mt-1 text-[10px] text-muted-foreground flex justify-between">
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{ev.q}</p>
+                    <div className="mt-1 text-xs text-muted-foreground flex justify-between">
                       <span>{ev.e}</span>
                       <span className="font-mono">{ev.h}</span>
                     </div>
@@ -558,7 +542,7 @@ export function SaleMessagesPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
               <span className="font-mono text-primary">[{evidenceId}]</span>
-              <span>Trích lục pháp lý & căn cứ chính sách</span>
+              <span>Trích lục pháp lý và căn cứ chính sách</span>
             </DialogTitle>
           </DialogHeader>
           {evidenceId && EVIDENCE_DB[evidenceId] && (
@@ -566,7 +550,7 @@ export function SaleMessagesPage() {
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 italic text-foreground leading-relaxed">
                 “{EVIDENCE_DB[evidenceId].q}”
               </div>
-              <div className="space-y-1.5 text-muted-foreground pt-1 text-[11.5px]">
+              <div className="space-y-1.5 text-muted-foreground pt-1 text-xs">
                 <div className="flex justify-between">
                   <span>Văn bản ban hành:</span>
                   <span className="font-semibold text-foreground text-right">{EVIDENCE_DB[evidenceId].p}</span>
@@ -606,7 +590,7 @@ export function SaleMessagesPage() {
             <div className="rounded-lg bg-muted p-3 text-muted-foreground max-h-36 overflow-y-auto">
               {draftContent}
             </div>
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-800 dark:text-amber-300">
+            <div className="rounded-lg border border-warning/30 bg-warning/10 p-2.5 text-xs text-warning">
               Tôi cam kết gửi đúng nội dung đã qua kiểm duyệt, không tự ý chỉnh sửa sai lệch chính sách chiết khấu và hỗ trợ lãi suất.
             </div>
           </div>
@@ -622,7 +606,7 @@ export function SaleMessagesPage() {
                 toast.success('Đã sao chép nội dung vào Clipboard!')
               }}
             >
-              Đồng ý & Copy sang Zalo
+              Đồng ý và Copy sang Zalo
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -643,11 +627,11 @@ export function SaleMessagesPage() {
           <div className="space-y-3">
             <div className="rounded-lg border border-border p-3 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground">1. Phong cách Trang trọng & Chuẩn mực</span>
+                <span className="text-xs font-bold text-foreground">1. Phong cách Trang trọng và Chuẩn mực</span>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-6 text-[11px]"
+                  className="h-6 text-xs"
                   onClick={() => {
                     setDraftContent(voiceVariants.formal)
                     setVoiceVariantModalOpen(false)
@@ -662,11 +646,11 @@ export function SaleMessagesPage() {
 
             <div className="rounded-lg border border-border p-3 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground">2. Phong cách Thân thiện & Gần gũi</span>
+                <span className="text-xs font-bold text-foreground">2. Phong cách Thân thiện và Gần gũi</span>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-6 text-[11px]"
+                  className="h-6 text-xs"
                   onClick={() => {
                     setDraftContent(voiceVariants.friendly)
                     setVoiceVariantModalOpen(false)
@@ -681,11 +665,11 @@ export function SaleMessagesPage() {
 
             <div className="rounded-lg border border-border p-3 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground">3. Phong cách Ngắn gọn & Súc tích</span>
+                <span className="text-xs font-bold text-foreground">3. Phong cách Ngắn gọn và Súc tích</span>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-6 text-[11px]"
+                  className="h-6 text-xs"
                   onClick={() => {
                     setDraftContent(voiceVariants.concise)
                     setVoiceVariantModalOpen(false)
@@ -728,7 +712,7 @@ export function SaleMessagesPage() {
               <div className="rounded-lg bg-muted p-3 text-muted-foreground max-h-32 overflow-y-auto">
                 {draftContent}
               </div>
-              <div className="flex items-center gap-2 text-emerald-600 font-medium">
+              <div className="flex items-center gap-2 text-success font-medium">
                 <CheckCircle2 className="h-4 w-4" />
                 <span>Nội dung đã qua kiểm duyệt F8 hợp lệ</span>
               </div>
@@ -744,16 +728,16 @@ export function SaleMessagesPage() {
 
           {sendGateStep === 2 && (
             <div className="space-y-3 text-xs">
-              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-center space-y-1">
-                <CheckCircle2 className="h-6 w-6 text-emerald-600 mx-auto" />
-                <p className="font-semibold text-emerald-800 dark:text-emerald-300">
+              <div className="rounded-lg border border-success/40 bg-success/10 p-3 text-center space-y-1">
+                <CheckCircle2 className="h-6 w-6 text-success mx-auto" />
+                <p className="font-semibold text-success">
                   Gửi thành công qua cổng chính thức!
                 </p>
-                <p className="text-[11px] font-mono text-muted-foreground">
+                <p className="text-xs font-mono text-muted-foreground">
                   Mã biên lai: {officialReceiptId}
                 </p>
               </div>
-              <p className="text-muted-foreground text-[11px]">
+              <p className="text-muted-foreground text-xs">
                 Thời gian ghi nhận: {new Date().toLocaleTimeString('vi-VN')} {new Date().toLocaleDateString('vi-VN')}.
               </p>
             </div>

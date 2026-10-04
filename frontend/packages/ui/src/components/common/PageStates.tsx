@@ -1,5 +1,5 @@
 import type { UseQueryResult } from '@tanstack/react-query'
-import { AlertCircle, Inbox, Loader2 } from 'lucide-react'
+import { AlertCircle, Inbox, Loader2, RefreshCw } from 'lucide-react'
 import type { ComponentType, ReactNode } from 'react'
 import { Button } from '@pricepolicy/ui/components/ui/button'
 import { errorMessage } from '@pricepolicy/api-client/errors'
@@ -19,7 +19,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0 space-y-1">
-        {eyebrow && <div className="text-xs font-medium text-muted-foreground">{eyebrow}</div>}
+        {eyebrow && <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{eyebrow}</div>}
         <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-[1.75rem]">{title}</h1>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
@@ -30,20 +30,28 @@ export function PageHeader({
 
 export function LoadingState({ label = 'Đang tải dữ liệu…', className }: { label?: string; className?: string }) {
   return (
-    <div className={cn('flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground', className)} role="status">
-      <Loader2 className="h-4 w-4 animate-spin" /> {label}
+    <div className={cn('flex flex-col items-center gap-5 py-12 text-sm text-muted-foreground', className)} role="status" aria-live="polite">
+      <span className="flex items-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin text-gold" /> {label}
+      </span>
+      {/* Khung xương giữ chỗ để bố cục không nhảy khi dữ liệu về */}
+      <div className="w-full max-w-md space-y-2.5" aria-hidden="true">
+        <div className="h-3 w-full animate-pulse rounded-full bg-muted" />
+        <div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" />
+        <div className="h-3 w-3/5 animate-pulse rounded-full bg-muted" />
+      </div>
     </div>
   )
 }
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-6 py-10 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/[0.06] px-6 py-10 text-center">
       <AlertCircle className="h-6 w-6 text-destructive" />
       <p className="max-w-md text-sm text-foreground">{errorMessage(error)}</p>
       {onRetry && (
         <Button variant="outline" size="sm" onClick={onRetry}>
-          Thử lại
+          <RefreshCw /> Thử lại
         </Button>
       )}
     </div>
@@ -62,8 +70,10 @@ export function EmptyState({
   action?: ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-6 py-12 text-center">
-      <Icon className="h-7 w-7 text-muted-foreground" />
+    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border px-6 py-12 text-center">
+      <span className="mb-1 grid h-12 w-12 place-items-center rounded-full border border-border bg-muted/50">
+        <Icon className="h-6 w-6 text-muted-foreground" />
+      </span>
       <p className="text-sm font-medium">{title}</p>
       {description && <p className="max-w-sm text-sm text-muted-foreground">{description}</p>}
       {action && <div className="pt-2">{action}</div>}
@@ -92,9 +102,9 @@ export function StatCard({
     gold: 'bg-gold/15 text-gold',
   }[tone]
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
         {Icon && (
           <span className={cn('flex h-7 w-7 items-center justify-center rounded-md', toneClass)}>
             <Icon className="h-3.5 w-3.5" />

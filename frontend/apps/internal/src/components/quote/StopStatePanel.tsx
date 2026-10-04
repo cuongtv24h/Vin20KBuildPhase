@@ -102,7 +102,7 @@ export function StopStatePanel({ quote }: { quote: Quote }) {
                   <TableRow key={i}>
                     <TableCell>
                       <p className="font-medium">{e.message}</p>
-                      <p className="font-mono text-[11px] text-muted-foreground">{e.code}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{e.code}</p>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{e.field}</TableCell>
                     <TableCell className="text-right tabular-nums">{e.expected_vnd !== null ? formatVnd(e.expected_vnd) : '—'}</TableCell>

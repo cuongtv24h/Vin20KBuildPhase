@@ -56,7 +56,7 @@ function QuoteDetail({ quote, onRecheck, onVersionChange }: { quote: Quote; onRe
       {can.revise && (
         <Button variant={quote.status === 'DRAFT' ? 'outline' : 'default'} asChild>
           <Link to={`/sale/quotes/${quote.quote_id}/revise`}>
-            <FileEdit className="h-4 w-4" /> {quote.status === 'DRAFT' ? 'Điều chỉnh' : 'Chỉnh sửa & phân tích lại'}
+            <FileEdit className="h-4 w-4" /> {quote.status === 'DRAFT' ? 'Điều chỉnh' : 'Chỉnh sửa và phân tích lại'}
           </Link>
         </Button>
       )}

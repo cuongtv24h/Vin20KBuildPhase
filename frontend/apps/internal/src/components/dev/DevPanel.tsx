@@ -101,7 +101,7 @@ export function DevPanel() {
             </div>
           )}
           <div className="space-y-1">
-            <p className="text-[11px] font-medium text-muted-foreground">Đăng nhập nhanh</p>
+            <p className="text-xs font-medium text-muted-foreground">Đăng nhập nhanh</p>
             {(accounts.data ?? []).map((a) => (
               <button
                 key={a.email}

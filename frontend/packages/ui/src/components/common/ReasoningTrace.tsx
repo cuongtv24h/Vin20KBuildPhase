@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { AlertTriangle, Brain, CheckCircle2, ChevronDown, ChevronRight, ListChecks, Loader2, ShieldAlert, Wrench } from 'lucide-react'
+import { AlertTriangle, Brain, CheckCircle2, ChevronDown, ChevronRight, ListChecks, Link2, Loader2, ShieldAlert, Wrench } from 'lucide-react'
 import type { CopilotCitation, CopilotReasoningStep } from '@pricepolicy/api-client/contracts'
+import { cn } from '@pricepolicy/ui/lib/utils'
 
 /**
  * Timeline tiến trình ReAct của Sales Copilot (Thought → Action → Observation).
@@ -57,16 +58,16 @@ export function ReasoningTrace({
         ) : (
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
         )}
-        <span className="font-semibold text-foreground">
+        <span className={cn('font-semibold text-foreground', streaming && 'stream-caret')}>
           {streaming ? 'Trợ lý đang suy luận…' : failed ? 'Suy luận có bước lỗi' : 'Tiến trình suy luận'}
         </span>
         {toolCalls > 0 && (
-          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
             {toolCalls} tool
           </span>
         )}
         {degraded && (
-          <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning-foreground">
+          <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning-ink">
             chế độ tất định
           </span>
         )}
@@ -126,7 +127,7 @@ function TraceStep({
         <ListChecks className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">Kế hoạch {planSteps.length} bước</div>
-          <ol className="mt-0.5 space-y-0.5 text-[11px] text-muted-foreground">
+          <ol className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
             {planSteps.map((p, i) => (
               <li key={`${p.tool ?? p.intent}-${i}`}>
                 {i + 1}. {p.reason || p.intent}
@@ -154,21 +155,21 @@ function TraceStep({
   if (step.type === 'action') {
     return (
       <li className="flex items-start gap-2">
-        <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
+        <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
         <span className="min-w-0 flex-1">
           <span className="font-medium text-foreground">Gọi công cụ</span>{' '}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10.5px] text-foreground">{step.tool}</code>
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">{step.tool}</code>
           {step.args && Object.keys(step.args).length > 0 && (
             <button
               type="button"
               onClick={() => setOpen((o) => !o)}
-              className="ml-1 text-[10.5px] text-primary underline underline-offset-2"
+              className="ml-1 text-xs text-primary underline underline-offset-2"
             >
               {open ? 'ẩn tham số' : 'xem tham số'}
             </button>
           )}
           {open && step.args && Object.keys(step.args).length > 0 && (
-            <pre className="mt-1 overflow-x-auto rounded-md bg-muted/60 p-1.5 font-mono text-[10.5px] text-muted-foreground">
+            <pre className="mt-1 overflow-x-auto rounded-md bg-muted/60 p-1.5 font-mono text-xs text-muted-foreground">
               {JSON.stringify(step.args, null, 2)}
             </pre>
           )}
@@ -190,7 +191,7 @@ function TraceStep({
           onClick={() => setOpen((o) => !o)}
           className="text-left font-medium text-foreground hover:underline"
         >
-          Kết quả <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10.5px]">{step.tool}</code>
+          Kết quả <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{step.tool}</code>
         </button>
         {open && (
           <span className="mt-0.5 block whitespace-pre-line text-muted-foreground">{step.summary || step.text}</span>
@@ -203,7 +204,7 @@ function TraceStep({
                 type="button"
                 onClick={() => onOpenCitation?.(citation)}
                 title={citation.quote || undefined}
-                className="rounded-full border border-primary/25 bg-card px-2 py-0.5 text-[10.5px] text-primary hover:bg-primary/10"
+                className="rounded-full border border-primary/25 bg-card px-2 py-0.5 text-xs text-primary hover:bg-primary/10"
               >
                 {citation.policy_id}
                 {citation.section ? ` · ${citation.section}` : ''}
@@ -227,16 +228,16 @@ export function CitationChips({
   if (!citations.length) return null
   return (
     <div className="flex flex-wrap items-center gap-1.5 pt-1">
-      <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">Căn cứ</span>
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Căn cứ</span>
       {citations.slice(0, 5).map((citation, i) => (
         <button
           key={`${citation.policy_id}-${i}`}
           type="button"
           onClick={() => onOpen?.(citation)}
           title={citation.quote || undefined}
-          className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-full border border-emerald-500/30 bg-emerald-500/5 px-2 py-0.5 text-[10.5px] font-medium text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-400"
+          className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-full border border-success/30 bg-success/5 px-2 py-0.5 text-xs font-medium text-success hover:bg-success/15"
         >
-          🔗 {citation.policy_id}
+          <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" /> {citation.policy_id}
           {citation.section ? ` · ${citation.section}` : ''}
         </button>
       ))}

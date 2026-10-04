@@ -12,7 +12,6 @@ interface CopilotContextChipsProps {
   value: CopilotContextValue
   onClearUnit: () => void
   onClearDossier: () => void
-  onTransactionDateChange: (date: string | null) => void
   className?: string
 }
 
@@ -27,26 +26,26 @@ export function CopilotContextChips({
   value,
   onClearUnit,
   onClearDossier,
-  onTransactionDateChange,
   className,
 }: CopilotContextChipsProps) {
-  const hasAny = value.unitCode || value.dossierLabel || value.projectLabel || value.transactionDate
+  const hasAny = value.unitCode || value.dossierLabel || value.projectLabel
   if (!hasAny) {
     return (
-      <div className={cn('mb-2 text-[11px] text-muted-foreground', className)}>
+      <div className={cn('hidden text-xs text-muted-foreground sm:block', className)}>
         Chưa gắn ngữ cảnh — Copilot sẽ hỏi lại nếu câu lệnh thiếu mã căn/hồ sơ.
       </div>
     )
   }
 
-  const chip = 'flex items-center gap-1 rounded-full border border-primary/25 bg-primary/[0.04] px-2 py-0.5 text-[11px] text-foreground'
-  const clearButton = 'ml-0.5 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
+  const chip = 'flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/[0.06] px-2.5 py-1 text-xs text-foreground'
+  const clearButton =
+    'ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
 
   return (
-    <div className={cn('mb-2 flex flex-wrap items-center gap-1.5', className)} aria-label="Ngữ cảnh Copilot đang dùng">
+    <div className={cn('flex flex-wrap items-center gap-1.5', className)} aria-label="Ngữ cảnh Copilot đang dùng">
       {value.dossierLabel && (
         <span className={chip} title="Hồ sơ khách hàng gửi kèm">
-          <FileStack className="h-3 w-3 text-primary" />
+          <FileStack className="h-3.5 w-3.5 text-gold" />
           {value.dossierLabel}
           <button type="button" className={clearButton} onClick={onClearDossier} aria-label="Bỏ hồ sơ khách hàng khỏi ngữ cảnh">
             <X className="h-3 w-3" />
@@ -55,7 +54,7 @@ export function CopilotContextChips({
       )}
       {value.unitCode && (
         <span className={chip} title="Mã căn gửi kèm">
-          <Home className="h-3 w-3 text-primary" />
+          <Home className="h-3.5 w-3.5 text-gold" />
           {value.unitCode}
           <button type="button" className={clearButton} onClick={onClearUnit} aria-label="Bỏ mã căn khỏi ngữ cảnh">
             <X className="h-3 w-3" />
@@ -63,29 +62,45 @@ export function CopilotContextChips({
         </span>
       )}
       {value.projectLabel && <span className={chip}>{value.projectLabel}</span>}
-      <span className={cn(chip, 'pr-1.5')} title="Ngày giao dịch dùng để tra chính sách (time-travel)">
-        <CalendarDays className="h-3 w-3 text-primary" />
-        <label className="sr-only" htmlFor="copilot-tx-date">
-          Ngày giao dịch
-        </label>
+    </div>
+  )
+}
+
+/** Ô "Ngày giao dịch" (time-travel tra chính sách) — nằm cùng hàng với ô chọn Khách hàng. */
+export function TransactionDateField({
+  value,
+  onChange,
+  className,
+}: {
+  value: string | null
+  onChange: (date: string | null) => void
+  className?: string
+}) {
+  return (
+    <div className={cn('flex min-w-0 flex-col gap-1', className)} title="Ngày giao dịch dùng để tra chính sách (time-travel)">
+      <label htmlFor="copilot-tx-date" className="eyebrow">
+        Ngày giao dịch
+      </label>
+      <div className="relative">
+        <CalendarDays aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 sm:left-3 -translate-y-1/2 text-muted-foreground" />
         <input
           id="copilot-tx-date"
           type="date"
-          value={value.transactionDate ?? ''}
-          onChange={(e) => onTransactionDateChange(e.target.value || null)}
-          className="w-[104px] bg-transparent text-[11px] text-foreground outline-none"
+          value={value ?? ''}
+          onChange={(e) => onChange(e.target.value || null)}
+          className="h-10 w-full rounded-lg border border-input bg-background pl-8 pr-8 text-sm sm:pl-9 sm:pr-9 text-foreground outline-none transition-[border-color,box-shadow] duration-200 hover:border-primary/30 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/60 md:h-9 [&::-webkit-calendar-picker-indicator]:opacity-60"
         />
-        {value.transactionDate && (
+        {value && (
           <button
             type="button"
-            className={clearButton}
-            onClick={() => onTransactionDateChange(null)}
+            onClick={() => onChange(null)}
             aria-label="Bỏ ngày giao dịch khỏi ngữ cảnh"
+            className="absolute right-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            <X className="h-3 w-3" />
+            <X className="h-3.5 w-3.5" />
           </button>
         )}
-      </span>
+      </div>
     </div>
   )
 }

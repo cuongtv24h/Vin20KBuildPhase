@@ -128,7 +128,7 @@ function QuoteForm({ initial, backTo }: { initial: FormState; backTo: string }) 
         <div className="space-y-6">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle>Dự án & căn hộ</CardTitle>
+              <CardTitle>Dự án và căn hộ</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">

@@ -116,10 +116,10 @@ export function ApprovalQueuePage() {
             </span>
             <div>
               <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                Cổng Thẩm định & Phê duyệt Báo giá
+                Cổng Thẩm định và Phê duyệt Báo giá
               </h1>
               <p className="text-xs text-muted-foreground">
-                Hệ thống HITL Gate (Human-In-The-Loop) · Quản trị rủi ro & Ký số Ed25519 bảo chứng
+                Hệ thống HITL Gate (Human-In-The-Loop) · Quản trị rủi ro và Ký số Ed25519 bảo chứng
               </p>
             </div>
           </div>
@@ -145,9 +145,9 @@ export function ApprovalQueuePage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-foreground">{metrics.waiting}</span>
-              <span className="text-[11px] text-muted-foreground">hồ sơ trong hàng đợi</span>
+              <span className="text-xs text-muted-foreground">hồ sơ trong hàng đợi</span>
             </div>
-            <div className="mt-2 flex items-center gap-2 text-[11px]">
+            <div className="mt-2 flex items-center gap-2 text-xs">
               <span className="inline-flex items-center gap-1 font-semibold text-destructive">
                 <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
                 {metrics.redFlags} Đỏ
@@ -174,9 +174,9 @@ export function ApprovalQueuePage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-destructive">{metrics.redFlags}</span>
-              <span className="text-[11px] text-muted-foreground">nghiêm trọng / xung đột</span>
+              <span className="text-xs text-muted-foreground">nghiêm trọng / xung đột</span>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">Yêu cầu rà soát kỹ trước khi duyệt</p>
+            <p className="mt-2 text-xs text-muted-foreground">Yêu cầu rà soát kỹ trước khi duyệt</p>
           </CardContent>
         </Card>
 
@@ -190,9 +190,9 @@ export function ApprovalQueuePage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-warning">{metrics.yellowFlags}</span>
-              <span className="text-[11px] text-muted-foreground">cần lưu ý chiết khấu</span>
+              <span className="text-xs text-muted-foreground">cần lưu ý chiết khấu</span>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">Tổng chiết khấu chạm trần hoặc dời ngày</p>
+            <p className="mt-2 text-xs text-muted-foreground">Tổng chiết khấu chạm trần hoặc dời ngày</p>
           </CardContent>
         </Card>
 
@@ -206,9 +206,9 @@ export function ApprovalQueuePage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-success">{metrics.approvedCount}</span>
-              <span className="text-[11px] text-muted-foreground">đã ký số Ed25519</span>
+              <span className="text-xs text-muted-foreground">đã ký số Ed25519</span>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">Đã xuất bản tệp PDF chính thức</p>
+            <p className="mt-2 text-xs text-muted-foreground">Đã xuất bản tệp PDF chính thức</p>
           </CardContent>
         </Card>
 
@@ -224,9 +224,9 @@ export function ApprovalQueuePage() {
               <span className="font-display text-2xl font-bold tabular-nums text-foreground">
                 {metrics.rejectedOrRevisionCount}
               </span>
-              <span className="text-[11px] text-muted-foreground">đã phản hồi Sales</span>
+              <span className="text-xs text-muted-foreground">đã phản hồi Sales</span>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">Kèm chỉ đạo điều chỉnh chi tiết</p>
+            <p className="mt-2 text-xs text-muted-foreground">Kèm chỉ đạo điều chỉnh chi tiết</p>
           </CardContent>
         </Card>
       </div>
@@ -234,9 +234,9 @@ export function ApprovalQueuePage() {
       {/* Main Filter & Tabs Area */}
       <Card className="border-border bg-card shadow-sm">
         <div className="border-b border-border/80 p-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             {/* Tabs */}
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full lg:w-auto">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full min-w-0 xl:w-auto">
               <TabsList className="bg-muted/60 p-1">
                 {TABS.map((t) => {
                   const count = allQuotes.filter((q) => t.statuses.includes(q.status)).length
@@ -247,7 +247,7 @@ export function ApprovalQueuePage() {
                       <span>{t.label}</span>
                       <span
                         className={cn(
-                          'rounded-full px-1.5 py-0.2 text-[10px] font-semibold tabular-nums',
+                          'rounded-full px-1.5 py-0.2 text-xs font-semibold tabular-nums',
                           activeTab === t.key
                             ? 'bg-primary text-primary-foreground'
                             : 'bg-muted-foreground/20 text-muted-foreground'
@@ -281,9 +281,9 @@ export function ApprovalQueuePage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">Tất cả cờ</SelectItem>
-                  <SelectItem value="GREEN">🟢 Cờ Xanh (An toàn)</SelectItem>
-                  <SelectItem value="YELLOW">🟡 Cờ Vàng (Lưu ý)</SelectItem>
-                  <SelectItem value="RED">🔴 Cờ Đỏ (Chặn/Cảnh báo)</SelectItem>
+                  <SelectItem value="GREEN"><span className="inline-flex items-center"><span aria-hidden="true" className="mr-2 inline-block h-2 w-2 rounded-full bg-success" />Cờ Xanh (An toàn)</span></SelectItem>
+                  <SelectItem value="YELLOW"><span className="inline-flex items-center"><span aria-hidden="true" className="mr-2 inline-block h-2 w-2 rounded-full bg-warning" />Cờ Vàng (Lưu ý)</span></SelectItem>
+                  <SelectItem value="RED"><span className="inline-flex items-center"><span aria-hidden="true" className="mr-2 inline-block h-2 w-2 rounded-full bg-destructive" />Cờ Đỏ (Chặn/Cảnh báo)</span></SelectItem>
                 </SelectContent>
               </Select>
 
@@ -345,7 +345,7 @@ export function ApprovalQueuePage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead className="w-[180px]">Hồ sơ & Căn hộ</TableHead>
+                    <TableHead className="w-[180px]">Hồ sơ và Căn hộ</TableHead>
                     <TableHead className="w-[180px]">Khách hàng</TableHead>
                     <TableHead className="w-[170px]">Chuyên viên Sales</TableHead>
                     <TableHead className="w-[130px]">Trạng thái</TableHead>
@@ -382,7 +382,7 @@ export function ApprovalQueuePage() {
                               <span className="text-muted-foreground">·</span>
                               <span className="text-muted-foreground">{q.unit.bedrooms}PN ({q.unit.area_m2}m²)</span>
                             </div>
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               {PROJECT_LABEL[q.unit.project_id] ?? q.unit.project_id} · v{q.quote_version}
                             </p>
                           </div>
@@ -394,10 +394,10 @@ export function ApprovalQueuePage() {
                             <p className="text-xs font-semibold text-foreground">
                               {q.transaction_context.customer_name || 'Khách vãng lai'}
                             </p>
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
                               {q.transaction_context.customer_phone || 'Chưa cập nhật SĐT'}
                             </p>
-                            <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">
+                            <Badge variant="outline" className="px-1.5 py-0 text-xs text-muted-foreground">
                               Phân khúc: {q.transaction_context.customer_segment}
                             </Badge>
                           </div>
@@ -411,14 +411,14 @@ export function ApprovalQueuePage() {
                             </span>
                             {isSodViolation ? (
                               <div
-                                className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive"
+                                className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-semibold text-destructive"
                                 title="Vi phạm nguyên tắc Tách biệt nhiệm vụ: Quản lý không được tự duyệt báo giá do chính mình tạo ra"
                               >
                                 <ShieldAlert className="h-3 w-3 shrink-0" />
                                 <span>Trùng người lập</span>
                               </div>
                             ) : (
-                              <p className="text-[11px] text-muted-foreground">
+                              <p className="text-xs text-muted-foreground">
                                 ID: {q.created_by.user_id.slice(0, 8)}
                               </p>
                             )}
@@ -435,7 +435,7 @@ export function ApprovalQueuePage() {
                           <div className="space-y-1">
                             <RiskFlagBadge flag={q.risk_flag} className="text-xs font-semibold" />
                             {q.risk_flag.reasons.length > 0 && (
-                              <p className="line-clamp-2 text-[11px] text-muted-foreground leading-tight">
+                              <p className="line-clamp-2 text-xs text-muted-foreground leading-tight">
                                 {q.risk_flag.reasons.join('; ')}
                               </p>
                             )}
@@ -452,11 +452,11 @@ export function ApprovalQueuePage() {
                                 className="font-bold text-foreground"
                               />
                               <div className="flex items-center justify-end gap-1">
-                                <Badge variant="gold" className="px-1 py-0 text-[10px]">
+                                <Badge variant="gold" className="px-1 py-0 text-xs">
                                   {rec.label}
                                 </Badge>
                               </div>
-                              <p className="text-[11px] text-muted-foreground">
+                              <p className="text-xs text-muted-foreground">
                                 Chiết khấu: {formatVnd(rec.discount_vnd)} ({rec.total_discount_rate}%)
                               </p>
                             </div>

@@ -28,7 +28,7 @@ const MODE_LABEL: Record<string, string> = {
 /**
  * Trang Quản trị chất lượng Copilot (P2 — học từ phản hồi).
  *
- * Đây là "màn hình điều khiển" cho vòng lặp cải thiện Copilot: Sale bấm 👍/👎 ở Workspace,
+ * Đây là "màn hình điều khiển" cho vòng lặp cải thiện Copilot: Sale bấm hữu ích/chưa đạt ở Workspace,
  * dữ liệu chảy về đây để người quản trị thấy (1) chất lượng đang đi lên hay xuống,
  * (2) Copilot hay trả lời kém ở nhóm câu hỏi / tool nào, (3) nguyên văn lượt bị chê để sửa prompt.
  *
@@ -69,7 +69,7 @@ export function CopilotQualityPage() {
       <PageHeader
         eyebrow="Chất lượng trợ lý"
         title="Đánh giá chất lượng Copilot"
-        description="Tổng hợp phản hồi 👍/👎 của Sale ở Sales Workspace. Dữ liệu này cũng được nạp lại vào prompt dưới dạng “điều cần tránh”."
+        description="Tổng hợp phản hồi hữu ích/chưa đạt của Sale ở Sales Workspace. Dữ liệu này cũng được nạp lại vào prompt dưới dạng “điều cần tránh”."
         actions={
           <Button variant="outline" onClick={() => void Promise.all([summary.refetch(), recent.refetch()])} disabled={summary.isFetching || recent.isFetching}>
             <RefreshCw className={cn('h-4 w-4', (summary.isFetching || recent.isFetching) && 'animate-spin')} /> Làm mới
@@ -113,7 +113,7 @@ export function CopilotQualityPage() {
               <CardContent className="space-y-3 p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold">Xu hướng 14 ngày</p>
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     <span className="mr-2 inline-block h-2 w-2 rounded-sm bg-success align-middle" /> hữu ích
                     <span className="mx-2 ml-4 inline-block h-2 w-2 rounded-sm bg-destructive align-middle" /> chưa đạt
                   </span>
@@ -130,7 +130,7 @@ export function CopilotQualityPage() {
                             <div className="w-full rounded-t-sm bg-destructive/80" style={{ height: `${(row.down / trend.max) * 100}%` }} />
                             <div className="w-full rounded-b-sm bg-success/80" style={{ height: `${(row.up / trend.max) * 100}%` }} />
                           </div>
-                          <span className={cn('text-[9px] tabular-nums', total === 0 ? 'text-muted-foreground/50' : 'text-muted-foreground')}>
+                          <span className={cn('text-xs tabular-nums', total === 0 ? 'text-muted-foreground/50' : 'text-muted-foreground')}>
                             {row.date.slice(8)}
                           </span>
                         </div>
@@ -146,14 +146,14 @@ export function CopilotQualityPage() {
                 <p className="text-sm font-semibold">Cần cải thiện ở đâu</p>
                 <div className="space-y-2 text-xs">
                   <div>
-                    <p className="mb-1 text-[11px] font-medium text-muted-foreground">Tool xuất hiện ở lượt bị chê</p>
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">Tool xuất hiện ở lượt bị chê</p>
                     {(data.top_failing_tools ?? []).length === 0 ? (
                       <p className="text-muted-foreground">Chưa có dữ liệu.</p>
                     ) : (
                       <ul className="space-y-1">
                         {(data.top_failing_tools ?? []).map(([tool, count]) => (
                           <li key={tool} className="flex items-center justify-between gap-2">
-                            <code className="truncate rounded bg-muted px-1.5 py-0.5 text-[11px]">{tool}</code>
+                            <code className="truncate rounded bg-muted px-1.5 py-0.5 text-xs">{tool}</code>
                             <span className="shrink-0 tabular-nums text-muted-foreground">{count} lượt</span>
                           </li>
                         ))}
@@ -161,7 +161,7 @@ export function CopilotQualityPage() {
                     )}
                   </div>
                   <div>
-                    <p className="mb-1 text-[11px] font-medium text-muted-foreground">Chế độ trả lời</p>
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">Chế độ trả lời</p>
                     {(data.by_mode ?? []).length === 0 ? (
                       <p className="text-muted-foreground">Chưa có dữ liệu.</p>
                     ) : (
@@ -206,7 +206,7 @@ export function CopilotQualityPage() {
           <EmptyState
             icon={MessageSquareWarning}
             title="Chưa có phản hồi nào khớp bộ lọc"
-            description="Sale bấm 👍/👎 ngay dưới câu trả lời của Copilot ở Sales Workspace; phản hồi sẽ hiện ở đây kèm nội dung đã che PII."
+            description="Sale bấm hữu ích/chưa đạt ngay dưới câu trả lời của Copilot ở Sales Workspace; phản hồi sẽ hiện ở đây kèm nội dung đã che PII."
           />
         )}
 
@@ -225,16 +225,16 @@ export function CopilotQualityPage() {
               <TableBody>
                 {items.map((entry, idx) => (
                   <TableRow key={`${entry.recorded_at}-${idx}`}>
-                    <TableCell className="align-top text-[11px] text-muted-foreground">
+                    <TableCell className="align-top text-xs text-muted-foreground">
                       {entry.recorded_at ? entry.recorded_at.replace('T', ' ').slice(0, 16) : '—'}
                     </TableCell>
                     <TableCell className="align-top">
                       <p className="text-xs font-medium text-foreground">{entry.message}</p>
-                      <p className="mt-1 line-clamp-3 text-[11px] text-muted-foreground">{entry.reply || '(Copilot không có nội dung)'}</p>
+                      <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">{entry.reply || '(Copilot không có nội dung)'}</p>
                       {entry.tools_used.length > 0 && (
                         <p className="mt-1 flex flex-wrap gap-1">
                           {entry.tools_used.map((tool) => (
-                            <code key={tool} className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            <code key={tool} className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                               {tool}
                             </code>
                           ))}
@@ -246,18 +246,18 @@ export function CopilotQualityPage() {
                         {entry.rating > 0 ? <ThumbsUp className="h-3 w-3" /> : entry.rating < 0 ? <ThumbsDown className="h-3 w-3" /> : null}
                         {entry.rating > 0 ? 'Hữu ích' : entry.rating < 0 ? 'Chưa đạt' : 'Trung tính'}
                       </Badge>
-                      {entry.comment && <p className="mt-1 text-[11px] text-muted-foreground">“{entry.comment}”</p>}
+                      {entry.comment && <p className="mt-1 text-xs text-muted-foreground">“{entry.comment}”</p>}
                       {entry.tags.length > 0 && (
                         <p className="mt-1 flex flex-wrap gap-1">
                           {entry.tags.map((tag) => (
-                            <span key={tag} className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning">
+                            <span key={tag} className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs text-warning">
                               {tag}
                             </span>
                           ))}
                         </p>
                       )}
                     </TableCell>
-                    <TableCell className="align-top text-[11px]">{MODE_LABEL[entry.mode ?? ''] ?? entry.mode ?? '—'}</TableCell>
+                    <TableCell className="align-top text-xs">{MODE_LABEL[entry.mode ?? ''] ?? entry.mode ?? '—'}</TableCell>
                     <TableCell className="align-top">
                       <Button size="icon" variant="ghost" className="h-7 w-7" title="Sao chép lượt này" onClick={() => copyEntry(entry)}>
                         <Copy className="h-3.5 w-3.5" />

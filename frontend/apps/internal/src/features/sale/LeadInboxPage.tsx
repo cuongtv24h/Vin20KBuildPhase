@@ -1,30 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import {
-  ArrowRight,
-  FilePlus2,
-  Inbox,
-  Phone,
-  ShieldCheck,
-  UserPlus,
-  UserCheck,
-  Users,
-  Search,
-  Sparkles,
-  Edit3,
-  Save,
-  Trash2,
-  Flame,
-  CheckCircle2,
-  Clock,
-  Building,
-  DollarSign,
-  Tag,
-  MessageSquare,
-  X,
-  ExternalLink,
-  RefreshCw,
-  ChevronRight,
-} from 'lucide-react'
+import { ArrowRight, FilePlus2, Inbox, Phone, ShieldCheck, UserPlus, UserCheck, Users, Search, Sparkles, Edit3, Save, Trash2, Flame, CheckCircle2, Clock, Building, DollarSign, Tag, MessageSquare, X, ExternalLink, RefreshCw, ChevronRight, CloudSun, Snowflake } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type {
   LeadDossier,
@@ -208,9 +183,9 @@ export function LeadInboxPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
-          <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 text-xs border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10">
+          <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 text-xs border-warning/40 text-warning hover:bg-warning/10">
             <Link to="/sale/workspace">
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <Sparkles className="h-3.5 w-3.5 text-warning" />
               Mở Trợ lý Copilot
             </Link>
           </Button>
@@ -239,7 +214,7 @@ export function LeadInboxPage() {
         <Card className="border-border bg-card shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Tổng khách hàng</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tổng khách hàng</p>
               <p className="font-display text-2xl font-bold text-foreground mt-0.5">{kpis.total}</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -248,37 +223,37 @@ export function LeadInboxPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-red-500/20 bg-red-500/[0.02] shadow-xs">
+        <Card className="border-destructive/20 bg-destructive/[0.02] shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-red-700 dark:text-red-400 uppercase tracking-wider">Khách HOT 🔥</p>
-              <p className="font-display text-2xl font-bold text-red-600 dark:text-red-400 mt-0.5">{kpis.hot}</p>
+              <p className="text-xs font-medium text-destructive uppercase tracking-wider">Khách HOT</p>
+              <p className="font-display text-2xl font-bold text-destructive mt-0.5">{kpis.hot}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-500/10 text-red-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
               <Flame className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-blue-500/20 bg-blue-500/[0.02] shadow-xs">
+        <Card className="border-info/20 bg-info/[0.02] shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-blue-700 dark:text-blue-400 uppercase tracking-wider">Đang tư vấn</p>
-              <p className="font-display text-2xl font-bold text-blue-600 dark:text-blue-400 mt-0.5">{kpis.inProgress}</p>
+              <p className="text-xs font-medium text-info uppercase tracking-wider">Đang tư vấn</p>
+              <p className="font-display text-2xl font-bold text-info mt-0.5">{kpis.inProgress}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-info/10 text-info">
               <Clock className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-emerald-500/20 bg-emerald-500/[0.02] shadow-xs">
+        <Card className="border-success/20 bg-success/[0.02] shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Đã lên báo giá</p>
-              <p className="font-display text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">{kpis.converted}</p>
+              <p className="text-xs font-medium text-success uppercase tracking-wider">Đã lên báo giá</p>
+              <p className="font-display text-2xl font-bold text-success mt-0.5">{kpis.converted}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10 text-success">
               <CheckCircle2 className="h-5 w-5" />
             </div>
           </CardContent>
@@ -305,13 +280,18 @@ export function LeadInboxPage() {
                 type="button"
                 onClick={() => setTemperatureFilter(temp)}
                 className={cn(
-                  'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
                   temperatureFilter === temp
                     ? 'bg-primary text-primary-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                {temp === 'ALL' ? 'Tất cả' : temp === 'HOT' ? '🔥 HOT' : temp === 'WARM' ? '⛅ WARM' : '❄️ COLD'}
+                {temp === 'ALL' ? 'Tất cả' : (
+                  <span className="inline-flex items-center gap-1">
+                    {temp === 'HOT' ? <Flame className="h-3.5 w-3.5" aria-hidden="true" /> : temp === 'WARM' ? <CloudSun className="h-3.5 w-3.5" aria-hidden="true" /> : <Snowflake className="h-3.5 w-3.5" aria-hidden="true" />}
+                    {temp}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -379,37 +359,37 @@ export function LeadInboxPage() {
                           <span className="font-bold text-sm text-foreground truncate">{custName}</span>
                           <TemperatureBadge temperature={temp} />
                           {d.status === 'CONVERTED_TO_QUOTE' && (
-                            <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 bg-emerald-500/10 text-[9px] px-1 py-0">
+                            <Badge variant="outline" className="border-success/30 text-success bg-success/10 text-xs px-1 py-0">
                               Đã chốt báo giá
                             </Badge>
                           )}
                         </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2">
-                          <span>📞 {maskPhone(phone) || 'Chưa có SĐT'}</span>
+                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" aria-hidden="true" /> {maskPhone(phone) || 'Chưa có SĐT'}</span>
                           <span>·</span>
                           <span>{SEGMENT_LABEL[segment as CustomerSegment] || segment}</span>
                         </div>
                       </div>
-                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
                         {formatRelative(d.created_at)}
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2 text-[11px]">
+                    <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2 text-xs">
                       <div>
                         <span className="text-muted-foreground">Căn quan tâm: </span>
                         <span className="font-semibold text-foreground">{unit}</span>
                       </div>
                       <div className="text-right">
                         <span className="text-muted-foreground">Vốn tự có: </span>
-                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        <span className="font-semibold text-success">
                           {funds > 0 ? formatVnd(funds) : 'Chưa rõ'}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between pt-1">
-                      <p className="text-[11px] text-muted-foreground line-clamp-1 italic max-w-[240px]">
+                      <p className="text-xs text-muted-foreground line-clamp-1 italic max-w-[240px]">
                         {formatNote(d.needs_summary)}
                       </p>
                       <Button
@@ -419,7 +399,7 @@ export function LeadInboxPage() {
                           e.stopPropagation()
                           navigate(`/sale/workspace?id=${d.dossier_id}`)
                         }}
-                        className="h-6 px-2 text-[10px] font-semibold text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 gap-1 rounded-md"
+                        className="h-6 px-2 text-xs font-semibold text-warning hover:text-warning hover:bg-warning/10 gap-1 rounded-md"
                       >
                         <Sparkles className="h-3 w-3" />
                         Hỏi Copilot
@@ -532,9 +512,9 @@ export function LeadInboxPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="HOT">🔥 HOT</SelectItem>
-                    <SelectItem value="WARM">⛅ WARM</SelectItem>
-                    <SelectItem value="COLD">❄️ COLD</SelectItem>
+                    <SelectItem value="HOT"><span className="inline-flex items-center gap-2"><Flame className="h-3.5 w-3.5" aria-hidden="true" /> HOT</span></SelectItem>
+                    <SelectItem value="WARM"><span className="inline-flex items-center gap-2"><CloudSun className="h-3.5 w-3.5" aria-hidden="true" /> WARM</span></SelectItem>
+                    <SelectItem value="COLD"><span className="inline-flex items-center gap-2"><Snowflake className="h-3.5 w-3.5" aria-hidden="true" /> COLD</span></SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -556,7 +536,7 @@ export function LeadInboxPage() {
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-xs">Vốn tự có sẵn sàng</Label>
-                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="text-xs font-semibold text-success">
                     {formatNumber(newForm.own_funds_vnd || 0)} ₫
                   </span>
                 </div>
@@ -575,7 +555,7 @@ export function LeadInboxPage() {
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-xs">Khả năng chi trả/tháng</Label>
-                  <span className="text-[11px] font-semibold text-primary">
+                  <span className="text-xs font-semibold text-primary">
                     {formatNumber(newForm.monthly_capacity_vnd || 0)} ₫
                   </span>
                 </div>
@@ -731,9 +711,9 @@ function CustomerCrmEditor({
               variant="outline"
               size="sm"
               onClick={onAskCopilot}
-              className="h-8 text-xs border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 gap-1.5"
+              className="h-8 text-xs border-warning/40 text-warning hover:bg-warning/10 gap-1.5"
             >
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <Sparkles className="h-3.5 w-3.5 text-warning" />
               Hỏi Copilot cho khách này
             </Button>
             <Button
@@ -797,9 +777,9 @@ function CustomerCrmEditor({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="HOT">🔥 HOT (Rất tiềm năng)</SelectItem>
-                  <SelectItem value="WARM">⛅ WARM (Quan tâm)</SelectItem>
-                  <SelectItem value="COLD">❄️ COLD (Khảo sát)</SelectItem>
+                  <SelectItem value="HOT"><span className="inline-flex items-center gap-2"><Flame className="h-3.5 w-3.5" aria-hidden="true" /> HOT (Rất tiềm năng)</span></SelectItem>
+                  <SelectItem value="WARM"><span className="inline-flex items-center gap-2"><CloudSun className="h-3.5 w-3.5" aria-hidden="true" /> WARM (Quan tâm)</span></SelectItem>
+                  <SelectItem value="COLD"><span className="inline-flex items-center gap-2"><Snowflake className="h-3.5 w-3.5" aria-hidden="true" /> COLD (Khảo sát)</span></SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -852,7 +832,7 @@ function CustomerCrmEditor({
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-medium">Vốn tự có sẵn sàng</Label>
-                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                <span className="text-xs font-semibold text-success">
                   {formatNumber(ownFunds)} ₫
                 </span>
               </div>
@@ -871,7 +851,7 @@ function CustomerCrmEditor({
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-medium">Khả năng chi trả hàng tháng</Label>
-                <span className="text-[11px] font-semibold text-primary">
+                <span className="text-xs font-semibold text-primary">
                   {formatNumber(monthlyCapacity)} ₫
                 </span>
               </div>
@@ -903,7 +883,7 @@ function CustomerCrmEditor({
           </div>
 
           <div>
-            <Label className="text-xs font-medium">Ghi chú nhu cầu & khẩu vị khách hàng</Label>
+            <Label className="text-xs font-medium">Ghi chú nhu cầu và khẩu vị khách hàng</Label>
             <Textarea
               rows={3}
               value={needsSummary}

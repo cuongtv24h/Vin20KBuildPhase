@@ -151,7 +151,7 @@ export function ContextCard({ quote }: { quote: Quote }) {
             <p className="font-medium">
               {quote.policy_snapshot_ref.title} · {quote.policy_snapshot_ref.policy_version}
             </p>
-            <p className="font-mono text-[11px] text-muted-foreground" title={quote.policy_snapshot_ref.snapshot_hash}>
+            <p className="font-mono text-xs text-muted-foreground" title={quote.policy_snapshot_ref.snapshot_hash}>
               {truncateHash(quote.policy_snapshot_ref.snapshot_hash, 14)}
             </p>
           </div>
@@ -204,7 +204,7 @@ export function AuditTimeline({ audit }: { audit: QuoteAudit }) {
               {e.actor.role !== 'SYSTEM' && ` · ${ROLE_LABEL[e.actor.role]}`} · {formatDateTime(e.occurred_at)}
             </p>
             {e.note && <p className="mt-1 rounded-md bg-muted/60 px-2.5 py-1.5 text-sm">{e.note}</p>}
-            <p className="mt-0.5 inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground/80" title={e.event_hash}>
+            <p className="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-muted-foreground/80" title={e.event_hash}>
               <Link2 className="h-2.5 w-2.5" /> {e.event_hash.slice(0, 10)}
             </p>
           </li>
