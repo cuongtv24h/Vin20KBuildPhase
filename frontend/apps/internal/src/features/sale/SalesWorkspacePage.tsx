@@ -1039,6 +1039,8 @@ export function SalesWorkspacePage() {
   const appendTurn = useAppendCopilotTurnSync()
   const deleteConversation = useDeleteCopilotConversation()
   const pendingQuestionsRef = useRef<Record<string, string>>({})
+  /** Lời hẹn id của phiên đang được tạo ở lượt đầu — các lượt sau ghi vào cùng id đó. */
+  const creatingSessionRef = useRef<Promise<string | null> | null>(null)
 
   /**
    * `reloadNonce` tăng mỗi lần người dùng **chủ động mở lại** một cuộc (bấm vào lịch sử) — nhờ đó
@@ -1094,6 +1096,7 @@ export function SalesWorkspacePage() {
       return
     }
     copilotChatStore.setConversationId(null)
+    creatingSessionRef.current = null
     rememberConversationId(null)
     loadedConversationRef.current = null
     setFailedTurn(null)
@@ -1556,18 +1559,26 @@ export function SalesWorkspacePage() {
     if (question) {
       // `turnToAppendPayload` là hàm thuần đã có test (packages/api-client/src/copilotHistory.ts):
       // lưu MỌI lượt, kể cả câu trả lời chế độ dự phòng — nếu không, lịch sử rỗng và đổi trang là mất hội thoại.
-      appendTurn(
-        turnToAppendPayload({ conversationId, question, final }),
-      ).then((detail) => {
+      // Chỉ tạo phiên một lần: nếu lượt đầu chưa ghi xong thì lượt sau chờ id của nó, không tạo phiên thứ hai.
+      const idReady: Promise<string | null> = conversationId
+        ? Promise.resolve(conversationId)
+        : (creatingSessionRef.current ?? Promise.resolve(null))
+      const saved = idReady.then((id) =>
+        appendTurn(turnToAppendPayload({ conversationId: id, question, final })),
+      )
+      if (!conversationId && !creatingSessionRef.current) {
+        creatingSessionRef.current = saved.then((d) => d?.conversation_id ?? null)
+      }
+      saved.then((detail) => {
         if (!detail) return
-        // Lượt đầu tiên của cuộc mới: server đặt tên cuộc → ghi nhớ id để lần sau ghi tiếp.
-        if (!conversationId && detail.conversation_id) {
+        // Lượt đầu tiên của cuộc mới: server cấp id → gán cho phiên đang mở và GIỮ nguyên tin đang hiển thị.
+        // (Không dùng setConversationId: nó đổi khoá và xoá khung chat vì cuộc mới chưa có trong cache.)
+        if (!copilotChatStore.getSnapshot().conversationId && detail.conversation_id) {
+          copilotChatStore.assignConversationId(detail.conversation_id)
           rememberConversationId(detail.conversation_id)
-          setConversationId(detail.conversation_id)
-          // Nội dung đã hiển thị chính là nội dung server vừa lưu → không cần nạp lại và không
-          // được làm rơi mất các thẻ tương tác (confirm/stepper) chỉ có ở phía client.
           loadedConversationRef.current = `${detail.conversation_id}#${reloadNonceRef.current}`
         }
+        creatingSessionRef.current = null
       })
     }
   }, [copilot.final, copilot.steps])
@@ -2106,11 +2117,32 @@ export function SalesWorkspacePage() {
     processNaturalCommand(promptText, time, resolveSmartContext(promptText) ?? selectedLead)
   }
 
+  // Gọi lại prompt đã gửi (lỡ bấm Enter sớm): nút "Dùng lại" trên tin của mình và phím ↑/↓ ở ô nhập trống.
+  const recallIndexRef = useRef(-1)
+  const reusePrompt = (text: string) => {
+    setInputVal(text)
+    setSlashOpen(text.startsWith('/'))
+    recallIndexRef.current = -1
+    requestAnimationFrame(() => {
+      const el = inputTextAreaRef.current
+      if (!el) return
+      el.focus()
+      el.selectionStart = el.selectionEnd = text.length
+    })
+  }
+  const copyPrompt = (text: string) => {
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => showToast('Đã sao chép prompt.'))
+      .catch(() => showToast('Trình duyệt chặn sao chép — anh/chị chọn và copy thủ công.'))
+  }
+
   // Chat Send Handler
   const handleSendChatMessage = () => {
     const text = inputVal.trim()
     if (!text) return
     setInputVal('')
+    recallIndexRef.current = -1
 
     // Ngữ cảnh thông minh: tự nhận diện khách được nhắc tới trong tin nhắn
     // (tên / SĐT / mã căn / mã hồ sơ). Nếu không nhắc ai -> giữ nguyên ngữ cảnh hiện tại.
@@ -2354,16 +2386,36 @@ export function SalesWorkspacePage() {
             role="log"
             aria-live="polite"
             aria-label="Hội thoại với trợ lý Copilot"
-            className="min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4 scroll-smooth"
+            className="min-h-0 flex-1 select-text space-y-3.5 overflow-y-auto p-4 scroll-smooth"
           >
             {messages.map((m) => {
               if (m.type === 'user') {
                 return (
                   <div key={m.id} className="flex flex-col items-end gap-1">
-                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
+                    <div className="max-w-[85%] cursor-text select-text whitespace-pre-wrap break-words chat-bubble-user rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground selection:bg-primary-foreground/80 selection:text-primary">
                       {m.text}
                     </div>
-                    <span className="text-xs text-muted-foreground">{m.time}</span>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span className="mr-1">{m.time}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyPrompt(m.text || '')}
+                        title="Sao chép prompt này"
+                        aria-label="Sao chép prompt này"
+                        className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <Copy className="h-3 w-3" aria-hidden="true" /> Copy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => reusePrompt(m.text || '')}
+                        title="Đưa lại vào ô nhập để sửa và gửi tiếp"
+                        aria-label="Đưa prompt này vào ô nhập"
+                        className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <RotateCcw className="h-3 w-3" aria-hidden="true" /> Dùng lại
+                      </button>
+                    </div>
                   </div>
                 )
               }
@@ -2371,7 +2423,7 @@ export function SalesWorkspacePage() {
               if (m.type === 'agent') {
                 return (
                   <div key={m.id} className="flex flex-col items-start gap-1.5 w-full">
-                    <div className="max-w-[92%] rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 text-sm text-foreground">
+                    <div className="max-w-[92%] cursor-text select-text rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 text-sm text-foreground">
                       <FormattedAiMessage
                         content={m.text || ''}
                         onCommandClick={(cmd) => triggerSmartAction(cmd)}
@@ -3160,7 +3212,7 @@ export function SalesWorkspacePage() {
             )}
 
             {/* Input & Send Action */}
-            <div className="relative flex items-end gap-1.5 rounded-2xl border border-input bg-background p-1.5 transition-[border-color,box-shadow] duration-200 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/40">
+            <div className="relative flex items-end gap-1.5 rounded-3xl border border-input bg-secondary p-2 shadow-lg shadow-black/10 transition-[border-color,box-shadow] duration-200 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/40">
               <SlashCommandPalette
                 open={slashOpen}
                 commands={SLASH_COMMANDS}
@@ -3175,6 +3227,7 @@ export function SalesWorkspacePage() {
                 value={inputVal}
                 onChange={(e) => {
                   const next = e.target.value
+                  recallIndexRef.current = -1
                   setInputVal(next)
                   setSlashOpen(next.startsWith('/'))
                 }}
@@ -3192,6 +3245,28 @@ export function SalesWorkspacePage() {
                     requestAnimationFrame(() => {
                       el.selectionStart = el.selectionEnd = start + 1
                     })
+                    return
+                  }
+                  // ↑/↓ khi ô nhập trống (hoặc đang duyệt lịch sử): gọi lại prompt đã gửi, mới nhất trước.
+                  if (!slashOpen && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && (inputVal === '' || recallIndexRef.current >= 0)) {
+                    const sent = messages.filter((mm) => mm.type === 'user' && (mm.text || '').trim()).map((mm) => mm.text as string)
+                    if (sent.length === 0) return
+                    e.preventDefault()
+                    const idx = recallIndexRef.current
+                    if (e.key === 'ArrowUp') {
+                      const next = Math.min(idx + 1, sent.length - 1)
+                      recallIndexRef.current = next
+                      const text = sent[sent.length - 1 - next]
+                      setInputVal(text)
+                      requestAnimationFrame(() => {
+                        const el = inputTextAreaRef.current
+                        if (el) el.selectionStart = el.selectionEnd = text.length
+                      })
+                    } else if (idx >= 0) {
+                      const next = idx - 1
+                      recallIndexRef.current = next
+                      setInputVal(next >= 0 ? sent[sent.length - 1 - next] : '')
+                    }
                     return
                   }
                   // Điều hướng menu gạch chéo bằng bàn phím (↑/↓/Enter/Esc).
@@ -3265,7 +3340,7 @@ export function SalesWorkspacePage() {
                   size="sm"
                   onClick={handleSendChatMessage}
                   disabled={!inputVal.trim()}
-                  className="h-11 w-11 shrink-0 rounded-xl p-0 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 md:h-10 md:w-10"
+                  className="h-11 w-11 shrink-0 rounded-full p-0 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 md:h-10 md:w-10"
                   aria-label="Gửi yêu cầu"
                   title="Gửi (Enter) · Xuống dòng (Shift+Enter)"
                 >

@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useLeads, usePolicies } from '@pricepolicy/api-client/hooks'
 import { Badge } from '@pricepolicy/ui/components/ui/badge'
 import { Button } from '@pricepolicy/ui/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pricepolicy/ui/components/ui/card'
+import { Card } from '@pricepolicy/ui/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@pricepolicy/ui/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pricepolicy/ui/components/ui/select'
 import { Textarea } from '@pricepolicy/ui/components/ui/textarea'
@@ -226,12 +226,20 @@ export function SaleMessagesPage() {
     }
   }, [])
 
+  const tierTone = {
+    GREEN: { text: 'text-success', bg: 'bg-success/10', border: 'border-success/30', dot: 'bg-success' },
+    AMBER: { text: 'text-warning', bg: 'bg-warning/10', border: 'border-warning/30', dot: 'bg-warning' },
+    RED: { text: 'text-destructive', bg: 'bg-destructive/10', border: 'border-destructive/30', dot: 'bg-destructive' },
+    BLACK: { text: 'text-destructive', bg: 'bg-destructive/15', border: 'border-destructive/40', dot: 'bg-destructive' },
+  }[complianceResult.tier]
+  const TierIcon = complianceResult.tier === 'GREEN' ? ShieldCheck : complianceResult.tier === 'AMBER' ? AlertTriangle : ShieldAlert
+  const blocked = complianceResult.tier === 'RED' || complianceResult.tier === 'BLACK'
+
   return (
     <div className="space-y-6">
-      {/* Top Header */}
       <PageHeader
         title="Soạn tin và Kiểm định Tuân thủ F8"
-        description="Soạn tin nhắn tư vấn khách hàng, kiểm duyệt tự động mỏ neo pháp lý, tỷ lệ chiết khấu và chính sách bán hàng theo chuẩn FCS v2.6."
+        description="Soạn tin tư vấn khách hàng, hệ thống tự kiểm tra mỏ neo pháp lý và mức chiết khấu theo FCS v2.6."
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" asChild>
@@ -248,292 +256,208 @@ export function SaleMessagesPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* ================= LEFT / MAIN COMPOSER (8 cols) ================= */}
-        <div className="space-y-5 lg:col-span-8">
-          {/* Customer Context Selector */}
-          <Card className="border-border">
-            <CardHeader className="py-3 px-4 bg-muted/30 border-b border-border">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-primary" />
-                  <span className="text-xs font-semibold">Khách hàng áp dụng (tùy chọn)</span>
-                </div>
-                {selectedLead && (
-                  <Badge variant="outline" className="text-xs bg-primary/5 text-primary">
-                    Mã khách: {selectedLead.dossier_id} · {selectedLead.segment || selectedLead.customer_segment}
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                    Chọn khách hàng trong CRM:
-                  </label>
-                  <Select value={selectedLeadId} onValueChange={setSelectedLeadId}>
-                    <SelectTrigger className="text-xs">
-                      <SelectValue placeholder="-- Chọn khách hàng để điền nhanh --" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">-- Không chọn (Mẫu chung) --</SelectItem>
-                      {leads.map((l) => (
-                        <SelectItem key={l.dossier_id} value={l.dossier_id}>
-                          {l.customer_name || l.customer?.full_name} ({maskPhone(l.customer_phone_masked || l.customer_phone || l.customer?.phone)})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                    Gợi ý mẫu soạn sẵn:
-                  </label>
-                  <Select
-                    onValueChange={(val) => {
-                      const found = TEMPLATES.find((t) => t.title === val)
-                      if (found) setDraftContent(found.content)
-                    }}
-                  >
-                    <SelectTrigger className="text-xs">
-                      <SelectValue placeholder="Chọn nội dung mẫu..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TEMPLATES.map((t) => (
-                        <SelectItem key={t.title} value={t.title}>
-                          {t.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {selectedLead && (
-                <div className="rounded-lg bg-muted/40 p-2.5 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
-                  <span>Họ tên: <strong className="text-foreground">{selectedLead.customer_name || selectedLead.customer?.full_name}</strong></span>
-                  <span>Điện thoại: <strong className="text-foreground">{maskPhone(selectedLead.customer_phone_masked || selectedLead.customer_phone || selectedLead.customer?.phone)}</strong></span>
-                  <span>Căn quan tâm: <strong className="text-foreground">{selectedLead.preferred_unit_code || selectedLead.unit_code || 'Chưa định danh'}</strong></span>
-                  <span>Vốn tự có: <strong className="text-foreground">{selectedLead.constraints?.own_funds_vnd ? (selectedLead.constraints.own_funds_vnd / 1e9).toFixed(1) + ' tỷ' : '5 tỷ'}</strong></span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Editor Area */}
-          <Card className="border-border shadow-xs">
-            <CardHeader className="py-3 px-4 border-b border-border bg-card flex flex-row items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                <CardTitle className="text-sm font-semibold">Nội dung tin nhắn tư vấn</CardTitle>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>{draftContent.length} ký tự</span>
-                <span className="text-border">|</span>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {isCheckingCompliance ? 'Kiểm tra...' : 'F8 Live-check 400ms'}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 space-y-4">
-              <Textarea
-                value={draftContent}
-                onChange={(e) => setDraftContent(e.target.value)}
-                rows={6}
-                className="w-full text-xs sm:text-sm leading-relaxed font-sans resize-y"
-                placeholder="Nhập nội dung tư vấn gửi khách hàng qua Zalo hoặc tin nhắn trực tiếp..."
-              />
-
-              {/* Legal Anchors in Text */}
-              <div className="space-y-1.5 pt-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-muted-foreground">Mỏ neo căn cứ pháp lý đã nhận diện:</span>
-                  <span className="text-xs text-muted-foreground">Bấm vào để xem trích đoạn văn bản</span>
-                </div>
-                {draftAnchors.length === 0 ? (
-                  <div className="text-xs text-warning bg-warning/10 p-2 rounded border border-warning/20">
-                    <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" aria-hidden="true" /> Chưa có mỏ neo chứng cứ. Sử dụng cú pháp [1], [2], [4] tương ứng với các điều khoản chính sách.
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {draftAnchors.map((aid) => (
-                      <button
-                        key={aid}
-                        type="button"
-                        onClick={() => setEvidenceId(aid)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning hover:bg-warning/20 transition-colors"
-                      >
-                        <span className="font-mono">[{aid}]</span>
-                        <span className="font-normal truncate max-w-[200px] text-left">
-                          {EVIDENCE_DB[aid]?.p}
-                        </span>
-                      </button>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr),340px] lg:items-start">
+        {/* ============ Cột trái: một khung soạn thư duy nhất (bố cục Zoho CRM) ============ */}
+        <Card className="overflow-hidden border-border">
+          {/* Hàng "Tới / Mẫu" gọn thay cho thẻ chọn khách riêng */}
+          <div className="divide-y divide-border border-b border-border">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+              <span className="flex w-16 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Users className="h-3.5 w-3.5" aria-hidden="true" /> Tới
+              </span>
+              <div className="min-w-[200px] flex-1">
+                <Select value={selectedLeadId} onValueChange={setSelectedLeadId}>
+                  <SelectTrigger className="h-8 border-0 bg-transparent px-0 text-sm shadow-none focus:ring-0">
+                    <SelectValue placeholder="Chọn khách hàng trong CRM (không bắt buộc)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">-- Không chọn (Mẫu chung) --</SelectItem>
+                    {leads.map((l) => (
+                      <SelectItem key={l.dossier_id} value={l.dossier_id}>
+                        {l.customer_name || l.customer?.full_name} ({maskPhone(l.customer_phone_masked || l.customer_phone || l.customer?.phone)})
+                      </SelectItem>
                     ))}
-                  </div>
-                )}
+                  </SelectContent>
+                </Select>
               </div>
-
-              {/* Action Buttons Row */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border">
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => setCopyAuditModalOpen(true)}
-                  >
-                    <Copy className="mr-1.5 h-3.5 w-3.5" />
-                    Copy sang Zalo (Kèm cam kết)
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => setVoiceVariantModalOpen(true)}
-                  >
-                    <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" />
-                    Đổi biến thể giọng văn
-                  </Button>
-                </div>
-
-                <Button
-                  size="sm"
-                  disabled={complianceResult.tier === 'RED' || complianceResult.tier === 'BLACK'}
-                  onClick={() => {
-                    setSendGateStep(0)
-                    setOfficialReceiptId(null)
-                    setOfficialSendModalOpen(true)
-                  }}
-                  className="text-xs"
-                >
-                  <Send className="mr-1.5 h-3.5 w-3.5" />
-                  Gửi qua cổng chính thức
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ================= RIGHT / COMPLIANCE INSPECTOR (4 cols) ================= */}
-        <div className="space-y-5 lg:col-span-4">
-          {/* Compliance Status Card */}
-          <Card
-            className={cn(
-              'border shadow-xs transition-colors',
-              complianceResult.tier === 'GREEN' && 'border-success/40 bg-success/5',
-              complianceResult.tier === 'AMBER' && 'border-warning/40 bg-warning/5',
-              complianceResult.tier === 'RED' && 'border-destructive/40 bg-destructive/5',
-              complianceResult.tier === 'BLACK' && 'border-destructive/40 bg-destructive/15 text-destructive'
-            )}
-          >
-            <CardHeader className="py-3.5 px-4 border-b border-border/40">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {complianceResult.tier === 'GREEN' ? (
-                    <ShieldCheck className="h-5 w-5 text-success" />
-                  ) : complianceResult.tier === 'AMBER' ? (
-                    <AlertTriangle className="h-5 w-5 text-warning" />
-                  ) : (
-                    <ShieldAlert className="h-5 w-5 text-destructive" />
-                  )}
-                  <span className="font-semibold text-xs uppercase tracking-wide">
-                    Tiêu chuẩn Tuân thủ F8
-                  </span>
-                </div>
-                <Badge
-                  variant={
-                    complianceResult.tier === 'GREEN'
-                      ? 'default'
-                      : complianceResult.tier === 'AMBER'
-                      ? 'secondary'
-                      : 'destructive'
-                  }
-                  className="text-xs font-bold"
-                >
-                  {complianceResult.tier}
+              {selectedLead && (
+                <Badge variant="outline" className="text-xs text-muted-foreground">
+                  {selectedLead.dossier_id} · {selectedLead.segment || selectedLead.customer_segment}
                 </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 space-y-3">
-              <div className="text-xs font-semibold">{complianceResult.statusText}</div>
-
-              <div className="space-y-1.5 border-t border-border/40 pt-2 text-xs">
-                {complianceResult.checks.map(([st, txt], i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <span className="font-bold shrink-0">
-                      {st === 'ok' ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : st === 'warn' ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : <X className="h-3.5 w-3.5" aria-hidden="true" />}
-                    </span>
-                    <span className="text-xs leading-snug">{txt}</span>
-                  </div>
-                ))}
-              </div>
-
-              {complianceResult.suggest && (
-                <div className="rounded-lg border border-dashed border-primary/40 bg-primary/10 p-2.5 text-xs text-foreground mt-3">
-                  <div className="font-bold text-xs text-primary mb-1 flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" /> Gợi ý phát ngôn an toàn:
-                  </div>
-                  <p className="text-xs leading-relaxed">{complianceResult.suggest}</p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 mt-1.5 text-xs text-primary hover:bg-primary/20 p-1"
-                    onClick={() => {
-                      const cleanSuggest = complianceResult.suggest?.replace(/^Câu an toàn:\s*"?|"?$/g, '') || ''
-                      if (cleanSuggest) setDraftContent(cleanSuggest)
-                    }}
-                  >
-                    Áp dụng gợi ý này
-                  </Button>
-                </div>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Evidence Database Reference */}
-          <Card className="border-border shadow-xs">
-            <CardHeader className="py-3 px-4 border-b border-border bg-muted/20">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Kho Mỏ neo Chứng cứ (FCS v2.6)
-                </CardTitle>
-                <span className="text-xs text-muted-foreground">{Object.keys(EVIDENCE_DB).length} nguồn</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5">
+              <span className="flex w-16 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" /> Mẫu
+              </span>
+              <div className="min-w-[200px] flex-1">
+                <Select
+                  onValueChange={(val) => {
+                    const found = TEMPLATES.find((t) => t.title === val)
+                    if (found) setDraftContent(found.content)
+                  }}
+                >
+                  <SelectTrigger className="h-8 border-0 bg-transparent px-0 text-sm shadow-none focus:ring-0">
+                    <SelectValue placeholder="Chèn nội dung mẫu soạn sẵn…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TEMPLATES.map((t) => (
+                      <SelectItem key={t.title} value={t.title}>
+                        {t.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </CardHeader>
-            <CardContent className="p-3 space-y-2">
+            </div>
+          </div>
+
+          {selectedLead && (
+            <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+              <span>Điện thoại: <strong className="font-medium text-foreground">{maskPhone(selectedLead.customer_phone_masked || selectedLead.customer_phone || selectedLead.customer?.phone)}</strong></span>
+              <span>Căn quan tâm: <strong className="font-medium text-foreground">{selectedLead.preferred_unit_code || selectedLead.unit_code || 'Chưa định danh'}</strong></span>
+              <span>Vốn tự có: <strong className="font-medium text-foreground">{selectedLead.constraints?.own_funds_vnd ? (selectedLead.constraints.own_funds_vnd / 1e9).toFixed(1) + ' tỷ' : '5 tỷ'}</strong></span>
+            </div>
+          )}
+
+          {/* Vùng soạn: không viền, nền phẳng, chữ lớn để đọc thoải mái */}
+          <Textarea
+            value={draftContent}
+            onChange={(e) => setDraftContent(e.target.value)}
+            rows={9}
+            aria-label="Nội dung tin nhắn tư vấn"
+            className="min-h-[220px] w-full resize-y rounded-none border-0 bg-transparent px-4 py-4 font-sans text-sm leading-relaxed shadow-none focus-visible:ring-0 sm:text-[15px]"
+            placeholder="Nhập nội dung tư vấn gửi khách hàng qua Zalo hoặc tin nhắn trực tiếp..."
+          />
+
+          {/* Căn cứ đã nhận diện: chip trung tính, gọn một hàng */}
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
+            <span className="text-xs font-medium text-muted-foreground">Căn cứ:</span>
+            {draftAnchors.length === 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-warning">
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> Chưa có mỏ neo. Dùng cú pháp [1], [2], [4]…
+              </span>
+            ) : (
+              draftAnchors.map((aid) => (
+                <button
+                  key={aid}
+                  type="button"
+                  onClick={() => setEvidenceId(aid)}
+                  title={EVIDENCE_DB[aid]?.p}
+                  className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2.5 py-0.5 text-xs transition-colors hover:border-primary/50 hover:bg-accent"
+                >
+                  <span className="font-mono font-semibold text-gold">[{aid}]</span>
+                  <span className="truncate text-muted-foreground">{EVIDENCE_DB[aid]?.p.split('—')[0].trim()}</span>
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Thanh hành động dưới cùng: phụ bên trái, chính bên phải */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/20 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-1">
+              <Button variant="ghost" size="sm" className="text-xs" onClick={() => setCopyAuditModalOpen(true)}>
+                <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy sang Zalo
+              </Button>
+              <Button variant="ghost" size="sm" className="text-xs" onClick={() => setVoiceVariantModalOpen(true)}>
+                <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" /> Đổi giọng văn
+              </Button>
+              <span className="ml-2 text-xs tabular-nums text-muted-foreground">{draftContent.length} ký tự</span>
+            </div>
+            <Button
+              size="sm"
+              disabled={blocked}
+              title={blocked ? 'Cần xử lý cảnh báo tuân thủ trước khi gửi' : undefined}
+              onClick={() => {
+                setSendGateStep(0)
+                setOfficialReceiptId(null)
+                setOfficialSendModalOpen(true)
+              }}
+            >
+              <Send className="mr-1.5 h-3.5 w-3.5" /> Gửi qua cổng chính thức
+            </Button>
+          </div>
+        </Card>
+
+        {/* ============ Cột phải: một panel kiểm tra + nguồn (bố cục WRITER / Microsoft Copilot) ============ */}
+        <Card className="overflow-hidden border-border lg:sticky lg:top-4">
+          {/* Trạng thái tuân thủ */}
+          <div className={cn('space-y-3 border-b p-4 transition-colors', tierTone.bg, tierTone.border)}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
+                <TierIcon className={cn('h-4 w-4', tierTone.text)} aria-hidden="true" /> Tuân thủ F8
+              </span>
+              <span className={cn('inline-flex items-center gap-1.5 rounded-full border bg-background/60 px-2 py-0.5 text-xs font-semibold', tierTone.text, tierTone.border)}>
+                <span aria-hidden="true" className={cn('h-1.5 w-1.5 rounded-full', tierTone.dot, isCheckingCompliance && 'animate-pulse')} />
+                {isCheckingCompliance ? 'Đang kiểm tra' : complianceResult.tier}
+              </span>
+            </div>
+            <p className="text-sm font-medium leading-snug">{complianceResult.statusText}</p>
+          </div>
+
+          <ul className="space-y-2 border-b border-border p-4 text-xs">
+            {complianceResult.checks.map(([st, txt], i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span
+                  className={cn(
+                    'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full',
+                    st === 'ok' ? 'bg-success/15 text-success' : st === 'warn' ? 'bg-warning/15 text-warning' : 'bg-destructive/15 text-destructive',
+                  )}
+                >
+                  {st === 'ok' ? <Check className="h-3 w-3" aria-hidden="true" /> : st === 'warn' ? <AlertTriangle className="h-3 w-3" aria-hidden="true" /> : <X className="h-3 w-3" aria-hidden="true" />}
+                </span>
+                <span className="leading-snug">{txt}</span>
+              </li>
+            ))}
+          </ul>
+
+          {complianceResult.suggest && (
+            <div className="space-y-2 border-b border-border bg-primary/5 p-4 text-xs">
+              <p className="flex items-center gap-1.5 font-semibold text-gold">
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Gợi ý phát ngôn an toàn
+              </p>
+              <p className="leading-relaxed text-muted-foreground">{complianceResult.suggest}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => {
+                  const cleanSuggest = complianceResult.suggest?.replace(/^Câu an toàn:\s*"?|"?$/g, '') || ''
+                  if (cleanSuggest) setDraftContent(cleanSuggest)
+                }}
+              >
+                Áp dụng gợi ý này
+              </Button>
+            </div>
+          )}
+
+          {/* Nguồn chứng cứ: danh sách một dòng, chấm vàng = đang dùng trong tin */}
+          <div className="p-2">
+            <div className="flex items-center justify-between px-2 pb-1 pt-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nguồn chứng cứ</p>
+              <span className="text-xs text-muted-foreground">{draftAnchors.length}/{Object.keys(EVIDENCE_DB).length} đang dùng</span>
+            </div>
+            <ul>
               {Object.entries(EVIDENCE_DB).map(([keyStr, ev]) => {
                 const id = parseInt(keyStr, 10)
-                const isSelected = draftAnchors.includes(id)
+                const used = draftAnchors.includes(id)
                 return (
-                  <div
-                    key={id}
-                    onClick={() => setEvidenceId(id)}
-                    className={cn(
-                      'cursor-pointer rounded-lg border p-2.5 text-xs transition-all hover:border-primary/50',
-                      isSelected ? 'border-primary/60 bg-primary/5' : 'border-border bg-card'
-                    )}
-                  >
-                    <div className="flex items-center justify-between font-semibold text-foreground">
-                      <span className="font-mono text-primary">[{id}] {ev.p}</span>
-                      {isSelected && (
-                        <Badge variant="outline" className="text-xs h-4 bg-primary/10 text-primary">
-                          Đang dùng
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{ev.q}</p>
-                    <div className="mt-1 text-xs text-muted-foreground flex justify-between">
-                      <span>{ev.e}</span>
-                      <span className="font-mono">{ev.h}</span>
-                    </div>
-                  </div>
+                  <li key={id}>
+                    <button
+                      type="button"
+                      onClick={() => setEvidenceId(id)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs transition-colors hover:bg-accent"
+                    >
+                      <span aria-hidden="true" className={cn('h-2 w-2 shrink-0 rounded-full', used ? 'bg-primary' : 'bg-border')} />
+                      <span className="shrink-0 font-mono font-semibold text-gold">[{id}]</span>
+                      <span className={cn('min-w-0 flex-1 truncate', used ? 'text-foreground' : 'text-muted-foreground')}>{ev.p.split('—')[1]?.trim() ?? ev.p}</span>
+                    </button>
+                  </li>
                 )
               })}
-            </CardContent>
-          </Card>
-        </div>
+            </ul>
+          </div>
+        </Card>
       </div>
 
       {/* ================= MODAL: EVIDENCE PREVIEW ================= */}

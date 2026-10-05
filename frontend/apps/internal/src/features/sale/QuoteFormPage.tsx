@@ -1,5 +1,6 @@
 import { ArrowLeft, Loader2, Sparkles } from 'lucide-react'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { formatVnd } from '@pricepolicy/ui/lib/format'
+import { useState, type ComponentProps, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { BackendObjective, QuoteCreatePayload } from '@pricepolicy/api-client/contracts'
 import { errorMessage } from '@pricepolicy/api-client/errors'
@@ -140,14 +141,7 @@ function QuoteForm({ initial, backTo }: { initial: FormState; backTo: string }) 
                 </Field>
               </div>
               <Field id="price" label="Giá niêm yết trước thuế (VND)">
-                <Input
-                  id="price"
-                  type="number"
-                  min={0}
-                  value={form.listed_price_before_tax_vnd}
-                  onChange={(e) => set('listed_price_before_tax_vnd', Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-                  required
-                />
+                <MoneyInput id="price" value={form.listed_price_before_tax_vnd} onValueChange={(v) => set('listed_price_before_tax_vnd', v)} required />
               </Field>
             </CardContent>
           </Card>
@@ -158,25 +152,47 @@ function QuoteForm({ initial, backTo }: { initial: FormState; backTo: string }) 
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-3">
               <Field id="deposit" label="Tiền đặt cọc (VND)">
-                <Input id="deposit" type="number" min={0} value={form.deposit_amount_vnd} onChange={(e) => set('deposit_amount_vnd', Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
+                <MoneyInput id="deposit" value={form.deposit_amount_vnd} onValueChange={(v) => set('deposit_amount_vnd', v)} />
               </Field>
               <Field id="own_funds" label="Vốn tự có (VND)">
-                <Input id="own_funds" type="number" min={0} value={form.own_funds_vnd} onChange={(e) => set('own_funds_vnd', Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
+                <MoneyInput id="own_funds" value={form.own_funds_vnd} onValueChange={(v) => set('own_funds_vnd', v)} />
               </Field>
               <Field id="monthly_capacity" label="Khả năng trả hàng tháng (VND)">
-                <Input
-                  id="monthly_capacity"
-                  type="number"
-                  min={0}
-                  value={form.monthly_capacity_vnd}
-                  onChange={(e) => set('monthly_capacity_vnd', Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-                />
+                <MoneyInput id="monthly_capacity" value={form.monthly_capacity_vnd} onValueChange={(v) => set('monthly_capacity_vnd', v)} />
               </Field>
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          {/* Bản xem trước bên phải (bố cục Stripe): số liệu đang nhập hiển thị ngay dạng phiếu */}
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Xem trước báo giá</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <p className="eyebrow">Căn hộ</p>
+                <p className="font-medium">{form.unit_code.trim() || '—'}{form.project_id.trim() && <span className="text-muted-foreground"> · {form.project_id.trim()}</span>}</p>
+              </div>
+              <dl className="space-y-2 border-t border-border pt-3">
+                {[
+                  ['Giá niêm yết (trước thuế)', form.listed_price_before_tax_vnd],
+                  ['Tiền đặt cọc', form.deposit_amount_vnd],
+                  ['Vốn tự có', form.own_funds_vnd],
+                  ['Trả hàng tháng', form.monthly_capacity_vnd],
+                ].map(([label, amount]) => (
+                  <div key={label as string} className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">{label}</dt>
+                    <dd className="tabular-nums">{formatVnd(amount as number)}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+                Tiêu chí: {BACKEND_OBJECTIVES.find((o) => o.value === form.objective)?.label}
+              </p>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle>Tiêu chí tối ưu</CardTitle>
@@ -200,6 +216,31 @@ function QuoteForm({ initial, backTo }: { initial: FormState; backTo: string }) 
         </div>
       </div>
     </form>
+  )
+}
+
+/** Ô nhập tiền VND: chỉ nhận chữ số, hiển thị dấu chấm nghìn; hiện "0" ban đầu và gõ số vào thì số 0 đó được thay đi. */
+function MoneyInput({
+  value,
+  onValueChange,
+  ...props
+}: { value: number; onValueChange: (v: number) => void } & Omit<ComponentProps<typeof Input>, 'value' | 'onChange' | 'type'>) {
+  return (
+    <div className="relative">
+    <Input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      className={cn('pr-12 tabular-nums', props.className)}
+      value={value.toLocaleString('vi-VN')}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/\D/g, '').slice(0, 15)
+        onValueChange(digits ? Number(digits) : 0)
+      }}
+    />
+    <span aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">VND</span>
+    </div>
   )
 }
 

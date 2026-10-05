@@ -18,27 +18,29 @@ interface NavItem {
   icon: LucideIcon
   end?: boolean
   badgeKey?: 'openLeads' | 'managerQueue'
+  /** Nhóm hiển thị (nhãn nhỏ phía trên cụm mục — bố cục Square/Cloudflare). */
+  group?: string
 }
 
 const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   ADMIN: [
-    { to: '/admin_cp', label: 'Quản trị Users', icon: ShieldCheck },
-    { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
-    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
-    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge },
+    { to: '/admin_cp', label: 'Quản trị Users', icon: ShieldCheck, group: 'Quản trị' },
+    { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText, group: 'Chính sách và chất lượng' },
+    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical, group: 'Chính sách và chất lượng' },
+    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge, group: 'Chính sách và chất lượng' },
   ],
   SALE: [
-    { to: '/sale/workspace', label: 'Trợ lý Copilot', icon: Sparkles },
-    { to: '/sale/leads', label: 'Khách hàng', icon: Users, badgeKey: 'openLeads' },
-    { to: '/sale/quotes', label: 'Báo giá', icon: FileStack },
-    { to: '/sale/messages', label: 'Tin nhắn', icon: MessageSquare },
-    { to: '/sale/policies', label: 'Chính sách', icon: ScrollText },
+    { to: '/sale/workspace', label: 'Trợ lý Copilot', icon: Sparkles, group: 'Làm việc' },
+    { to: '/sale/leads', label: 'Khách hàng', icon: Users, badgeKey: 'openLeads', group: 'Làm việc' },
+    { to: '/sale/quotes', label: 'Báo giá', icon: FileStack, group: 'Làm việc' },
+    { to: '/sale/messages', label: 'Tin nhắn', icon: MessageSquare, group: 'Làm việc' },
+    { to: '/sale/policies', label: 'Chính sách', icon: ScrollText, group: 'Tra cứu' },
   ],
-  MANAGER: [{ to: '/manager/approvals', label: 'Phê duyệt báo giá', icon: ClipboardCheck, badgeKey: 'managerQueue' }],
+  MANAGER: [{ to: '/manager/approvals', label: 'Phê duyệt báo giá', icon: ClipboardCheck, badgeKey: 'managerQueue', group: 'Phê duyệt' }],
   POLICY_ADMIN: [
-    { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText },
-    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical },
-    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge },
+    { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText, group: 'Chính sách và chất lượng' },
+    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical, group: 'Chính sách và chất lượng' },
+    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge, group: 'Chính sách và chất lượng' },
   ],
 }
 
@@ -112,40 +114,50 @@ export function StaffLayout() {
   }, [mobileOpen])
 
   const renderNav = (compact: boolean) => (
-    <nav aria-label="Điều hướng chính" className="flex flex-col gap-1">
-      {items.map((item) => {
+    <nav aria-label="Điều hướng chính" className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
+      {items.map((item, i) => {
         const count = item.badgeKey ? badges[item.badgeKey] : 0
+        const startsGroup = item.group && item.group !== items[i - 1]?.group
         return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            onClick={() => setMobileOpen(false)}
-            title={compact ? item.label : undefined}
-            className={({ isActive }) =>
-              cn(
-                'group relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200 lg:min-h-10',
-                isActive
-                  ? 'bg-sidebar-active text-sidebar-foreground before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary'
-                  : 'text-sidebar-muted hover:bg-sidebar-active/60 hover:text-sidebar-foreground',
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <item.icon className={cn('h-[18px] w-[18px] shrink-0', isActive && 'text-primary')} />
-                <span className="sb-label min-w-0 flex-1 truncate whitespace-nowrap">{item.label}</span>
-                {count > 0 && (
-                  <span
-                    aria-label={`${count} mục đang chờ`}
-                    className={cn('inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold leading-none text-primary-foreground tabular-nums', compact && 'absolute right-1 top-0.5 h-4 min-w-4 px-1')}
-                  >
-                    {count}
-                  </span>
-                )}
-              </>
-            )}
-          </NavLink>
+          <div key={item.to} className="contents">
+            {startsGroup &&
+              (compact ? (
+                i > 0 && <div aria-hidden="true" className="mx-2 my-2 h-px bg-sidebar-border" />
+              ) : (
+                <p className={cn('sb-label px-3 pb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-sidebar-muted/80', i > 0 ? 'pt-4' : 'pt-1')}>
+                  {item.group}
+                </p>
+              ))}
+            <NavLink
+              to={item.to}
+              end={item.end}
+              onClick={() => setMobileOpen(false)}
+              title={compact ? item.label : undefined}
+              className={({ isActive }) =>
+                cn(
+                  'group relative flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors duration-200 lg:min-h-9',
+                  isActive
+                    ? 'bg-sidebar-active font-semibold text-sidebar-foreground'
+                    : 'font-medium text-sidebar-muted hover:bg-sidebar-active/60 hover:text-sidebar-foreground',
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <item.icon className={cn('h-[18px] w-[18px] shrink-0', isActive && 'text-primary')} />
+                  <span className="sb-label min-w-0 flex-1 truncate whitespace-nowrap">{item.label}</span>
+                  {count > 0 && (
+                    <span
+                      aria-label={`${count} mục đang chờ`}
+                      className={cn('inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/20 px-1.5 text-xs font-semibold leading-none text-gold tabular-nums', compact && 'absolute right-1 top-0.5 h-4 min-w-4 px-1')}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </>
+              )}
+            </NavLink>
+          </div>
         )
       })}
     </nav>
@@ -159,7 +171,7 @@ export function StaffLayout() {
     .join('')
 
   const renderSidebar = (compact: boolean, desktop: boolean) => (
-    <div className={cn('flex h-full flex-col gap-6 bg-sidebar px-3 py-5 text-sidebar-foreground', desktop ? 'w-60' : 'w-full border-r border-sidebar-border')}>
+    <div className={cn('flex h-full flex-col gap-4 bg-sidebar px-3 py-4 text-sidebar-foreground', desktop ? 'w-60' : 'w-full border-r border-sidebar-border')}>
       <div className={cn('flex items-center gap-2', compact ? 'justify-start' : 'justify-between')}>
       <Link to={items[0].to} title={compact ? 'PricePolicy' : undefined} className={cn('flex min-w-0 items-center gap-3 rounded-lg px-0.5 py-1', compact && 'hidden')}>
         <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/40 text-primary">
@@ -185,7 +197,7 @@ export function StaffLayout() {
       </div>
 
       {role === 'SALE' && (
-        <Button asChild size="lg" className="w-full justify-start px-3 font-semibold">
+        <Button asChild variant="outline" className="h-10 w-full justify-start border-primary/30 bg-primary/10 px-3 font-semibold text-primary hover:border-primary/50 hover:bg-primary/20 hover:text-primary">
           <Link to="/sale/quotes/new" title={compact ? 'Báo giá khách tại sàn' : undefined} aria-label="Báo giá khách tại sàn" onClick={() => setMobileOpen(false)}>
             <FilePlus2 /> <span className="sb-label">Báo giá khách tại sàn</span>
           </Link>
@@ -194,11 +206,15 @@ export function StaffLayout() {
 
       {renderNav(compact)}
 
-      <div className="mt-auto space-y-3 border-t border-sidebar-border pt-4">
-        <div className="flex items-center gap-3 px-1">
+      {/* Cụm người dùng ở đáy (bố cục Square/Attio): thẻ tài khoản + hàng hành động gọn */}
+      <div className="space-y-2 border-t border-sidebar-border pt-3">
+        <div
+          title={compact ? `${session?.user.full_name} · ${session?.user.email}` : session?.user.email}
+          className="flex items-center gap-3 rounded-lg bg-sidebar-active/50 p-2"
+        >
           <span
             aria-hidden="true"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-sidebar-active text-sm font-semibold text-primary"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-sidebar text-sm font-semibold text-primary"
           >
             {initials}
           </span>
@@ -207,12 +223,11 @@ export function StaffLayout() {
             <p className="truncate text-xs text-sidebar-muted">{ROLE_LABEL[role]}</p>
           </div>
         </div>
-        <p className="sb-label truncate whitespace-nowrap px-1 text-xs text-sidebar-muted">{session?.user.email}</p>
         <div className={cn('flex gap-1', compact ? 'flex-col items-start' : 'items-center justify-between')}>
           <button
             type="button"
             onClick={handleLogout}
-            title={compact ? 'Đăng xuất' : undefined}
+            title="Đăng xuất"
             className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-sidebar-muted transition-colors hover:bg-sidebar-active hover:text-sidebar-foreground"
           >
             <LogOut className="h-4 w-4 shrink-0" /> <span className="sb-label whitespace-nowrap">Đăng xuất</span>
