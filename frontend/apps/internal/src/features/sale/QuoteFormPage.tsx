@@ -1,4 +1,5 @@
 import { ArrowLeft, Loader2, Sparkles } from 'lucide-react'
+import { formatVnd } from '@pricepolicy/ui/lib/format'
 import { useState, type ComponentProps, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { BackendObjective, QuoteCreatePayload } from '@pricepolicy/api-client/contracts'
@@ -163,7 +164,35 @@ function QuoteForm({ initial, backTo }: { initial: FormState; backTo: string }) 
           </Card>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          {/* Bản xem trước bên phải (bố cục Stripe): số liệu đang nhập hiển thị ngay dạng phiếu */}
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Xem trước báo giá</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <p className="eyebrow">Căn hộ</p>
+                <p className="font-medium">{form.unit_code.trim() || '—'}{form.project_id.trim() && <span className="text-muted-foreground"> · {form.project_id.trim()}</span>}</p>
+              </div>
+              <dl className="space-y-2 border-t border-border pt-3">
+                {[
+                  ['Giá niêm yết (trước thuế)', form.listed_price_before_tax_vnd],
+                  ['Tiền đặt cọc', form.deposit_amount_vnd],
+                  ['Vốn tự có', form.own_funds_vnd],
+                  ['Trả hàng tháng', form.monthly_capacity_vnd],
+                ].map(([label, amount]) => (
+                  <div key={label as string} className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">{label}</dt>
+                    <dd className="tabular-nums">{formatVnd(amount as number)}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+                Tiêu chí: {BACKEND_OBJECTIVES.find((o) => o.value === form.objective)?.label}
+              </p>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle>Tiêu chí tối ưu</CardTitle>
@@ -197,18 +226,21 @@ function MoneyInput({
   ...props
 }: { value: number; onValueChange: (v: number) => void } & Omit<ComponentProps<typeof Input>, 'value' | 'onChange' | 'type'>) {
   return (
+    <div className="relative">
     <Input
       {...props}
       type="text"
       inputMode="numeric"
       autoComplete="off"
-      className={cn('tabular-nums', props.className)}
+      className={cn('pr-12 tabular-nums', props.className)}
       value={value.toLocaleString('vi-VN')}
       onChange={(e) => {
         const digits = e.target.value.replace(/\D/g, '').slice(0, 15)
         onValueChange(digits ? Number(digits) : 0)
       }}
     />
+    <span aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">VND</span>
+    </div>
   )
 }
 

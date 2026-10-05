@@ -133,102 +133,25 @@ export function ApprovalQueuePage() {
         </div>
       </div>
 
-      {/* KPI Metrics Dashboard [SCR-04 Overview Banner] */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Card className="border-primary/20 bg-card shadow-sm transition-all hover:border-primary/40">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Chờ thẩm định</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
-                <Clock className="h-4 w-4" />
-              </span>
+      {/* Dải chỉ số gọn một khối (bố cục Remote/Deel): 5 chỉ số chia cột bằng đường kẻ, thay cho 5 thẻ rời */}
+      <div className="grid grid-cols-2 divide-border overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
+        {[
+          { label: 'Chờ thẩm định', value: metrics.waiting, hint: `${metrics.redFlags} đỏ · ${metrics.yellowFlags} vàng · ${metrics.greenFlags} xanh`, icon: Clock, tone: 'text-foreground', dot: 'bg-primary' },
+          { label: 'Cảnh báo Cờ Đỏ', value: metrics.redFlags, hint: 'Rà soát kỹ trước khi duyệt', icon: ShieldAlert, tone: 'text-destructive', dot: 'bg-destructive' },
+          { label: 'Cảnh báo Cờ Vàng', value: metrics.yellowFlags, hint: 'Chiết khấu chạm trần hoặc dời ngày', icon: AlertTriangle, tone: 'text-warning', dot: 'bg-warning' },
+          { label: 'Đã phê duyệt', value: metrics.approvedCount, hint: 'Đã ký số Ed25519', icon: CheckCircle2, tone: 'text-success', dot: 'bg-success' },
+          { label: 'Từ chối / Yêu cầu sửa', value: metrics.rejectedOrRevisionCount, hint: 'Đã phản hồi Sales', icon: RotateCcw, tone: 'text-foreground', dot: 'bg-muted-foreground' },
+        ].map(({ label, value, hint, icon: Icon, tone, dot }) => (
+          <div key={label} className="space-y-1 border-b border-border p-4 last:border-b-0 sm:[&:nth-last-child(-n+1)]:border-b-0 lg:border-b-0">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span aria-hidden="true" className={cn('h-1.5 w-1.5 rounded-full', dot)} />
+              {label}
+              <Icon className="ml-auto h-3.5 w-3.5" aria-hidden="true" />
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="font-display text-2xl font-bold tabular-nums text-foreground">{metrics.waiting}</span>
-              <span className="text-xs text-muted-foreground">hồ sơ trong hàng đợi</span>
-            </div>
-            <div className="mt-2 flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1 font-semibold text-destructive">
-                <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-                {metrics.redFlags} Đỏ
-              </span>
-              <span className="inline-flex items-center gap-1 font-semibold text-warning">
-                <span className="h-1.5 w-1.5 rounded-full bg-warning" />
-                {metrics.yellowFlags} Vàng
-              </span>
-              <span className="inline-flex items-center gap-1 font-semibold text-success">
-                <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                {metrics.greenFlags} Xanh
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-destructive/20 bg-destructive/[0.02] shadow-sm transition-all hover:border-destructive/40">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-destructive">Cảnh báo Cờ Đỏ</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-destructive/10 text-destructive">
-                <ShieldAlert className="h-4 w-4" />
-              </span>
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="font-display text-2xl font-bold tabular-nums text-destructive">{metrics.redFlags}</span>
-              <span className="text-xs text-muted-foreground">nghiêm trọng / xung đột</span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">Yêu cầu rà soát kỹ trước khi duyệt</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-warning/20 bg-warning/[0.02] shadow-sm transition-all hover:border-warning/40">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-warning">Cảnh báo Cờ Vàng</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-warning/10 text-warning">
-                <AlertTriangle className="h-4 w-4" />
-              </span>
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="font-display text-2xl font-bold tabular-nums text-warning">{metrics.yellowFlags}</span>
-              <span className="text-xs text-muted-foreground">cần lưu ý chiết khấu</span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">Tổng chiết khấu chạm trần hoặc dời ngày</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-success/20 bg-success/[0.02] shadow-sm transition-all hover:border-success/40">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-success">Đã phê duyệt</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-success/10 text-success">
-                <CheckCircle2 className="h-4 w-4" />
-              </span>
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="font-display text-2xl font-bold tabular-nums text-success">{metrics.approvedCount}</span>
-              <span className="text-xs text-muted-foreground">đã ký số Ed25519</span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">Đã xuất bản tệp PDF chính thức</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card shadow-sm transition-all hover:border-border/80">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Từ chối / Yêu cầu sửa</span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                <RotateCcw className="h-4 w-4" />
-              </span>
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="font-display text-2xl font-bold tabular-nums text-foreground">
-                {metrics.rejectedOrRevisionCount}
-              </span>
-              <span className="text-xs text-muted-foreground">đã phản hồi Sales</span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">Kèm chỉ đạo điều chỉnh chi tiết</p>
-          </CardContent>
-        </Card>
+            <p className={cn('font-display text-2xl font-semibold tabular-nums', tone)}>{value}</p>
+            <p className="truncate text-xs text-muted-foreground">{hint}</p>
+          </div>
+        ))}
       </div>
 
       {/* Main Filter & Tabs Area */}
@@ -237,12 +160,12 @@ export function ApprovalQueuePage() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full min-w-0 xl:w-auto">
-              <TabsList className="bg-muted/60 p-1">
+              <TabsList className="h-auto gap-1 rounded-full bg-muted/60 p-1">
                 {TABS.map((t) => {
                   const count = allQuotes.filter((q) => t.statuses.includes(q.status)).length
                   const Icon = t.icon
                   return (
-                    <TabsTrigger key={t.key} value={t.key} className="gap-2 text-xs">
+                    <TabsTrigger key={t.key} value={t.key} className="gap-2 rounded-full text-xs">
                       <Icon className="h-3.5 w-3.5" />
                       <span>{t.label}</span>
                       <span
@@ -371,8 +294,14 @@ export function ApprovalQueuePage() {
                         )}
                         onClick={() => navigate(`/manager/approvals/${q.quote_id}`)}
                       >
-                        {/* Quote & Unit */}
-                        <TableCell>
+                        {/* Quote & Unit — thanh màu bên trái theo cờ rủi ro (bố cục Deel) */}
+                        <TableCell
+                          className={cn(
+                            'border-l-[3px] border-l-transparent',
+                            isReview && q.risk_flag.color === 'RED' && 'border-l-destructive',
+                            isReview && q.risk_flag.color === 'YELLOW' && 'border-l-warning',
+                          )}
+                        >
                           <div className="space-y-0.5">
                             <span className="font-mono text-xs font-semibold text-primary hover:underline">
                               {q.quote_id}

@@ -96,14 +96,14 @@
     --gold-foreground: 0 0% 100%;
     --ring: 42 48% 45%;
 
-    --success: 152 62% 26%;
+    --success: 152 52% 33%;
     --success-foreground: 0 0% 100%;
-    --warning: 32 92% 30%;
+    --warning: 32 85% 37%;
     --warning-foreground: 0 0% 100%;
-    --warning-ink: 32 92% 26%;
-    --destructive: 0 70% 42%;
+    --warning-ink: 32 85% 31%;
+    --destructive: 0 66% 48%;
     --destructive-foreground: 0 0% 100%;
-    --info: 213 70% 36%;
+    --info: 213 62% 43%;
     --info-foreground: 0 0% 100%;
 
     --border: 38 22% 84%;
@@ -204,7 +204,7 @@
   }
 
   ::selection {
-    @apply bg-primary/30 text-foreground;
+    @apply bg-primary/40 text-foreground;
   }
 
   /* Một bộ icon duy nhất (lucide), nét mảnh 1.5px */
@@ -230,6 +230,24 @@
   .eyebrow {
     @apply text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground;
   }
+}
+
+/* Theme Sáng: nút vàng đặc dịu hơn (champagne nhạt). Chỉ áp cho <button>/<a>, không đụng huy hiệu hay chữ dùng màu primary. */
+:root[data-theme='light'] :is(button, a).bg-primary {
+  background-color: hsl(42 55% 70%);
+  box-shadow: none;
+}
+:root[data-theme='light'] :is(button, a).bg-primary:hover {
+  background-color: hsl(42 55% 64%);
+}
+:root[data-theme='light'] :is(button, a).bg-primary:disabled {
+  opacity: 0.5;
+}
+
+/* Theme Sáng: bong bóng chat của người dùng dùng nền champagne nhạt thay vì vàng đặc */
+:root[data-theme='light'] .chat-bubble-user {
+  background-color: hsl(42 55% 80%);
+  color: hsl(30 10% 9%);
 }
 
 @layer utilities {

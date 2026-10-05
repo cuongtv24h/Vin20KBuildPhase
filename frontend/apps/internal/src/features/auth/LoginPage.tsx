@@ -1,4 +1,4 @@
-import { Briefcase, Loader2, LogIn, ScrollText, ShieldCheck, UserCog, type LucideIcon } from 'lucide-react'
+import { Briefcase, Eye, EyeOff, FileCheck2, Loader2, LogIn, ScrollText, ShieldCheck, Sparkles, UserCog, type LucideIcon } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { errorMessage } from '@pricepolicy/api-client/errors'
@@ -17,6 +17,13 @@ const QUICK_ACCOUNTS: { user: string; label: string; icon: LucideIcon }[] = [
   { user: 'policy', label: 'Chính sách', icon: ScrollText },
 ]
 
+/** Điểm nổi bật ở cột thương hiệu (bố cục Neon: khẩu hiệu + 3 lợi ích ngắn). */
+const HIGHLIGHTS: { icon: LucideIcon; title: string; text: string }[] = [
+  { icon: Sparkles, title: 'Trợ lý AI cho Sale', text: 'Tra chính sách, so sánh phương án thanh toán ngay trong cuộc trò chuyện.' },
+  { icon: ShieldCheck, title: 'Kiểm soát rủi ro', text: 'Cờ Xanh/Vàng/Đỏ tự động, tách biệt người lập và người duyệt.' },
+  { icon: FileCheck2, title: 'Duyệt và ký số', text: 'Báo giá chính thức được thẩm định và ký số trước khi gửi khách.' },
+]
+
 export function LoginPage() {
   const session = useSessionStore((s) => s.session)
   const setSession = useSessionStore((s) => s.setSession)
@@ -26,6 +33,7 @@ export function LoginPage() {
   const { data: setupStatus } = useAdminSetupStatus()
   const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   if (session && getAccessToken()) {
     return <Navigate to={ROLE_HOME[session.user.role]} replace />
@@ -45,6 +53,11 @@ export function LoginPage() {
     <div className="grid min-h-screen bg-background lg:grid-cols-[1.1fr,1fr]">
       <div className="relative hidden flex-col justify-between overflow-hidden border-r border-sidebar-border bg-gradient-to-br from-sidebar via-sidebar to-primary/15 p-12 text-sidebar-foreground lg:flex">
         {/* Ánh vàng rất nhẹ ở góc — điểm nhấn duy nhất, không lòe loẹt */}
+        {/* Lưới chấm mờ (bố cục Vapi) tạo chiều sâu cho nền tối */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:radial-gradient(hsl(var(--sidebar-foreground)/0.5)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,transparent,black_30%,black_70%,transparent)]"
+        />
         <div aria-hidden="true" className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-primary/[0.07] blur-3xl" />
         <Link to="/" className="relative flex items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-primary/40 text-primary">
@@ -52,16 +65,31 @@ export function LoginPage() {
           </span>
           <span className="font-display text-xl font-semibold tracking-tight">PricePolicy · VLandFuture</span>
         </Link>
-        <div className="relative max-w-md space-y-4">
-          <p className="eyebrow text-gold">Cổng nội bộ</p>
-          <p className="font-display text-4xl font-semibold leading-tight tracking-tight">Báo giá đúng chính sách, duyệt trong một phút.</p>
+        <div className="relative max-w-md space-y-8">
+          <div className="space-y-4">
+            <p className="eyebrow text-gold">Cổng nội bộ</p>
+            <p className="font-display text-4xl font-semibold leading-tight tracking-tight">Báo giá đúng chính sách, duyệt trong một phút.</p>
+          </div>
+          <ul className="space-y-4">
+            {HIGHLIGHTS.map(({ icon: Icon, title, text }) => (
+              <li key={title} className="flex gap-3">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary">
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="text-sm leading-snug">
+                  <span className="block font-medium">{title}</span>
+                  <span className="text-sidebar-muted">{text}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
         <p className="relative text-xs text-sidebar-muted">© 2026 VLandFuture</p>
       </div>
 
       <div className="relative flex items-center justify-center px-4 py-10">
         <div className="absolute right-4 top-4"><ThemeToggle side="bottom" className="text-muted-foreground hover:bg-accent hover:text-foreground" /></div>
-        <div className="w-full max-w-sm space-y-6">
+        <div className="w-full max-w-sm space-y-6 sm:rounded-2xl sm:border sm:border-border sm:bg-card sm:p-8 sm:shadow-sm">
           {/* Mobile/tablet: cột trái ẩn nên nhắc lại thương hiệu ở đầu form */}
           <div className="flex items-center gap-2.5 lg:hidden">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/40 text-primary">
@@ -103,16 +131,28 @@ export function LoginPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Mật khẩu</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                placeholder="Nhập mật khẩu"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="h-11 text-base sm:text-sm"
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Nhập mật khẩu"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-11 pr-11 text-base sm:text-sm"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  aria-pressed={showPassword}
+                  title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             {login.isError && (
               <p role="alert" className="text-sm text-destructive">
@@ -150,12 +190,6 @@ export function LoginPage() {
             </div>
           </div>
 
-          <a
-            href="http://localhost:5173"
-            className="block rounded-lg py-2 text-center text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            ← Đến Cổng thông tin khách hàng (Dự án và Căn hộ)
-          </a>
         </div>
       </div>
     </div>

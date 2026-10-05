@@ -170,7 +170,7 @@ export function LeadInboxPage() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 lg:flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
               CRM Quản trị khách hàng
             </h1>
             {/* Badge cũ ghi cứng "VLand Future Riverside" — dự án không có trong dữ liệu vận hành. */}
@@ -215,7 +215,7 @@ export function LeadInboxPage() {
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tổng khách hàng</p>
-              <p className="font-display text-2xl font-bold text-foreground mt-0.5">{kpis.total}</p>
+              <p className="font-display text-2xl font-semibold text-foreground mt-0.5">{kpis.total}</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <Users className="h-5 w-5" />
@@ -227,7 +227,7 @@ export function LeadInboxPage() {
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-destructive uppercase tracking-wider">Khách HOT</p>
-              <p className="font-display text-2xl font-bold text-destructive mt-0.5">{kpis.hot}</p>
+              <p className="font-display text-2xl font-semibold text-destructive mt-0.5">{kpis.hot}</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
               <Flame className="h-5 w-5" />
@@ -239,7 +239,7 @@ export function LeadInboxPage() {
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-info uppercase tracking-wider">Đang tư vấn</p>
-              <p className="font-display text-2xl font-bold text-info mt-0.5">{kpis.inProgress}</p>
+              <p className="font-display text-2xl font-semibold text-info mt-0.5">{kpis.inProgress}</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-info/10 text-info">
               <Clock className="h-5 w-5" />
@@ -251,7 +251,7 @@ export function LeadInboxPage() {
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
               <p className="text-xs font-medium text-success uppercase tracking-wider">Đã lên báo giá</p>
-              <p className="font-display text-2xl font-bold text-success mt-0.5">{kpis.converted}</p>
+              <p className="font-display text-2xl font-semibold text-success mt-0.5">{kpis.converted}</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10 text-success">
               <CheckCircle2 className="h-5 w-5" />
