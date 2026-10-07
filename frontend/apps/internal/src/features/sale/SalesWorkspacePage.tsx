@@ -1044,8 +1044,6 @@ export function SalesWorkspacePage() {
   const deleteConversation = useDeleteCopilotConversation()
   /** Lời hẹn id của phiên đang được tạo ở lượt đầu — các lượt sau ghi vào cùng id đó. */
   const creatingSessionRef = useRef<Promise<string | null> | null>(null)
-  /** Thế hệ phiên chat tại thời điểm bấm gửi; chỉ có giá trị trong lúc `processNaturalCommand` chạy đồng bộ. */
-  const sendEpochRef = useRef<number | null>(null)
 
   /**
    * `reloadNonce` tăng mỗi lần người dùng **chủ động mở lại** một cuộc (bấm vào lịch sử) — nhờ đó
@@ -1580,7 +1578,7 @@ export function SalesWorkspacePage() {
   const saveToHistory = (
     buildPayload: (conversationId: string | null) => CopilotAppendTurnRequest,
     /** Thế hệ phiên lúc Sale bấm gửi — không phải lúc hàm này chạy (xử lý lệnh bị trễ 150ms). */
-    epoch: number = sendEpochRef.current ?? copilotChatStore.epoch(),
+    epoch: number = copilotChatStore.epoch(),
   ): Promise<string | null> => {
     // Đọc id MỚI NHẤT từ store (cùng thế hệ phiên) thay vì biến `conversationId` của lần render cũ: gửi liên tiếp
     // rất nhanh, lượt sau có thể chạy trước khi React render lại với id vừa được cấp → tạo nhầm cuộc thứ hai.
@@ -2070,7 +2068,13 @@ export function SalesWorkspacePage() {
     const hit = resolveSmartContext(text)
     return hit ? hit.dossier_id : null
   }
-  const processNaturalCommand = (text: string, time: string, overrideLead?: LeadDossier | null) => {
+  const processNaturalCommand = (
+    text: string,
+    time: string,
+    overrideLead?: LeadDossier | null,
+    /** Thế hệ phiên chat lúc Sale bấm gửi (lệnh gõ tay bị trễ 150ms); mặc định = thế hệ hiện tại. */
+    sendEpoch: number = copilotChatStore.epoch(),
+  ) => {
 
     // Ngữ cảnh hiệu lực cho lệnh này: override (từ smart-context) > ngữ cảnh hiện tại
     const ctxLead = overrideLead !== undefined ? overrideLead : selectedLead
@@ -2109,7 +2113,7 @@ export function SalesWorkspacePage() {
     reasoningMsgIdRef.current = reasoningId
     appliedFinalRef.current = null
     // Lưu câu hỏi vào Lịch sử ngay khi gửi: Sale rời trang trước khi trợ lý kịp trả lời vẫn còn câu hỏi trong lịch sử.
-    const turnConversation = saveToHistory((id) => ({ conversation_id: id, user_message: text, assistant_message: '' }))
+    const turnConversation = saveToHistory((id) => ({ conversation_id: id, user_message: text, assistant_message: '' }), sendEpoch)
     setMessages((prev) => [
       ...prev,
       {
@@ -2200,12 +2204,7 @@ export function SalesWorkspacePage() {
         void saveToHistory((id) => ({ conversation_id: id, user_message: text, assistant_message: '' }), epochAtSend)
         return
       }
-      sendEpochRef.current = epochAtSend
-      try {
-        processNaturalCommand(text, time, resolveSmartContext(text) ?? selectedLead)
-      } finally {
-        sendEpochRef.current = null
-      }
+      processNaturalCommand(text, time, resolveSmartContext(text) ?? selectedLead, epochAtSend)
     }, 150)
   }
 

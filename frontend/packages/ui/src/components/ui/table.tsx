@@ -6,41 +6,75 @@ import { cn } from '@pricepolicy/ui/lib/utils'
 /** Phần tử tương tác trong dòng: bấm vào đây thì giữ hành vi riêng, không mở khung xem nhanh. */
 const INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [role="switch"], [role="combobox"], [data-no-preview]'
 
-/** Thẻ không bao giờ được đưa vào khung xem nhanh (chạy mã / nhúng nội dung ngoài / điều khiển tương tác). */
-const FORBIDDEN_TAGS = 'script, style, iframe, object, embed, link, meta, base, form, button, input, select, textarea'
+const SVG_NS = 'http://www.w3.org/2000/svg'
+const XHTML_NS = 'http://www.w3.org/1999/xhtml'
 
-/**
- * Làm sạch bản sao của một ô trước khi hiển thị lại: bỏ thẻ nguy hiểm, mọi thuộc tính `on*`, và URL
- * `javascript:` / `data:` — nên dù ô được dựng từ HTML thô (dangerouslySetInnerHTML ở nơi khác) cũng không
- * mang theo mã chạy được. Bản sao được gắn vào khung bằng DOM (appendChild), KHÔNG qua phân tích chuỗi HTML.
- */
-export function sanitizeClone(root: HTMLElement) {
-  root.querySelectorAll(FORBIDDEN_TAGS).forEach((n) => n.remove())
-  const all = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))]
-  for (const el of all) {
-    for (const attr of Array.from(el.attributes)) {
-      const name = attr.name.toLowerCase()
-      const value = attr.value.trim().toLowerCase()
-      const unsafeUrl = (name === 'href' || name === 'src' || name === 'xlink:href' || name === 'action') && /^(javascript|data|vbscript):/.test(value)
-      if (name.startsWith('on') || unsafeUrl) el.removeAttribute(attr.name)
-    }
+/** Chỉ những thẻ này được dựng lại trong khung xem nhanh; thẻ khác bị bỏ vỏ, giữ chữ bên trong. */
+const HTML_TAGS = new Set(['div', 'span', 'p', 'b', 'strong', 'i', 'em', 'small', 'br', 'ul', 'ol', 'li', 'code', 'sub', 'sup'])
+const SVG_TAGS = new Set(['svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon'])
+/** Thẻ bị bỏ HẲN cả nội dung (chạy mã, nhúng nội dung ngoài, điều khiển tương tác, tham chiếu ngoài trong SVG). */
+const DROP_TAGS = new Set([
+  'script', 'style', 'iframe', 'frame', 'object', 'embed', 'template', 'noscript', 'link', 'meta', 'base', 'form',
+  'button', 'input', 'select', 'textarea', 'img', 'audio', 'video', 'canvas', 'title',
+  'use', 'foreignobject', 'image', 'animate', 'animatetransform', 'set', 'a',
+])
+const COMMON_ATTRS = new Set(['class', 'title', 'aria-label', 'aria-hidden'])
+const SVG_ATTRS = new Set([
+  'viewbox', 'd', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'points',
+  'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule', 'opacity', 'transform',
+])
+
+/** Giá trị thuộc tính an toàn: không có lược đồ thực thi / hàm CSS ngoài (cho phép `url(#id)` nội bộ của SVG). */
+const safeAttrValue = (v: string) => !/(javascript|vbscript|data)\s*:|expression\s*\(|url\s*\(\s*(?!['"]?#)/i.test(v)
+
+function appendSafe(src: Node, parent: Node) {
+  if (src.nodeType === Node.TEXT_NODE) {
+    parent.appendChild(document.createTextNode(src.textContent ?? ''))
+    return
   }
+  if (!(src instanceof Element)) return
+  const tag = src.localName.toLowerCase()
+  if (DROP_TAGS.has(tag)) return
+  const isSvg = SVG_TAGS.has(tag) && src.namespaceURI === SVG_NS
+  const isHtml = HTML_TAGS.has(tag) && src.namespaceURI === XHTML_NS
+  let target: Node = parent
+  if (isSvg || isHtml) {
+    const el = isSvg ? document.createElementNS(SVG_NS, tag) : document.createElement(tag)
+    for (const attr of Array.from(src.attributes)) {
+      const name = attr.name.toLowerCase()
+      if ((COMMON_ATTRS.has(name) || (isSvg && SVG_ATTRS.has(name))) && safeAttrValue(attr.value)) el.setAttribute(attr.name, attr.value)
+    }
+    parent.appendChild(el)
+    target = el
+  }
+  // Thẻ không nằm trong danh sách: bỏ vỏ nhưng giữ chữ/phần tử con (cũng qua bộ lọc này).
+  for (const child of Array.from(src.childNodes)) appendSafe(child, target)
 }
 
-/** Gắn nút DOM đã làm sạch vào ô giá trị (không dùng innerHTML). */
-function PreviewValue({ node }: { node: HTMLElement }) {
+/**
+ * Dựng lại nội dung một ô cho khung xem nhanh theo **danh sách cho phép** (allowlist): chỉ tạo mới các thẻ và
+ * thuộc tính liệt kê ở trên bằng `createElement`, không sao chép nguyên nút gốc và không qua phân tích chuỗi HTML.
+ * Nhờ vậy mọi vector không có trong danh sách (thuộc tính `on*`, `style`, `href`/`src`, `<use>`, `<foreignObject>`,
+ * mã hoá lạ, thẻ HTML mới…) đơn giản là không bao giờ được tạo ra, thay vì phải đoán để chặn từng cái.
+ */
+export function buildSafeCopy(cell: Element): DocumentFragment {
+  const fragment = document.createDocumentFragment()
+  for (const child of Array.from(cell.childNodes)) appendSafe(child, fragment)
+  return fragment
+}
+
+/** Gắn bản sao an toàn vào ô giá trị (không dùng innerHTML). */
+function PreviewValue({ node }: { node: DocumentFragment }) {
   const ref = React.useRef<HTMLElement | null>(null)
   React.useEffect(() => {
-    const host = ref.current
-    if (!host) return
-    host.replaceChildren(...Array.from(node.childNodes).map((c) => c.cloneNode(true)))
+    ref.current?.replaceChildren(node.cloneNode(true))
   }, [node])
   return <dd ref={ref} className="min-w-0 break-words" />
 }
 
 interface RowPreview {
   title: string
-  fields: { label: string; node: HTMLElement }[]
+  fields: { label: string; node: DocumentFragment }[]
   /** Dòng vốn có hành động riêng (chuyển trang): khung xem nhanh có thêm nút mở trang đầy đủ. */
   row: HTMLTableRowElement | null
 }
@@ -69,14 +103,13 @@ function RowPreviewHost({ disabled, children }: { disabled: boolean; children: R
     const headRow = table?.tHead?.rows[table.tHead.rows.length - 1]
     const fields = cells
       .map((cell, i) => {
-        const clone = cell.cloneNode(true) as HTMLElement
-        sanitizeClone(clone)
-        const hasVisual = clone.querySelector('svg, img') !== null
-        if (!clone.textContent?.trim() && !hasVisual) return null
+        const copy = buildSafeCopy(cell)
+        const hasVisual = copy.querySelector('svg') !== null
+        if (!copy.textContent?.trim() && !hasVisual) return null
         const label = headRow?.cells[i]?.textContent?.trim() || `Cột ${i + 1}`
-        return { label, node: clone }
+        return { label, node: copy }
       })
-      .filter((f): f is { label: string; node: HTMLElement } => f !== null)
+      .filter((f): f is { label: string; node: DocumentFragment } => f !== null)
     if (fields.length === 0) return
 
     const first = (cells[0].firstElementChild ?? cells[0]).textContent?.trim() ?? ''
