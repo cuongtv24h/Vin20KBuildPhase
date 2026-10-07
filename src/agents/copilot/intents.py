@@ -369,7 +369,23 @@ def build_action_card(text: str, result: IntentResult, context: dict[str, Any] |
         scenario = "PA-NHANH" if _has(grounding.normalize(text), "sớm", "nhanh", "chiết khấu") else (
             "PA-VAY" if _has(grounding.normalize(text), "vay", "lãi", "ngân hàng") else "PA-CHUDONG"
         )
-        return {"action_type": INTENT_CREATE_QUOTE, "action_data": {"unit_code": unit, "scenario": scenario}}
+        amount_range = result.entities.get("amount_range_vnd")
+        # Thẻ báo giá mang luôn ngữ cảnh tài chính đã bóc được: UI dựng payload POST /quotes không phải
+        # hỏi lại, và `missing` nói thẳng còn thiếu gì (chưa biết căn) để chặn TRƯỚC khi gọi server —
+        # cổng /submit-review phía backend cũng chặn đúng những trường hợp này.
+        missing_fields = [name for name, value in (("unit_code", unit),) if not value]
+        return {
+            "action_type": INTENT_CREATE_QUOTE,
+            "action_data": {
+                "unit_code": unit,
+                "scenario": scenario,
+                "own_funds_vnd": result.entities.get("amount_vnd"),
+                "budget_min_vnd": amount_range[0] if amount_range else None,
+                "budget_max_vnd": amount_range[1] if amount_range else None,
+                "bedrooms": result.entities.get("bedrooms"),
+                "missing": missing_fields,
+            },
+        }
     if result.intent == INTENT_COMPARE_SCENARIOS:
         return {"action_type": INTENT_COMPARE_SCENARIOS, "action_data": {"unit_code": unit}}
     if result.intent == INTENT_ASSESS_FUNDS:
