@@ -353,6 +353,41 @@ def _resolve_unit_by_criteria(
     return None, ""
 
 
+async def _call_pricing_engine(
+    unit: dict[str, Any],
+    von_tu_co_vnd: int,
+    kha_nang_thang_vnd: int,
+    muc_tieu: str,
+    ngay_giao_dich: str,
+) -> tuple[Any, str, OptimizationObjective, dict[str, Any] | None]:
+    """Gọi engine tất định cho một căn — MỘT nguồn duy nhất cho mọi tool cần số liệu tài chính.
+
+    Trả `(kết quả engine, ngày giao dịch, mục tiêu tối ưu, chính sách hiệu lực tại ngày đó)`.
+    Tách khỏi tool để `tinh_phuong_an_thanh_toan` và `soan_ho_so_de_xuat` không bao giờ lệch nhau
+    về tham số engine (đổi mặc định ở một chỗ là cả hai tool cùng đổi).
+    """
+    from src.contracts.pricing import PricingInput
+    from src.services.pricing.client import PricingClient
+
+    tx_date = (ngay_giao_dich or "").strip() or date.today().isoformat()
+    objective = _objective_from_text(muc_tieu)
+    pricing_input = PricingInput(
+        project_id=str(unit.get("project_id")),
+        unit_code=str(unit.get("unit_code")),
+        listed_price_before_tax_vnd=int(unit.get("listed_price_before_tax_vnd", 0)),
+        transaction_date=tx_date,
+        own_funds_vnd=int(von_tu_co_vnd or 0),
+        monthly_capacity_vnd=int(kha_nang_thang_vnd or 0),
+        objective=objective,
+        execution_context="SALES_COPILOT",
+    )
+    # In-process deterministic engine (Decimal 28) là nguồn chân lý; sidecar chỉ là tối ưu IPC.
+    force_mock = os.environ.get("COPILOT_PRICING_VIA_SIDECAR", "false").lower() not in ("true", "1")
+    result = await PricingClient(force_mock=force_mock).calculate(pricing_input)
+    policy = grounding.resolve_active_policy(str(unit.get("project_id")), date.fromisoformat(tx_date))
+    return result, tx_date, objective, policy
+
+
 @tool
 async def tinh_phuong_an_thanh_toan(
     ma_can: str,
@@ -378,9 +413,6 @@ async def tinh_phuong_an_thanh_toan(
         so_phong_ngu: Số phòng ngủ Sale nêu (0 = không lọc).
         gia_toi_da_vnd: Ngân sách Sale nêu (0 = không lọc).
     """
-    from src.contracts.pricing import PricingInput
-    from src.services.pricing.client import PricingClient
-
     unit = grounding.find_unit(ma_can)
     resolved_note = ""
     if not unit and not str(ma_can or "").strip():
@@ -403,26 +435,9 @@ async def tinh_phuong_an_thanh_toan(
             }
         )
 
-    tx_date = ngay_giao_dich.strip() or date.today().isoformat()
-    objective = _objective_from_text(muc_tieu)
-
-    pricing_input = PricingInput(
-        project_id=str(unit.get("project_id")),
-        unit_code=str(unit.get("unit_code")),
-        listed_price_before_tax_vnd=int(unit.get("listed_price_before_tax_vnd", 0)),
-        transaction_date=tx_date,
-        own_funds_vnd=int(von_tu_co_vnd or 0),
-        monthly_capacity_vnd=int(kha_nang_thang_vnd or 0),
-        objective=objective,
-        execution_context="SALES_COPILOT",
+    result, tx_date, objective, policy = await _call_pricing_engine(
+        unit, von_tu_co_vnd, kha_nang_thang_vnd, muc_tieu, ngay_giao_dich
     )
-
-    # In-process deterministic engine (Decimal 28) là nguồn chân lý; sidecar chỉ là tối ưu IPC.
-    force_mock = os.environ.get("COPILOT_PRICING_VIA_SIDECAR", "false").lower() not in ("true", "1")
-    client = PricingClient(force_mock=force_mock)
-    result = await client.calculate(pricing_input)
-
-    policy = grounding.resolve_active_policy(str(unit.get("project_id")), date.fromisoformat(tx_date))
     lines = [
         # Câu mở đầu bằng NGÔN NGỮ NGHIỆP VỤ: Sale bấm "Copy cho khách" là gửi được, không lộ tên
         # tham số/mã mục tiêu nội bộ (`objective MIN_INITIAL_CASH`).
@@ -860,6 +875,247 @@ async def soan_tin_tu_van(ma_can: str = "", ten_khach: str = "", noi_dung_chinh:
     )
 
 
+# ---------------------------------------------------------------------------
+# Tool 7 — Soạn hồ sơ đề xuất trình Quản lý (đọc dữ liệu + engine, KHÔNG ghi DB)
+# ---------------------------------------------------------------------------
+#: Việc còn thiếu trước khi lập báo giá trình Quản lý — nói bằng ngôn ngữ nghiệp vụ, không mã lỗi.
+_PROPOSAL_MISSING_UNIT = "Mã căn (chọn đúng căn để tính phương án và đối chiếu điều khoản)"
+_PROPOSAL_MISSING_OWN_FUNDS = "Vốn tự có của khách (để đánh giá độ khả thi của phương án vay)"
+_PROPOSAL_MISSING_POLICY = "Chính sách còn hiệu lực tại ngày giao dịch (chọn ngày giao dịch khác nếu cần)"
+#: Số token tối thiểu phải trùng mới coi là khớp rule — tránh khớp oan chỉ vì chung một từ ngắn.
+_RULE_MATCH_MIN_SCORE = 2
+_RULE_MATCH_MIN_TOKEN_LEN = 3
+
+
+def _match_rule(policy: dict[str, Any] | None, incentive: str) -> dict[str, Any] | None:
+    """Ghép một ưu đãi engine đã áp với điều khoản gốc trong chính sách.
+
+    `applied_incentives` có hai dạng tuỳ đường chạy engine: mã rule (`EARLY_PAY_DISCOUNT`) hoặc câu mô tả
+    ("Chiết khấu 8% thanh toán sớm trực tiếp vào giá Net"). Khớp mã/tiêu đề trước; nếu không thì tính điểm
+    trùng token (≥ `_RULE_MATCH_MIN_SCORE` từ có nghĩa) để câu mô tả vẫn tìm được điều khoản tương ứng.
+    """
+    if not policy:
+        return None
+    wanted = grounding.normalize(str(incentive))
+    if not wanted:
+        return None
+    tokens = [t for t in wanted.split() if len(t) >= _RULE_MATCH_MIN_TOKEN_LEN]
+    best: dict[str, Any] | None = None
+    best_score = 0
+    for rule in policy.get("rules") or []:
+        src = rule.get("source") or {}
+        code = grounding.normalize(str(rule.get("rule_code", "")))
+        haystack = grounding.normalize(
+            " ".join(
+                [
+                    str(rule.get("rule_code", "")),
+                    str(rule.get("title", "")),
+                    str(src.get("section", "")),
+                    str(src.get("quote", "")),
+                ]
+            )
+        )
+        if code and (wanted == code or code in wanted or (len(wanted) > 3 and wanted in haystack)):
+            return rule
+        score = sum(1 for token in tokens if token in haystack)
+        if score > best_score:
+            best, best_score = rule, score
+    return best if best_score >= _RULE_MATCH_MIN_SCORE else None
+
+
+def _policy_rules_for_incentives(
+    policy: dict[str, Any] | None, incentives: list[str]
+) -> list[dict[str, Any]]:
+    """Danh sách điều khoản nguồn cho các ưu đãi của phương án đề xuất (để trích dẫn trong hồ sơ).
+
+    Không ghép được ưu đãi nào thì trả về các rule chọn được — hồ sơ vẫn có căn cứ, còn phần chênh lệch
+    là việc của màn duyệt đối soát từng luận điểm (bộ chứng cứ C-04 ở cổng `/submit-review`).
+    """
+    matched: list[dict[str, Any]] = []
+    for incentive in incentives or []:
+        rule = _match_rule(policy, incentive)
+        if rule is not None and rule not in matched:
+            matched.append(rule)
+    if matched:
+        return matched
+    return [rule for rule in (policy or {}).get("rules", []) if rule.get("is_selectable")][:3]
+
+
+@tool
+async def soan_ho_so_de_xuat(
+    ma_can: str = "",
+    ten_khach: str = "",
+    von_tu_co_vnd: int = 0,
+    kha_nang_thang_vnd: int = 0,
+    muc_tieu: str = "",
+    ngay_giao_dich: str = "",
+    so_phong_ngu: int = 0,
+    gia_toi_da_vnd: int = 0,
+) -> str:
+    """Soạn HỒ SƠ ĐỀ XUẤT (bản trình Quản lý duyệt) cho một căn — chặng đầu của luồng lập báo giá.
+
+    Hồ sơ gồm: thông tin căn, phương án thanh toán đề xuất cùng các phương án còn lại (do engine tất định
+    tính), chính sách/ưu đãi đang hiệu lực, và **danh sách việc còn thiếu** trước khi lập báo giá trình
+    Quản lý. Dùng khi Sale nói "soạn hồ sơ đề xuất", "lập đề xuất trình Quản lý", "chuẩn bị hồ sơ cho căn …".
+
+    Tool CHỈ đọc dữ liệu và gọi engine — không ghi DB, không tự trình duyệt (việc trình duyệt do Sale bấm
+    xác nhận, và cổng `/quotes/{id}/submit-review` kiểm tra lại lần cuối bằng bộ chứng cứ C-04).
+
+    Args:
+        ma_can: Mã căn hộ, ví dụ ZEN-A-1205. Để trống **chỉ khi** Sale nói theo tiêu chí (số phòng ngủ /
+            ngân sách) — khi đó tool tự chọn căn phù hợp từ giỏ thật và nói rõ đã chọn căn nào.
+        ten_khach: Tên khách để ghi ở đầu hồ sơ.
+        von_tu_co_vnd: Vốn tự có của khách (VNĐ) — thiếu thì checklist nhắc bổ sung.
+        kha_nang_thang_vnd: Khả năng chi trả hàng tháng (VNĐ).
+        muc_tieu: Mục tiêu tối ưu (MIN_INITIAL_CASH, MIN_NET_PRICE, MIN_TOTAL_CASH_OUTFLOW, MAX_BENEFIT_VALUE).
+        ngay_giao_dich: Ngày giao dịch YYYY-MM-DD (mặc định hôm nay) — quyết định chính sách nào còn hiệu lực.
+        so_phong_ngu: Số phòng ngủ Sale nêu (0 = không lọc).
+        gia_toi_da_vnd: Ngân sách Sale nêu (0 = không lọc).
+    """
+    unit = grounding.find_unit(ma_can)
+    resolved_note = ""
+    if not unit and not str(ma_can or "").strip():
+        unit, resolved_note = _resolve_unit_by_criteria(so_phong_ngu, gia_toi_da_vnd)
+    if not unit:
+        reason = (
+            f"Không tìm thấy căn '{ma_can}' trong giỏ hàng nên chưa soạn được hồ sơ đề xuất."
+            if str(ma_can or "").strip()
+            else "Chưa xác định được căn để soạn hồ sơ đề xuất."
+        )
+        return _dump(
+            {
+                "tool": "soan_ho_so_de_xuat",
+                "error": reason,
+                "missing": [_PROPOSAL_MISSING_UNIT],
+                "summary": (
+                    reason
+                    + " Anh/chị cho em mã căn (hoặc tiêu chí số phòng ngủ / ngân sách) rồi em soạn ngay ạ."
+                ),
+                "citations": [],
+            }
+        )
+
+    result, tx_date, objective, policy = await _call_pricing_engine(
+        unit, von_tu_co_vnd, kha_nang_thang_vnd, muc_tieu, ngay_giao_dich
+    )
+    scenarios: dict[str, Any] = {
+        str(getattr(code, "value", code)): detail for code, detail in result.scenarios.items()
+    }
+    recommended = str(result.recommended_scenario_code)
+    recommended_detail = scenarios.get(recommended)
+    # Gộp ưu đãi của CẢ 3 phương án: hồ sơ trình Quản lý phải nêu đủ các điều khoản liên quan của chính
+    # sách (phương án dự phòng vẫn có thể được chọn), không chỉ của phương án đề xuất.
+    applied_incentives: list[str] = []
+    for detail in scenarios.values():
+        for incentive in getattr(detail, "applied_incentives", None) or []:
+            if incentive not in applied_incentives:
+                applied_incentives.append(str(incentive))
+    matched_rules = _policy_rules_for_incentives(policy, applied_incentives)
+
+    missing: list[str] = []
+    if not von_tu_co_vnd:
+        missing.append(_PROPOSAL_MISSING_OWN_FUNDS)
+    if not policy:
+        missing.append(_PROPOSAL_MISSING_POLICY)
+
+    lines: list[str] = [
+        f"HỒ SƠ ĐỀ XUẤT BÁN HÀNG — căn {unit.get('unit_code')} "
+        f"({grounding.project_name(unit.get('project_id'))})"
+    ]
+    if str(ten_khach or "").strip():
+        lines.append(f"Khách hàng: {str(ten_khach).strip()}")
+    lines.append(f"Ngày giao dịch: {tx_date}")
+    if resolved_note:
+        # Nói rõ căn được chọn từ tiêu chí nào — Sale không bị "tự dưng" thấy một mã căn lạ trong hồ sơ.
+        lines.append(f"(Căn được chọn tự động: {resolved_note}.)")
+    lines.append("")
+    lines.append("1. CĂN HỘ")
+    facts = [f"căn {unit.get('unit_code')}"]
+    if unit.get("bedrooms"):
+        facts.append(f"{unit.get('bedrooms')} phòng ngủ")
+    area = inventory_funnel.area_text(unit.get("area_m2"))
+    if area and area != "—":
+        facts.append(area)
+    facts.append(f"giá niêm yết trước thuế {grounding.format_vnd(unit.get('listed_price_before_tax_vnd'))}")
+    if unit.get("status"):
+        facts.append(f"trạng thái {unit.get('status')}")
+    lines.append("- " + ", ".join(facts) + ".")
+    lines.append("")
+    lines.append(
+        f"2. PHƯƠNG ÁN ĐỀ XUẤT (ưu tiên {_OBJECTIVE_LABELS.get(objective.value, 'cân bằng các mục tiêu')}) "
+        f"— {recommended}"
+    )
+    if recommended_detail is not None:
+        lines.append(
+            f"- {recommended_detail.scenario_name}: giá Net {grounding.format_vnd(recommended_detail.net_price_vnd)}, "
+            f"tổng HĐMB {grounding.format_vnd(recommended_detail.total_contract_price_vnd)}, "
+            f"đợt đầu {grounding.format_vnd(recommended_detail.initial_cash_outflow_vnd)}, "
+            f"tổng tự chi đến nhận nhà {grounding.format_vnd(recommended_detail.total_cash_outflow_vnd)}, "
+            f"ưu đãi {grounding.format_vnd(recommended_detail.benefit_value_vnd)}."
+        )
+    others = [
+        f"{code} ({detail.scenario_name}): giá Net {grounding.format_vnd(detail.net_price_vnd)}"
+        for code, detail in scenarios.items()
+        if code != recommended
+    ]
+    if others:
+        lines.append("- Phương án còn lại: " + "; ".join(others) + ".")
+    lines.append("")
+    lines.append("3. CHÍNH SÁCH ÁP DỤNG")
+    if policy:
+        lines.append(
+            f"- {policy.get('policy_id')} ({policy.get('policy_version')}): {policy.get('title')} — "
+            f"hiệu lực {policy.get('effective_from')} → {policy.get('effective_to')}."
+        )
+        for rule in matched_rules:
+            src = rule.get("source") or {}
+            section = f" · {src.get('section')}" if src.get("section") else ""
+            lines.append(f"- {rule.get('rule_code')}: {rule.get('title')}{section}.")
+    else:
+        lines.append("- Chưa xác định được chính sách còn hiệu lực tại ngày giao dịch.")
+    lines.append("")
+    lines.append("4. VIỆC CẦN BỔ SUNG TRƯỚC KHI TRÌNH QUẢN LÝ")
+    if missing:
+        lines.extend(f"- {item}." for item in missing)
+    else:
+        lines.append("- Không còn thiếu thông tin — sẵn sàng lập báo giá và trình Quản lý.")
+    dossier = "\n".join(lines)
+
+    compliance = ComplianceGate().check(ComplianceCheckRequest(message=dossier, mode="ON_DRAFT"))
+
+    citations: list[dict[str, Any]] = [
+        {
+            "policy_id": "FCS-v2.6",
+            "section": f"Deterministic Math Engine · {unit['unit_code']}",
+            "quote": (
+                f"calculation_hash={result.calculation_hash[:16]}… · khuyến nghị {recommended} · "
+                f"sanity_passed={result.sanity_passed}"
+            ),
+            "source": "DETERMINISTIC_ENGINE",
+        }
+    ]
+    if policy:
+        citations.extend(grounding.policy_citations(policy, matched_rules))
+
+    return _dump(
+        {
+            "tool": "soan_ho_so_de_xuat",
+            # `summary` chính là bản hồ sơ (kèm checklist ở mục 4) — Sale đọc/copy nguyên văn trên UI.
+            "summary": _clip(dossier),
+            "missing": missing,
+            "recommended": recommended,
+            "policy_id": str(policy.get("policy_id")) if policy else None,
+            "compliance_status": compliance.overall_status,
+            "required_action": compliance.required_action,
+            # Kết luận kiểm duyệt đi đường riêng (P2.4): banner ghi chú nội bộ, không lẫn vào hồ sơ.
+            "internal_notes": _compliance_note(compliance),
+            "citations": citations,
+            #: Hồ sơ dựng từ catalog + engine tất định ⇒ dữ liệu hệ thống, không phải văn model tự nghĩ.
+            "grounded": True,
+        }
+    )
+
+
 COPILOT_TOOLS = [
     tra_cuu_chinh_sach,
     tra_cuu_gio_hang,
@@ -868,6 +1124,7 @@ COPILOT_TOOLS = [
     kiem_tra_phat_ngon_f8,
     tra_cuu_ho_so_khach_hang,
     soan_tin_tu_van,
+    soan_ho_so_de_xuat,
 ]
 
 TOOLS_BY_NAME = {t.name: t for t in COPILOT_TOOLS}

@@ -429,6 +429,7 @@ _TOOL_LABELS = {
     "tinh_phuong_an_thanh_toan": "phương án thanh toán chi tiết",
     "danh_gia_von_tu_co": "đánh giá vốn tự có",
     "soan_tin_tu_van": "soạn tin tư vấn",
+    "soan_ho_so_de_xuat": "soạn hồ sơ đề xuất",
     "tao_khach_hang": "tạo khách hàng",
     "kiem_tra_phat_ngon_f8": "kiểm tra tuân thủ F8",
 }

@@ -35,22 +35,22 @@
 
 | Hạng mục | Số lượng |
 |---|---|
-| File được git track | 575 |
-| Python | 272 file · ~47.301 dòng |
-| TypeScript/TSX | 165 file · ~30.674 dòng |
+| File được git track | 579 |
+| Python | 275 file · ~48.949 dòng |
+| TypeScript/TSX | 165 file · ~30.861 dòng |
 | API routers (sub-router) | 15 (+ base router + pricing mock) |
-| Route operation (`@router.*`) | 85 (+2 base `/chat`,`/status` +1 pricing mock +1 `/health`) |
+| Route operation (`@router.*`) | 92 (+2 base `/chat`,`/status` +1 pricing mock +1 `/health`) |
 | Bảng ORM (`__tablename__`) | 24 |
 | ErrorCode trong `src/contracts/errors.py` | 23 |
-| Tool của Copilot | 7 |
+| Tool của Copilot | 8 |
 | Node Pre-sales graph | 11 |
 | Node Official-quote graph | 23 |
-| Test files | 77 |
-| Hàm `def test_` | 721 |
+| Test files | 73 |
+| Hàm `def test_` | 735 |
 | Endpoint defs phía frontend (`endpoints.ts`) | 75 |
 
 > Lệch tài liệu: README ghi "498/498 pytest" và `docs/RASOAT_TONGTHE_2026-10-02.md` ghi 455 —
-> số thực tế đếm được là **721 hàm test / 77 file**. Xem §11.
+> số thực tế đếm được là **735 hàm test / 73 file**. Xem §11.
 
 ---
 
@@ -284,8 +284,8 @@ chống sửa + mask số điện thoại; cổng `/messages/send` → **403 `CO
 
 | Subsystem | File chính | Đặc điểm |
 |---|---|---|
-| **Copilot** | `copilot/graph.py` (940) | ReAct có kiểm soát: `MAX_ITERATIONS=4`, `MAX_TOOL_CALLS_PER_TURN=4`, retry tool lỗi 1 lần; trần observation 1400 ký/tool message (`TIGHT=700` khi cạn budget), tổng `MAX_TOTAL_OBSERVATION_CHARS=6000`; mỗi tool tự clip 1800 (`tools.py`). |
-| | `copilot/tools.py` (875) | 7 tool tiếng Việt: `tra_cuu_chinh_sach`, `tra_cuu_gio_hang`, `tinh_phuong_an_thanh_toan`, `danh_gia_von_tu_co`, `kiem_tra_phat_ngon_f8`, `tra_cuu_ho_so_khach_hang`, `soan_tin_tu_van`; contract observation: `summary`/`citations`/`data_as_of`/`segment_check`/`bedroom_histogram`. |
+| **Copilot** | `copilot/graph.py` (964) | ReAct có kiểm soát: `MAX_ITERATIONS=4`, `MAX_TOOL_CALLS_PER_TURN=4`, retry tool lỗi 1 lần; trần observation 1400 ký/tool message (`TIGHT=700` khi cạn budget), tổng `MAX_TOTAL_OBSERVATION_CHARS=6000`; mỗi tool tự clip 1800 (`tools.py`). |
+| | `copilot/tools.py` (1132) | 8 tool tiếng Việt: `tra_cuu_chinh_sach`, `tra_cuu_gio_hang`, `tinh_phuong_an_thanh_toan`, `danh_gia_von_tu_co`, `kiem_tra_phat_ngon_f8`, `tra_cuu_ho_so_khach_hang`, `soan_tin_tu_van`, `soan_ho_so_de_xuat` (+ helper chung `_call_pricing_engine`); contract observation: `summary`/`citations`/`data_as_of`/`segment_check`/`bedroom_histogram`. |
 | | `planner.py` / `verifier.py` / `critic.py` | Planner: thứ tự 10→60 + `split_clauses` `MAX_PLAN_STEPS=3`. Verifier: mọi số tiền/% phải xuất hiện trong Observation. Critic: `MONEY_WITHOUT_ANCHOR`/`OVER_PROMISE`/`OFFER_WITHOUT_CONDITION`. |
 | | `anchors.py` | Chèn `[n]` do máy sinh (không để LLM tự bịa nguồn). |
 | | `history.py` / `feedback.py` / `memory.py` / `commands.py` / `grounding.py` / `intents.py` / `reply_format.py` | Lịch sử (`data/copilot_conversations.json`, flock), feedback (`eval/results/copilot_feedback.jsonl`), slot phiên, slash commands, grounding, chuẩn hoá markdown. |
@@ -424,7 +424,7 @@ pytest tests/ -v                        # hoặc: make test
 |---|---|
 | Công thức giá, làm tròn, cap | `src/pricing_sidecar/engine.py`, `validation.py`, `contracts.py` |
 | Bảng giá/khuyến mại theo dự án | `scripts/seed_data.py`, `scripts/seed_canonical_inventory.py`, bảng `units` |
-| Thêm tool cho Copilot | `src/agents/copilot/tools.py` + `planner.py`/`prompts.py` + test trong `tests/test_agents/copilot/` |
+| Thêm tool cho Copilot | `tools.py` (+ đăng ký `COPILOT_TOOLS`) · `intents.py` (nhánh detect) · `planner.py` (`_WORKFLOW_ORDER` + `_tool_for` + `_args_for` + nhãn) · `prompts.py` · `reply_format.py` (`_TOOL_LABELS`) · `graph.py` (`_legacy_tool_plan` cho nhánh offline) + test trong `tests/test_agents/copilot/` + kịch bản trong `eval/copilot/sale_scenarios.json` rồi sinh lại `docs/team_report/copilot_sale_scenarios.md` (`python scripts/gen_sale_scenarios_doc.py`) |
 | Đổi luật kiểm chứng câu trả lời | `src/agents/copilot/verifier.py`, `critic.py`, `anchors.py` |
 | Ngưỡng/rule compliance F8 | `src/services/compliance/rules.py`, `gate.py` |
 | Luồng phê duyệt & SoD | `src/services/approval/review.py`, `src/api/endpoints/quotes.py`, `src/api/deps.py` |
@@ -453,7 +453,7 @@ pytest tests/ -v                        # hoặc: make test
 | 7 | **Eval không chạy được ngoài máy tác giả** | `scripts/run_eval.py` hardcode `/Users/mac/AITC/PROJECT/report/...`; cần `EVAL_DATASET_PATH`/`EVAL_POLICIES_DIR`/`EVAL_CANONICAL_DIR`. |
 | 8 | **`init_db.py` không chạy được trên SQLite** | DDL pgvector/HNSW/FTS chỉ dành Postgres; nếu gọi trên dev SQLite sẽ lỗi. |
 | 9 | **Hardcode nghiệp vụ trong graph** | `official_quote/nodes/context.py` cố định 68.5 m² / 2BR / VAT 10% / KPBT 2%. |
-| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **721** hàm test. |
+| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **735** hàm `def test_` (pytest gom **766** test, gồm cả tham số hoá). |
 | 11 | **CI không phủ branch làm việc** | Workflow chỉ chạy `main`/`develop`; branch `arena/*` không có check. |
 | 12 | **Endpoint frontend đặt tên khác backend** | Nhiều mục `PROPOSED` trong `endpoints.ts` (auth login, admin users, `/messages/*`) — cần đối chiếu với router thật khi tích hợp. |
 

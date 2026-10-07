@@ -174,6 +174,7 @@ def test_tools_are_exported_with_vietnamese_names():
         "kiem_tra_phat_ngon_f8",
         "tra_cuu_ho_so_khach_hang",
         "soan_tin_tu_van",
+        "soan_ho_so_de_xuat",
     } <= names
     assert TOOLS_BY_NAME["tra_cuu_chinh_sach"] is not None
 

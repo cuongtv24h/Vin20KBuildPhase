@@ -413,6 +413,24 @@ describe('Sales Copilot (ReAct)', () => {
     expect(final?.type === 'final' && final.reply).toBeTruthy()
   })
 
+  it('Soạn hồ sơ đề xuất → hồ sơ nội bộ kèm việc cần bổ sung (không phải tin gửi khách)', async () => {
+    await loginAs(SALE)
+
+    const chat = await api.copilot.chat({
+      message: 'soạn hồ sơ đề xuất cho căn ZEN-A-1205 rồi lập báo giá trình Quản lý',
+      transaction_date: TX_DATE,
+    })
+    expect(chat.mode).toBe('react')
+    expect(chat.tools_used).toContain('soan_ho_so_de_xuat')
+    expect(chat.reply).toContain('HỒ SƠ ĐỀ XUẤT TRÌNH QUẢN LÝ')
+    expect(chat.reply).toContain('ZEN-A-1205')
+    expect(chat.reply).toContain('CSBH-ZEN-2026-V3.1')
+    expect(chat.reply).toContain('VIỆC CẦN BỔ SUNG')
+    expect(chat.reply).toContain('Vốn tự có')
+    expect(chat.grounded).toBe(true)
+    expect(chat.citations.some((c) => c.source === 'DETERMINISTIC_ENGINE')).toBe(true)
+  })
+
   it('Phản hồi của Sale được ghi nhận và tổng hợp (P2 — học từ phản hồi)', async () => {
     await loginAs(SALE)
 

@@ -24,6 +24,9 @@ INTENT_BROWSE_UNITS = "smart_units_browse"
 #: (bảng dòng tiền chi tiết). Chỉ trả mốc tổng quan (P1.2).
 INTENT_ASSESS_FUNDS = "assess_own_funds"
 INTENT_COMPOSE_MESSAGE = "smart_compose_message"
+#: Soạn HỒ SƠ ĐỀ XUẤT trình Quản lý (hồ sơ + checklist còn thiếu) — dùng tool `soan_ho_so_de_xuat`.
+#: Khác INTENT_COMPOSE_MESSAGE (tin nhắn gửi khách): đây là bản đề xuất NỘI BỘ để trình duyệt.
+INTENT_COMPOSE_PROPOSAL = "compose_proposal"
 INTENT_LOOKUP_POLICY = "lookup_policy"
 INTENT_LOOKUP_CUSTOMER = "lookup_customer"
 INTENT_CHECK_F8 = "check_f8_compliance"
@@ -219,6 +222,20 @@ def detect_intent(text: str) -> IntentResult:
         phone = _PHONE_RE.search(text)
         entities["customer_phone"] = phone.group(0) if phone else ""
         return IntentResult(INTENT_CREATE_CUSTOMER, 0.9, entities, kw)
+
+    # Nhánh "hồ sơ đề xuất" phải đứng TRƯỚC nhánh "báo giá": câu "soạn hồ sơ đề xuất rồi lập báo giá
+    # trình Quản lý" vừa chứa từ "báo giá" vừa là yêu cầu soạn hồ sơ — nhánh đứng trước quyết định.
+    kw = _has(
+        lower,
+        "hồ sơ đề xuất",
+        "đề xuất trình",
+        "soạn đề xuất",
+        "lập đề xuất",
+        "hồ sơ trình duyệt",
+        "chuẩn bị hồ sơ",
+    )
+    if kw:
+        return IntentResult(INTENT_COMPOSE_PROPOSAL, 0.85, entities, kw)
 
     kw = _has(
         lower,

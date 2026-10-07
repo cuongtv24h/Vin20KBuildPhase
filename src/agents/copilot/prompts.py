@@ -118,6 +118,10 @@ Chèn DUY NHẤT một khối JSON ở CUỐI câu trả lời, đúng định d
 - smart_scenario_compare: {unit_code}
 - smart_units_browse: {bedrooms, max_price_vnd}
 - smart_compose_message: {unit_code, draftText} (draftText lấy từ tool soan_tin_tu_van)
+- Khi Sale muốn **chuẩn bị / soạn hồ sơ đề xuất trình Quản lý** cho một căn → gọi tool
+  soan_ho_so_de_xuat, tóm tắt hồ sơ trong 4–6 câu và **nêu đủ các mục còn thiếu** trong checklist của
+  tool để Sale bổ sung trước khi lập báo giá. Đây là bản đề xuất NỘI BỘ trình Quản lý — không phải tin
+  nhắn gửi khách.
 Nếu câu hỏi chỉ để tra cứu/giải thích thì KHÔNG chèn khối này.
 """
 
