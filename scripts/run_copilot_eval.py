@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import re
 import statistics
 import sys
@@ -277,7 +278,12 @@ async def run_eval(
     `path` cho phép chạy bộ KỊCH BẢN SALE (`eval/copilot/sale_scenarios.json`) — cùng bộ chấm, nhưng
     có thêm tiêu chí nội dung/hình thức. Câu có `offline: "skip"` bị bỏ qua khi chạy offline (chúng cần
     LLM hiểu câu) và được liệt kê riêng trong báo cáo để không ai tưởng là đã kiểm.
+
+    Bộ câu hỏi vàng kèm đáp án kỳ vọng được xây trên **corpus canonical** (fixture) nên lần chạy eval
+    bật `ALLOW_FIXTURE_DATA=1`: đây là bài đo *logic* Copilot, không phải đường dữ liệu chạy thật (đường
+    thật chỉ đọc CSDL — xem `src/services/data_source.py`).
     """
+    os.environ.setdefault("ALLOW_FIXTURE_DATA", "1")
     source = json.loads((path or GOLDEN_PATH).read_text(encoding="utf-8"))
     questions = source["questions"]
     if limit:

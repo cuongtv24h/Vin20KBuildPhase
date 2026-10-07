@@ -180,7 +180,7 @@ async def tra_cuu_chinh_sach(cau_hoi: str, ngay_hieu_luc: str = "", du_an: str =
             )
         else:
             lines = [
-                f"Chính sách canonical đang hiệu lực tại {tx_date.isoformat()} "
+                f"Chính sách đang hiệu lực tại {tx_date.isoformat()} "
                 f"({grounding.project_name(policy.get('project_id'))}):"
             ]
             for pol, rule in hits:
@@ -231,7 +231,7 @@ def tra_cuu_gio_hang(
             return _dump(
                 {
                     "tool": "tra_cuu_gio_hang",
-                    "summary": f"Không có căn '{ma_can}' trong giỏ hàng canonical.",
+                    "summary": f"Không có căn '{ma_can}' trong giỏ hàng đang mở bán.",
                     "citations": [],
                     "data_as_of": _now_iso(),
                 }
@@ -527,6 +527,7 @@ async def danh_gia_von_tu_co(
     so_phong_ngu: int = 0,
     ma_can: str = "",
     ngay_giao_dich: str = "",
+    dien_tich_m2: float = 0,
 ) -> str:
     """Đánh giá nhanh: số vốn tự có của khách đủ hay thiếu bao nhiêu cho một căn.
 
@@ -535,25 +536,45 @@ async def danh_gia_von_tu_co(
     tiến độ giải ngân và ân hạn nợ gốc, con số chi tiết dễ làm loãng câu trả lời và dễ sai nếu chính sách
     giải ngân thay đổi. Sale muốn chi tiết thì bấm "Xem bảng tính vay" → gọi tool `tinh_phuong_an_thanh_toan`.
 
+    **Gọi được khi chỉ có số tiền**: chưa biết mã căn thì tool tự chọn căn mốc (căn mềm nhất phân khúc,
+    hoặc căn gần diện tích khách nêu nhất, hoặc căn mềm nhất toàn giỏ) và nói rõ đã lấy căn nào làm mốc —
+    KHÔNG trả lỗi thiếu điều kiện (lỗi cũ khiến Copilot kết thúc lượt bằng "bước lỗi").
+
     Args:
         von_tu_co_vnd: Vốn tự có của khách (VNĐ).
         so_phong_ngu: Số phòng ngủ cần xét (0 = bỏ qua) — dùng khi Sale chưa chốt mã căn.
-        ma_can: Mã căn cụ thể (để trống thì lấy căn mềm nhất của phân khúc `so_phong_ngu`).
+        ma_can: Mã căn cụ thể (để trống thì tool tự chọn căn mốc theo số phòng ngủ/diện tích).
         ngay_giao_dich: Ngày giao dịch YYYY-MM-DD (mặc định hôm nay).
+        dien_tich_m2: Diện tích khách nêu (m²) — dùng để chọn căn mốc gần nhất khi chưa có mã căn.
     """
     from src.contracts.pricing import PricingInput
     from src.services.pricing.client import PricingClient
 
     unit = grounding.find_unit(ma_can) if ma_can.strip() else None
+    reference_reason = ""
     if unit is None and so_phong_ngu:
         segment = inventory_funnel.segment_stats(int(so_phong_ngu))
         unit = segment.softest_unit
+        if unit is not None:
+            reference_reason = f"căn mềm nhất phân khúc {int(so_phong_ngu)}PN"
+    if unit is None and float(dien_tich_m2 or 0) > 0:
+        unit = inventory_funnel.nearest_area_unit(int(so_phong_ngu or 0), float(dien_tich_m2))
+        if unit is not None:
+            reference_reason = f"căn gần diện tích {float(dien_tich_m2):g}m² khách nêu nhất"
     if unit is None:
+        unit = inventory_funnel.segment_stats(0).softest_unit
+        if unit is not None:
+            reference_reason = "căn giá mềm nhất toàn giỏ"
+    if unit is None:
+        # Không còn căn nào trong dữ liệu vận hành ⇒ nói thẳng là chưa có dữ liệu, không dựng căn mẫu.
         return _dump(
             {
                 "tool": "danh_gia_von_tu_co",
-                "error": "Chưa xác định được căn để đánh giá vốn tự có.",
-                "summary": "Cần mã căn (hoặc số phòng ngủ) để đánh giá vốn tự có.",
+                "error": "Giỏ hàng hiện chưa có căn nào trong dữ liệu vận hành.",
+                "summary": (
+                    "Chưa có căn nào trong giỏ để đánh giá vốn tự có. "
+                    "Anh/chị kiểm tra lại dữ liệu giỏ hàng, hoặc cho em mã căn cụ thể."
+                ),
                 "citations": [],
             }
         )
@@ -612,8 +633,11 @@ async def danh_gia_von_tu_co(
             f"({required_ratio:.1%} ≈ {grounding.format_vnd(required_own)})"
         )
 
+    # Chưa có mã căn ⇒ nói RÕ căn nào được lấy làm mốc và vì sao (không để Sale tưởng khách đã chốt căn).
+    reference_line = f"Câu hỏi chưa nêu mã căn nên em lấy mốc {reference_reason}: căn {unit['unit_code']}.\n" if reference_reason else ""
     summary = (
-        f"Đánh giá tổng quan (không phải bảng dòng tiền chi tiết) cho căn {unit['unit_code']} "
+        reference_line
+        + f"Đánh giá tổng quan (không phải bảng dòng tiền chi tiết) cho căn {unit['unit_code']} "
         f"({unit.get('bedrooms')}PN, {grounding.project_name(unit.get('project_id'))}): {verdict}.\n"
         f"Tổng giá trị HĐMB tham chiếu: {grounding.format_vnd(total_contract)} (đã gồm VAT và phí bảo trì).\n"
         "Muốn xem bảng dòng tiền từng đợt thì em lập phương án thanh toán chi tiết — "
@@ -643,6 +667,9 @@ async def danh_gia_von_tu_co(
             "required_own_funds_ratio": round(required_ratio, 4),
             "gap_vnd": max(0, gap),
             "unit_code": str(unit.get("unit_code")),
+            # Căn mốc có thể do tool tự chọn (chưa có mã căn trong câu hỏi) — ghi lại lý do để câu trả
+            # lời không ngầm hiểu là khách đã chốt căn đó.
+            "reference_unit_reason": reference_reason or None,
             "citations": citations,
             "data_as_of": _now_iso(),
         }

@@ -1,11 +1,14 @@
 """Nguồn dữ liệu nền (grounding) cho Sales Copilot.
 
 Nguyên tắc: Copilot chỉ được nói điều có thật trong hệ thống. Module này là lớp
-truy cập dữ liệu canonical (chính sách, giỏ hàng) dùng chung cho các tool.
+truy cập dữ liệu (chính sách, giỏ hàng) dùng chung cho các tool.
 
-- Ưu tiên PEC-RAG / DB khi có dữ liệu đã seed.
-- Khi môi trường demo chưa seed (SQLite trống, không có API key) → dùng fixture
-  canonical của `catalog.py` (POLICIES_DATA / UNITS_DATA) làm nguồn dự phòng.
+- **CSDL PostgreSQL là nguồn duy nhất** khi chạy thật: giỏ hàng đọc bảng `units`, chính sách đọc
+  `policies` + `policy_atoms` (`src/services/policy_source.py`).
+- Fixture canonical của `catalog.py` (`POLICIES_DATA` / `UNITS_DATA`) chỉ còn cho test/demo offline,
+  và chỉ khi bật cờ `ALLOW_FIXTURE_DATA=1` (`src/services/data_source.py`) — mặc định TẮT.
+- Không có dữ liệu ⇒ trả rỗng để tool nói thẳng "chưa có dữ liệu", tuyệt đối không lấy dữ liệu mẫu
+  thay thế.
 """
 
 from __future__ import annotations
@@ -15,8 +18,15 @@ import unicodedata
 from datetime import date
 from typing import Any
 
-from src.api.endpoints.catalog import POLICIES_DATA, UNITS_DATA
 from src.contracts.units import BEDROOMS_BY_UNIT_TYPE, merge_units
+from src.services import data_source, policy_source
+
+
+def _fixture_data() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fixture canonical — **import muộn** và chỉ dùng khi được bật cờ (test/demo offline)."""
+    from src.api.endpoints.catalog import POLICIES_DATA, UNITS_DATA
+
+    return POLICIES_DATA, UNITS_DATA
 
 
 def normalize(text: str) -> str:
@@ -36,12 +46,25 @@ def format_vnd(amount: int | float | None) -> str:
     return f"{int(amount):,}".replace(",", ".") + " ₫"
 
 
+_cached_db_policies: list[dict[str, Any]] | None = None
+
+
 def list_policies(project_id: str | None = None) -> list[dict[str, Any]]:
-    """Danh sách chính sách canonical (có thể lọc theo dự án)."""
+    """Danh sách chính sách: **đọc CSDL thật** (`policies` + `policy_atoms`).
+
+    Fixture canonical chỉ được dùng khi bật `ALLOW_FIXTURE_DATA` **và** CSDL chưa có chính sách nào
+    (môi trường test/demo offline). Chạy online thì đây là đúng dữ liệu đang phục vụ trang Chính sách.
+    """
+    global _cached_db_policies
+    if _cached_db_policies is None:
+        _cached_db_policies = policy_source.fetch_policies_sync()
+    policies = _cached_db_policies
+    if not policies and data_source.fixtures_allowed():
+        policies = _fixture_data()[0]
     if not project_id:
-        return list(POLICIES_DATA)
+        return list(policies)
     wanted = normalize(project_id)
-    return [p for p in POLICIES_DATA if normalize(str(p.get("project_id", ""))) == wanted]
+    return [p for p in policies if normalize(str(p.get("project_id", ""))) == wanted]
 
 
 def resolve_active_policy(project_id: str | None, as_of: date | None = None) -> dict[str, Any] | None:
@@ -76,7 +99,9 @@ def policy_citations(policy: dict[str, Any], rules: list[dict[str, Any]] | None 
                 "document_hash": src.get("document_hash") or policy.get("document_hash"),
                 "effective_from": policy.get("effective_from"),
                 "effective_to": policy.get("effective_to"),
-                "source": "CANONICAL_FIXTURE",
+                # Nhãn nguồn phải nói đúng sự thật: chính sách đọc từ CSDL thì ghi DB, chỉ khi bật cờ
+                # fixture mới ghi CANONICAL_FIXTURE (trước đây luôn ghi fixture dù chạy thật).
+                "source": policy.get("data_source") or ("CANONICAL_FIXTURE" if data_source.fixtures_allowed() else "DB"),
             }
         )
     return out
@@ -176,12 +201,14 @@ def _fetch_db_units() -> list[dict[str, Any]]:
 
 
 def list_units() -> list[dict[str, Any]]:
-    """Giỏ hàng đang dùng: **DB thật là nguồn chính**, fixture chỉ bù cho dự án DB chưa có.
+    """Giỏ hàng đang dùng: **CSDL là nguồn duy nhất** khi chạy thật.
 
-    Lỗi cũ: cộng thẳng DB (40 căn) với fixture (4 căn) ⇒ giỏ hàng báo 44 căn, và Sale đọc thấy căn demo
-    lẫn căn thật. Quy tắc gộp nằm ở `src.contracts.units.merge_units` để API cũng dùng đúng một luật.
+    Bảng `units` là dữ liệu vận hành; fixture (4 căn demo) chỉ được bù khi bật cờ
+    `ALLOW_FIXTURE_DATA` — trước đây fixture luôn được gộp nên Sale có thể đọc căn demo cho khách.
+    Quy tắc gộp nằm ở `src.contracts.units.merge_units` để API cũng dùng đúng một luật.
     """
-    return merge_units(_fetch_db_units(), UNITS_DATA)
+    extras = _fixture_data()[1] if data_source.fixtures_allowed() else []
+    return merge_units(_fetch_db_units(), extras)
 
 
 def find_unit(unit_code: str | None) -> dict[str, Any] | None:
@@ -251,19 +278,19 @@ def count_units_without_area(
 
 
 def project_name(project_id: str | None) -> str:
-    """Tên dự án: ưu tiên tên THẬT đọc từ DB, rồi tới nhãn fixture, cuối cùng trả chính mã dự án.
+    """Tên dự án: lấy từ bảng `projects` (DB thật); fixture chỉ dùng khi bật cờ.
 
-    Không bịa tên dự án: dự án chỉ có trong DB sẽ hiện đúng tên trong bảng `projects`.
+    Không có tên trong DB thì trả chính mã dự án — không bịa tên.
     """
     key = str(project_id or "")
     if key in _cached_db_project_names:
         return _cached_db_project_names[key]
-    mapping = {
-        "THE_ZEN_PARK": "The Zen Park",
-        "VLANDFUTURE_SAPPHIRE": "VLandFuture Sapphire",
-        # Dự án VLF cũ chỉ còn trong catalog fixture (không có bảng `projects` tương ứng) — giữ để
-        # tài liệu/demo cũ không vỡ, nhưng hỏi DB trước nên tên thật luôn thắng.
-        "PROJECT-VLF-001": "VLand Future Riverside",
-    }
-    return mapping.get(key, key or "VLandFuture")
+    if data_source.fixtures_allowed():
+        mapping = {
+            "THE_ZEN_PARK": "The Zen Park",
+            "VLANDFUTURE_SAPPHIRE": "VLandFuture Sapphire",
+            "PROJECT-VLF-001": "VLand Future Riverside",
+        }
+        return mapping.get(key, key or "VLandFuture")
+    return key or "VLandFuture"
 

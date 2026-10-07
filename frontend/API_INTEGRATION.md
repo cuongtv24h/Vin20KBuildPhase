@@ -1,5 +1,11 @@
 # API Integration — Frontend PricePolicy
 
+> **Trạng thái (đợt 26):** hai app **luôn gọi FastAPI thật** — `API_MODE = 'real'` trong
+> `packages/api-client/src/config.ts` (local `http://localhost:8000/api/v1`, production `/api/v1` qua
+> Nginx). `packages/mock-server` đã hạ cấp thành **test double** cho unit test của package (MSW): app
+> không import nó và không có dữ liệu mẫu nào trong đường chạy sản phẩm. Các mục còn nhắc mock bên dưới
+> là mô tả lịch sử/kịch bản test, không phải kiến trúc đang chạy.
+
 Tài liệu ghép nối frontend ↔ FastAPI cho TechLead và dev backend. Nguồn sự thật là code:
 
 | Nội dung | File |
@@ -8,8 +14,8 @@ Tài liệu ghép nối frontend ↔ FastAPI cho TechLead và dev backend. Ngu�
 | Kiểu dữ liệu hợp đồng (wire format, snake_case) | [`packages/api-client/src/contracts/`](packages/api-client/src/contracts/) |
 | Header, lỗi, timeout | [`packages/api-client/src/http.ts`](packages/api-client/src/http.ts), [`errors.ts`](packages/api-client/src/errors.ts) |
 | SSE client (reconnect, Last-Event-ID, 410) | [`packages/api-client/src/sse.ts`](packages/api-client/src/sse.ts) |
-| Hành vi tham chiếu phía server (mock) | [`packages/mock-server/src/`](packages/mock-server/src/) |
-| **Đặc tả chạy được** — 18 kịch bản đầu-cuối | [`packages/mock-server/src/scenarios.test.ts`](packages/mock-server/src/scenarios.test.ts) |
+| Hành vi tham chiếu phía server (test double) | [`packages/mock-server/src/`](packages/mock-server/src/) |
+| **Đặc tả chạy được** — kịch bản đầu-cuối (test) | [`packages/mock-server/src/scenarios.test.ts`](packages/mock-server/src/scenarios.test.ts) |
 
 > `src/contracts/` và `src/api/endpoints/` của backend **chưa có trong repo** (mọi nhánh). Toàn bộ type
 > được dẫn xuất từ TD-4.1, Implement plan §5/§10, PRD v2.2 và CodeBaseIndex. Khi TechLead khoá
@@ -27,7 +33,7 @@ apps/customer         UI Khách hàng, công khai, không đăng nhập — orig
 apps/internal         UI Nội bộ: Sale, Quản lý, Quản trị chính sách — origin riêng (:5174 dev)
 packages/api-client   API client dùng chung (contracts, http, SSE, hooks từ src/contracts/) — cả 2 app phụ thuộc
 packages/ui           Component dùng chung (shadcn primitives, MoneyText, Evidence, ReferencePlanView…)
-packages/mock-server  Backend giả lập
+packages/mock-server  Test double cho unit test (KHÔNG phải backend của sản phẩm)
 ```
 
 Lý do chọn A thay vì Next.js route group (Phương án B): `apps/*` đã là Vite + React Router sẵn có
@@ -45,13 +51,10 @@ tiến trình server, không phải 2 bản MSW độc lập trong 2 tab trình 
 CodeBaseIndex's `src/api/endpoints/pre_sales.py` và `leads.py` — hai file này **chưa có trong repo
 backend**, xem cảnh báo đầu tài liệu); không tự đặt thêm path ngoài bảng ở §2.
 
-**Mock server dùng chung**: `packages/mock-server` chạy như **tiến trình Node thật trên cổng TCP thật**
-(`npm run dev:mock`, mặc định `:8787`) — KHÔNG phải MSW chặn request trong từng tab trình duyệt như
-kiểu SPA gộp trước đây. Lý do bắt buộc: hai app là hai origin thật; nếu mỗi app tự chạy MSW riêng thì
-state (dossier, quote, session) sẽ tách rời theo từng tab, không thể tái hiện "khách handoff xong →
-dossier hiện ngay trong inbox Sale". Một tiến trình Node dùng chung một `MockDb` trong bộ nhớ giải
-quyết đúng yêu cầu này; đã kiểm chứng bằng kịch bản đầu-cuối thật (2 trang trình duyệt, 2 origin khác
-nhau, cùng gọi `:8787`) — xem §5.
+**Test double dùng chung**: `packages/mock-server` (MSW + một tiến trình Node cho kịch bản test) chỉ
+được dùng trong **unit test của package** — không app nào import, không endpoint sản phẩm nào đi qua nó.
+Hai app dev/prod đều trỏ thẳng FastAPI thật, dữ liệu thật trong PostgreSQL; nhờ vậy "khách handoff xong →
+dossier hiện ngay trong inbox Sale" là hành vi của backend thật, không phải của một server giả.
 
 ### TL-3 — Cấu hình CORS/CSRF cho 2 origin
 
@@ -83,12 +86,11 @@ cp apps/internal/.env.example apps/internal/.env.local
 
 | Biến | Giá trị mặc định | Ý nghĩa |
 | :--- | :--- | :--- |
-| `NEXT_PUBLIC_API_MODE` | `mock` | `mock`: gọi `packages/mock-server`. `real`: gọi FastAPI thật. |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8787/api/v1` | **Bắt buộc URL tuyệt đối** — 2 app và API là 3 origin khác nhau, gọi qua CORS, không qua proxy của Vite dev server (khác bản SPA gộp trước đây). |
+| `NEXT_PUBLIC_API_MODE` | `real` (cố định trong code) | Sản phẩm luôn gọi FastAPI thật + PostgreSQL. Không còn nhánh `mock` trong đường chạy. |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000/api/v1` (dev) · `/api/v1` (prod) | Dev: gọi thẳng FastAPI. Prod: Nginx proxy cùng origin. 2 app và API là các origin riêng, gọi qua CORS. |
 
-Đổi sang backend thật: sửa `NEXT_PUBLIC_API_BASE_URL` trỏ tới FastAPI, đặt `NEXT_PUBLIC_API_MODE=real`,
-khởi động lại `npm run dev:customer` / `dev:internal`. **Không sửa file nào trong `apps/*/src/features/`
-hay `packages/ui/`** — cả hai chế độ chạy cùng một `http.ts`/`client.ts`/hooks; chỉ đổi URL đích. Bản
+URL backend đổi bằng `NEXT_PUBLIC_API_BASE_URL` (mặc định đã trỏ FastAPI). **Không sửa file nào trong
+`apps/*/src/features/` hay `packages/ui/`** — mọi màn hình chạy cùng một `http.ts`/`client.ts`/hooks. Bản
 build `real` (`import.meta.env.NEXT_PUBLIC_API_MODE === 'real'`) không tải panel dev-tools (đã kiểm tra
 qua `IS_DEV_TOOLS_ENABLED`).
 
@@ -107,8 +109,8 @@ Nút tròn góc dưới phải mở **Mock backend panel**: độ trễ 200–80
 Agent chậm (vượt deadline 10s), ngắt SSE giữa chừng, replay hết hạn (410), PDF worker lỗi, đăng nhập
 nhanh 4 vai trò, **Reset demo**. Panel gọi `{API_BASE_URL_origin}/__mock/*` trực tiếp qua HTTP (cross-origin,
 CORS) — không import mã mock. `apps/customer` không có panel này (không đăng nhập nội bộ, không cần).
-Dữ liệu mock sống trong bộ nhớ tiến trình `packages/mock-server` — mất khi dừng tiến trình, seed lại
-mỗi lần `npm run dev:mock`; mật khẩu mọi tài khoản nội bộ: `Vland@2026`.
+Dữ liệu **thật** nằm trong PostgreSQL sau FastAPI; tài khoản nội bộ tạo qua trang quản trị
+(`/admin_cp`) và lưu trong bảng `users`.
 
 ---
 

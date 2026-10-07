@@ -271,9 +271,29 @@ def render_empty_funnel(
     histogram = bedroom_histogram(project_id)
     total = sum(histogram.values())
 
+    # Giỏ RỖNG HOÀN TOÀN (CSDL vận hành chưa có căn nào): đây không phải "hết căn khớp tiêu chí" mà là
+    # **chưa có dữ liệu để đối chiếu**. Phải nói thẳng như vậy — bản cũ in "Toàn giỏ đang mở bán có 0 căn
+    # ()" kèm gợi ý "nới ngân sách/chọn căn gần nhất", vô nghĩa và dễ khiến Sale tưởng hệ thống lỗi.
+    if total == 0:
+        lines = ["Giỏ hàng hiện chưa có căn nào trong dữ liệu vận hành nên em chưa có căn nào để đối chiếu."]
+        criteria: list[str] = []
+        if budget_vnd:
+            criteria.append(f"ngân sách tối đa {grounding.format_vnd(budget_vnd)}")
+        area_label_empty = area_range_text(area_min_m2, area_max_m2, area_spec_m2)
+        if area_label_empty:
+            criteria.append(f"diện tích {area_label_empty}")
+        if bedrooms:
+            criteria.append(f"{bedrooms} phòng ngủ")
+        if criteria:
+            lines.append("Tiêu chí anh/chị vừa nêu: " + "; ".join(criteria) + ".")
+        lines.append(
+            "Anh/chị kiểm tra lại giỏ hàng đã nạp vào CSDL giúp em, hoặc cho em mã căn/dự án cụ thể để em tra."
+        )
+        return "\n".join(lines)
+
     lines = ["Không có căn nào khớp đúng tiêu chí lọc."]
     if ma_can.strip():
-        lines.append(f"Mã căn '{ma_can.strip()}' không có trong giỏ canonical.")
+        lines.append(f"Mã căn '{ma_can.strip()}' không có trong giỏ hàng đang mở bán.")
     if project_id:
         lines.append(f"Đã lọc theo dự án {grounding.project_name(project_id)}.")
     if budget_vnd:

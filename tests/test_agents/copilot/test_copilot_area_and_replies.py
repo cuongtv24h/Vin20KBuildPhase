@@ -74,8 +74,9 @@ async def test_area_filter_finds_unit_and_states_the_window() -> None:
 async def test_area_filter_excludes_units_without_area_data(monkeypatch: pytest.MonkeyPatch) -> None:
     """Căn chưa có dữ liệu diện tích bị loại khi lọc theo m² — và số lượng đó phải được nói ra."""
     from src.agents.copilot import grounding
+    from src.api.endpoints.catalog import UNITS_DATA
 
-    base = list(grounding.UNITS_DATA)
+    base = list(UNITS_DATA)
     monkeypatch.setattr(
         grounding,
         "list_units",

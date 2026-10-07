@@ -144,7 +144,7 @@ Vin20KBuildPhase/
 │   ├── test_agents/copilot/    # ~170 test
 │   ├── test_api/               # ~117 test
 │   ├── benchmarks/ integration/ security/
-│   └── conftest.py             # SQLite in-memory override + grounding isolation
+│   └── conftest.py             # SQLite in-memory override + grounding isolation (bật cờ fixture)
 ├── eval/                       # rag/ (integrity, performance, retrieval, temporal), copilot/, results/
 ├── frontend/                   # npm workspaces
 │   ├── apps/customer/          # :5173 — public + /tu-van
@@ -288,7 +288,7 @@ chống sửa + mask số điện thoại; cổng `/messages/send` → **403 `CO
 | | `copilot/tools.py` (1132) | 8 tool tiếng Việt: `tra_cuu_chinh_sach`, `tra_cuu_gio_hang`, `tinh_phuong_an_thanh_toan`, `danh_gia_von_tu_co`, `kiem_tra_phat_ngon_f8`, `tra_cuu_ho_so_khach_hang`, `soan_tin_tu_van`, `soan_ho_so_de_xuat` (+ helper chung `_call_pricing_engine`); contract observation: `summary`/`citations`/`data_as_of`/`segment_check`/`bedroom_histogram`. |
 | | `planner.py` / `verifier.py` / `critic.py` | Planner: thứ tự 10→60 + `split_clauses` `MAX_PLAN_STEPS=3`. Verifier: mọi số tiền/% phải xuất hiện trong Observation. Critic: `MONEY_WITHOUT_ANCHOR`/`OVER_PROMISE`/`OFFER_WITHOUT_CONDITION`. |
 | | `anchors.py` | Chèn `[n]` do máy sinh (không để LLM tự bịa nguồn). |
-| | `history.py` / `feedback.py` / `memory.py` / `commands.py` / `grounding.py` / `intents.py` / `reply_format.py` | Lịch sử (`data/copilot_conversations.json`, flock), feedback (`eval/results/copilot_feedback.jsonl`), slot phiên, slash commands, grounding, chuẩn hoá markdown. |
+| | `history.py` / `feedback.py` / `memory.py` / `commands.py` / `grounding.py` / `intents.py` / `reply_format.py` | Lịch sử (`data/copilot_conversations.json`, flock), feedback (`eval/results/copilot_feedback.jsonl`), slot phiên, slash commands, grounding (**CSDL là nguồn duy nhất**; fixture chỉ khi bật `ALLOW_FIXTURE_DATA`), chuẩn hoá markdown. |
 | **Pre-sales** | `pre_sales/graph.py` (300) + 4 node | 11 node, **3 HITL interrupt gate** + self-loop chống deadlock, TTL 1800s, filter injection, build plan + watermark. |
 | **Official quote** | `official_quote/graph.py` (180) + 8 node | 23 node: input_guards → context → policy_retrieval → pricing → ranking → evaluation → explanation → approval; HITL `APPROVE/REQUEST_REVISION/REJECT/SUBMIT_EXCEPTION`; vòng revision `version+1`; freeze canonical JSON → ký KMS Ed25519 → commit. ⚠️ `nodes/context.py` hardcode 68.5 m² / 2BR / VAT 10% / KPBT 2%. |
 | **Tools cũ** | `tools/guardrails.py` (220), `policy_search.py`, `pricing_engine.py` | Guardrail N-02/N-14A; wrapper LangChain. |
@@ -361,7 +361,7 @@ npm workspaces, Node 22, Vite + React + TS.
 | `apps/internal` | 5174 | Login; `/sale/workspace|leads|quotes|messages|policies`; `/manager/approvals[/:id]`; `/admin/policies|benchmark|copilot-quality`; `/admin_cp`. Trang lớn nhất: `SalesWorkspacePage.tsx` (~4610 dòng). |
 | `packages/api-client` | — | `endpoints.ts` = **danh bạ 75 endpoint** (nguồn sự thật method+path, có `source: TD-4.4|PROPOSED` và `auth`); `client.ts`/`http.ts`; hooks theo domain (13 file); `sse.ts`, `copilotStream.ts` (fetch POST SSE kèm `Idempotency-Key`), `copilotTurn.ts` (luật kết thúc một lượt chat: thiếu `final` ⇒ tự gọi bản gom); `normalizeQuote.ts`, `errors.ts`, `devtools.ts`. |
 | `packages/ui` | — | shadcn/ui + `MoneyText`, `Evidence`, `ReasoningTrace`, `markdownTables`, `speech`… |
-| `packages/mock-server` | 8787 | Node mock 11 nhóm handler + engine/fixtures; có test vitest. |
+| `packages/mock-server` | 8787 | **Test double** (MSW/Node) cho unit test package — app KHÔNG import; không nằm trong đường chạy sản phẩm. |
 
 Cấu hình `api-client/src/config.ts`: `API_MODE='real'`; local → `http://<host>:8000/api/v1`,
 prod → `/api/v1`; timeout 10s, SSE idle 20s.
@@ -393,6 +393,10 @@ prod → `/api/v1`; timeout 10s, SSE idle 20s.
   scenarios) + `results/`. Runner: `scripts/run_eval.py` (⚠️ hardcode đường dẫn macOS —
   xem §11), `scripts/run_copilot_eval.py`.
 - `dataset/fixtures/golden_scenarios.json` dùng cho benchmark.
+- **Nguồn dữ liệu**: mặc định chỉ đọc PostgreSQL (`src/services/data_source.py`); fixture canonical
+  (`POLICIES_DATA`/`UNITS_DATA` trong `catalog.py`) chỉ dùng khi `ALLOW_FIXTURE_DATA=1` (test/demo offline,
+  `tests/conftest.py` bật cho toàn bộ suite). Copilot đọc chính sách qua `src/services/policy_source.py` —
+  cùng một hàm dựng với trang Chính sách.
 
 **Chạy local:**
 ```bash

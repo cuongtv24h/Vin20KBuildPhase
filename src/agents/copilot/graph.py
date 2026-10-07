@@ -807,6 +807,10 @@ async def stream_copilot(
         logger.warning("Không khởi tạo được LLM cho Copilot (%s) — dùng offline ReAct.", exc)
 
     prompt_context = {
+        # Câu hỏi nguyên văn + tiêu chí bóc tách: LLM là lớp PHÂN TÍCH (tự quyết định tool/tham số),
+        # không phải lớp diễn đạt lại kết quả của bộ luật từ khóa.
+        "question": message,
+        "entities": enriched_entity,
         "current_unit": slots.current_unit or request.current_unit,
         "lead_dossier_id": slots.lead_dossier_id or request.lead_dossier_id,
         "transaction_date": slots.transaction_date or request.transaction_date,

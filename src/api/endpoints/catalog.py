@@ -20,6 +20,7 @@ from src.api.deps import Principal, create_access_token, get_current_principal
 from src.contracts.units import BEDROOMS_BY_UNIT_TYPE, merge_units
 from src.db.models import ProjectModel, UnitModel, UserModel
 from src.db.session import get_db_session
+from src.services import data_source, policy_source
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +230,10 @@ def _unit_model_to_dict(u: UnitModel, project_name: str | None = None) -> dict[s
 async def get_public_projects(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
-    """GET /api/v1/public/projects — Trang chủ khách hàng & danh mục dự án (DB thật + fixture)."""
+    """GET /api/v1/public/projects — Trang chủ khách hàng & danh mục dự án (nguồn: CSDL thật).
+
+    Fixture chỉ tham gia khi bật `ALLOW_FIXTURE_DATA` (test/demo offline).
+    """
     overviews: list[dict[str, Any]] = []
 
     # 1. Dự án THẬT từ DB: tên lấy từ bảng `projects`, số căn mở bán đếm theo bảng `units`.
@@ -256,8 +260,10 @@ async def get_public_projects(
             "price_from_vnd": price_from,
         })
 
-    # 2. Dự án chỉ có trong fixture (DB chưa có căn nào ⇒ vẫn hiện cho demo/khách xem).
-    for proj in PROJECTS_DATA:
+    # 2. Dự án chỉ có trong fixture — CHỈ khi bật `ALLOW_FIXTURE_DATA` (test/demo offline).
+    #    Chạy thật: không có căn trong DB thì dự án cũng không hiện, tuyệt đối không đưa dự án mẫu ra
+    #    cho khách xem (trước đây nhánh này luôn chạy nên trang khách có dự án/căn không có trong CSDL).
+    for proj in (PROJECTS_DATA if data_source.fixtures_allowed() else []):
         pid = proj["project_id"]
         if pid in db_project_ids:
             continue
@@ -286,7 +292,7 @@ async def get_units(
     project_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
-    """GET /api/v1/units — Giỏ hàng căn hộ, hỗ trợ đọc trực tiếp từ DB thật."""
+    """GET /api/v1/units — Giỏ hàng căn hộ đọc từ CSDL thật (fixture chỉ khi bật cờ test/demo)."""
     stmt = select(UnitModel)
     if project_id and project_id not in ("ALL", ""):
         stmt = stmt.where(UnitModel.project_id == project_id)
@@ -297,10 +303,12 @@ async def get_units(
     converted_db_units = [_unit_model_to_dict(u, project_names.get(u.project_id)) for u in db_units]
 
     scoped_fixture = [
-        u for u in UNITS_DATA if not project_id or project_id in ("ALL", "") or u["project_id"] == project_id
+        u
+        for u in (UNITS_DATA if data_source.fixtures_allowed() else [])
+        if not project_id or project_id in ("ALL", "") or u["project_id"] == project_id
     ]
-    # Cùng một luật gộp với lớp Copilot: DB là nguồn chính, fixture chỉ bù dự án DB chưa có
-    # (trước đây API trả 40 căn DB + 4 căn fixture = 45 dòng, và Sale nhìn thấy căn demo trong giỏ thật).
+    # Cùng một luật gộp với lớp Copilot: CSDL là nguồn duy nhất, fixture chỉ được bù (dự án DB chưa có)
+    # khi bật `ALLOW_FIXTURE_DATA` — trước đây fixture luôn được trộn nên Sale thấy căn demo trong giỏ thật.
     return merge_units(converted_db_units, scoped_fixture)
 
 
@@ -684,113 +692,20 @@ POLICIES_DATA: list[dict[str, Any]] = [
 
 
 async def fetch_db_policies() -> list[dict[str, Any]]:
-    """Loads all real policies and clauses directly from PostgreSQL database."""
+    """Đọc chính sách THẬT từ CSDL (bảng `policies` + `policy_atoms`).
+
+    Việc dựng rule từ atom nằm ở `src/services/policy_source.py` — **cùng một hàm** với đường Copilot
+    đọc (sync), nên trang Chính sách và Copilot không thể lệch số liệu nhau nữa.
+    """
     try:
         from sqlalchemy import text
 
         from src.db.session import async_session_factory
 
         async with async_session_factory() as session:
-            # 1. Fetch policies
-            pol_res = await session.execute(text("""
-                SELECT policy_id, policy_name, version, effective_from, effective_to, status,
-                       document_hash, source_path, metadata_json, created_at
-                FROM policies
-                ORDER BY effective_from DESC, policy_id ASC
-            """))
-            policy_rows = pol_res.fetchall()
-
-            # 2. Fetch atoms
-            atoms_res = await session.execute(text("""
-                SELECT atom_id, policy_id, atom_type, chapter, article, clause, point,
-                       line_start, line_end, canonical_text, retrieval_text, content_hash,
-                       valid_from, valid_to, customer_tiers, service_codes
-                FROM policy_atoms
-                ORDER BY line_start ASC, atom_id ASC
-            """))
-            atoms_rows = atoms_res.fetchall()
-
-            atoms_by_policy: dict[str, list[Any]] = {}
-            for a in atoms_rows:
-                pid = a.policy_id
-                if pid not in atoms_by_policy:
-                    atoms_by_policy[pid] = []
-                atoms_by_policy[pid].append(a)
-
-            result = []
-            for p in policy_rows:
-                pid = p.policy_id
-                pol_atoms = atoms_by_policy.get(pid, [])
-                meta = p.metadata_json or {}
-
-                rules = []
-                for idx, a in enumerate(pol_atoms, 1):
-                    rule_title = f"{a.article or ''} {a.clause or ''}".strip()
-                    if not rule_title:
-                        rule_title = f"Điều khoản {idx}"
-
-                    text_lower = a.canonical_text.lower()
-                    kind = "DISCRETIONARY"
-                    discount_rate = None
-                    interest_support_months = None
-                    scenarios = ["PA-CHUDONG"]
-
-                    if "chiết khấu" in text_lower or "giảm giá" in text_lower:
-                        kind = "PERCENT_DISCOUNT"
-                        discount_rate = 0.08 if "8" in text_lower else (0.1 if "10" in text_lower else 0.05)
-                        scenarios = ["PA-NHANH"]
-                    elif "lãi suất" in text_lower or "ngân hàng" in text_lower or "vay" in text_lower:
-                        kind = "BANK_SUPPORT"
-                        interest_support_months = 24 if "24" in text_lower else 12
-                        scenarios = ["PA-VAY"]
-                    elif "quà" in text_lower or "nội thất" in text_lower:
-                        kind = "GIFT"
-                        scenarios = ["PA-CHUDONG", "PA-NHANH"]
-
-                    rules.append({
-                        "rule_code": f"{pid}_R{idx:02d}",
-                        "title": rule_title,
-                        "kind": kind,
-                        "discount_rate": discount_rate,
-                        "cash_equivalent_vnd": None,
-                        "interest_support_months": interest_support_months,
-                        "applicable_scenarios": scenarios,
-                        "required_segments": None,
-                        "min_units_purchased": None,
-                        "relations": [],
-                        "is_ambiguous": False,
-                        "is_selectable": True,
-                        "validation_status": "APPROVED_FOR_USE",
-                        "source": {
-                            "document_id": f"DOC-{pid}",
-                            "document_version": p.version or "v1.0",
-                            "document_hash": a.content_hash,
-                            "clause_id": a.clause or a.article or a.atom_id,
-                            "section": a.article or "Quy định chung",
-                            "page": a.line_start or 1,
-                            "quote": a.canonical_text[:250],
-                        }
-                    })
-
-                project_id = meta.get("project_id") or "PROJECT-VLF-001"
-                result.append({
-                    "policy_id": pid,
-                    "policy_version": p.version or "v1.0",
-                    "title": p.policy_name,
-                    "project_id": project_id,
-                    "status": "PUBLISHED" if p.status == "ACTIVE" else p.status,
-                    "effective_from": p.effective_from.isoformat() if p.effective_from else "2026-01-01",
-                    "effective_to": p.effective_to.isoformat() if p.effective_to else "2026-12-31",
-                    "document_id": f"DOC-{pid}",
-                    "document_hash": p.document_hash,
-                    "source_document": p.source_path or f"{pid}.md",
-                    "created_at": p.created_at.isoformat() if p.created_at else "2026-01-01T08:00:00Z",
-                    "created_by": {"user_id": "USR-ADM-001", "full_name": "Trần Chí Vĩ", "role": "POLICY_ADMIN"},
-                    "published_at": "2026-01-05T09:00:00Z",
-                    "published_by": {"user_id": "USR-MGR-001", "full_name": "Quản lý kinh doanh", "role": "MANAGER"},
-                    "rules": rules,
-                })
-            return result
+            policy_rows = (await session.execute(text(policy_source.POLICY_SQL))).fetchall()
+            atom_rows = (await session.execute(text(policy_source.ATOM_SQL))).fetchall()
+        return policy_source.policies_from_async_rows(policy_rows, atom_rows)
     except Exception as e:
         logger.error("Error fetching policies from DB: %s", e)
         return []
