@@ -28,6 +28,7 @@ if sys.platform == "win32":
 
 import uvicorn  # noqa: E402
 
+import src.db.dns_patch  # noqa: F401, E402 — Resilient DNS cho Supabase DB Pooler
 from src.config import get_settings  # noqa: E402
 
 

@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
+import src.db.dns_patch  # noqa: F401 — Tự động phân giải DNS Supabase khi mạng Wi-Fi/trường học chặn
 from src.config import get_settings
 
 settings = get_settings()
