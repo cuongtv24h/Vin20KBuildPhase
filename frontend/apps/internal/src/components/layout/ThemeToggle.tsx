@@ -74,8 +74,8 @@ export function ThemeToggle({
                 type="button"
                 role="menuitemradio"
                 aria-checked={active}
-                onClick={() => {
-                  setTheme(value)
+                onClick={(e) => {
+                  setTheme(value, { x: e.clientX, y: e.clientY })
                   setOpen(false)
                 }}
                 className={cn(

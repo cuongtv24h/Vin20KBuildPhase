@@ -135,4 +135,14 @@ describe('phiên chat Copilot — giữ qua đổi trang/F5 và mở lại lịc
     store.setItems([item('i-2', 'y')])
     expect(calls).toBe(2)
   })
+
+  it('startNewSession: khung trắng và tăng epoch kể cả khi phiên cũ chưa có id (đổi trang giữa lúc chờ trả lời)', () => {
+    const { store } = makeStore()
+    store.setItems([item('u-1', 'câu hỏi chưa kịp trả lời')])
+    const before = store.epoch()
+    store.startNewSession()
+    expect(store.epoch()).toBe(before + 1)
+    expect(store.getSnapshot().items).toEqual([])
+    expect(store.getSnapshot().conversationId).toBeNull()
+  })
 })

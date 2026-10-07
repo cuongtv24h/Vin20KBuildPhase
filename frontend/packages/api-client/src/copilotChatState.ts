@@ -117,6 +117,14 @@ function readPersisted(storage: CopilotChatStorage): PersistedSession {
 export interface CopilotChatStore<T extends CopilotChatItem = CopilotChatItem> {
   subscribe: (listener: () => void) => () => void
   getSnapshot: () => CopilotChatSnapshot<T>
+  /**
+   * Bắt đầu một phiên chat mới (khung trắng, chưa có id). Khác `setConversationId(null)` ở chỗ luôn
+   * tăng `epoch` — kể cả khi phiên hiện tại cũng chưa có id — để lượt ghi lịch sử của phiên cũ trả về
+   * muộn nhận ra mình đã lỗi thời và không cướp id cho phiên mới.
+   */
+  startNewSession: () => void
+  /** Số thứ tự "thế hệ" phiên chat; tăng mỗi lần `startNewSession`. */
+  epoch: () => number
   /** Đổi cuộc đang mở. Không truyền `items` thì lấy từ cache (hoặc rỗng). */
   setConversationId: (conversationId: string | null, options?: { items?: T[] }) => void
   /** Thay nội dung cuộc đang mở (nhận giá trị hoặc hàm cập nhật như `useState`). */
@@ -151,6 +159,7 @@ export function createCopilotChatStore<T extends CopilotChatItem = CopilotChatIt
   const cache = { ...persisted.cache }
 
   let snapshot: CopilotChatSnapshot<T> = { conversationId, items: items as T[] }
+  let epoch = 0
 
   const persist = () => {
     try {
@@ -194,6 +203,17 @@ export function createCopilotChatStore<T extends CopilotChatItem = CopilotChatIt
       return () => void listeners.delete(listener)
     },
     getSnapshot: () => snapshot,
+
+    epoch: () => epoch,
+
+    startNewSession: () => {
+      // Phiên đang dở chưa có id: cất nội dung lại để lượt ghi trả về muộn vẫn cache được.
+      if (!conversationId && items.length) pendingItems = items as CopilotChatItem[]
+      epoch += 1
+      conversationId = null
+      items = []
+      emit()
+    },
 
     setConversationId: (next, opts = {}) => {
       if (next === conversationId && !opts.items) return
@@ -249,6 +269,7 @@ export function createCopilotChatStore<T extends CopilotChatItem = CopilotChatIt
     cachedItems: (id) => cache[id] as T[] | undefined,
 
     reset: () => {
+      epoch += 1
       conversationId = null
       items = []
       pendingItems = []
