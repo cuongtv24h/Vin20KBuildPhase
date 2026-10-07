@@ -18,7 +18,7 @@ _py_works() {
 }
 
 PY=""
-for cand in python3 python "py -3"; do
+for cand in .venv/bin/python venv/bin/python .venv/Scripts/python.exe venv/Scripts/python.exe python3 python "py -3"; do
   if _py_works "$cand"; then PY="$cand"; break; fi
 done
 

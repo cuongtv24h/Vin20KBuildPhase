@@ -30,7 +30,7 @@ class PolicyChunkDTO(BaseModel):
     content: str
     page: int
     chunk_hash: str
-    embedding: list[float] | None = Field(None, description="Vector embedding 1536 chiều")
+    embedding: list[float] | None = Field(None, description="Vector embedding 384 chiều")
 
 
 class StructuredRuleDTO(BaseModel):

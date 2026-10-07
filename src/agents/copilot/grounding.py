@@ -36,12 +36,25 @@ def format_vnd(amount: int | float | None) -> str:
     return f"{int(amount):,}".replace(",", ".") + " ₫"
 
 
+def merge_policies(
+    db_policies: list[dict[str, Any]], fixture_policies: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Gộp chính sách DB với fixture theo nguyên tắc DB là nguồn chính."""
+    if not db_policies:
+        return list(fixture_policies)
+    db_pids = {normalize(str(p.get("policy_id", ""))) for p in db_policies}
+    db_pids.discard("")
+    extras = [p for p in fixture_policies if normalize(str(p.get("policy_id", ""))) not in db_pids]
+    return list(db_policies) + extras
+
+
 def list_policies(project_id: str | None = None) -> list[dict[str, Any]]:
-    """Danh sách chính sách canonical (có thể lọc theo dự án)."""
+    """Danh sách chính sách canonical (kết hợp DB thật và fixture)."""
+    all_policies = merge_policies(_fetch_db_policies(), POLICIES_DATA)
     if not project_id:
-        return list(POLICIES_DATA)
+        return all_policies
     wanted = normalize(project_id)
-    return [p for p in POLICIES_DATA if normalize(str(p.get("project_id", ""))) == wanted]
+    return [p for p in all_policies if normalize(str(p.get("project_id", ""))) == wanted]
 
 
 def resolve_active_policy(project_id: str | None, as_of: date | None = None) -> dict[str, Any] | None:
@@ -107,8 +120,118 @@ def find_rules_by_keyword(keyword: str, project_id: str | None = None) -> list[t
 
 logger = logging.getLogger(__name__)
 
+_cached_db_policies: list[dict[str, Any]] | None = None
 _cached_db_units: list[dict[str, Any]] | None = None
 _cached_db_project_names: dict[str, str] = {}
+
+
+def _fetch_db_policies() -> list[dict[str, Any]]:
+    """Đọc chính sách bán hàng THẬT từ DB (bảng `policies` và `policy_atoms`)."""
+    global _cached_db_policies
+    if _cached_db_policies is not None:
+        return _cached_db_policies
+    try:
+        import json
+
+        import psycopg
+
+        from src.config import get_settings
+
+        settings = get_settings()
+        db_url = settings.database_url.replace("+asyncpg", "")
+        if not db_url.startswith(("postgres://", "postgresql://")):
+            return []
+        with psycopg.connect(db_url, connect_timeout=3) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT policy_id, policy_name, version, effective_from, effective_to, status,
+                           document_hash, source_path, metadata_json, created_at
+                    FROM policies
+                    ORDER BY effective_from DESC, policy_id ASC;
+                """)
+                pol_rows = cur.fetchall()
+                if not pol_rows:
+                    _cached_db_policies = []
+                    return []
+
+                cur.execute("""
+                    SELECT atom_id, policy_id, atom_type, chapter, article, clause, point,
+                           line_start, line_end, canonical_text, retrieval_text, content_hash,
+                           valid_from, valid_to, customer_tiers, service_codes
+                    FROM policy_atoms
+                    ORDER BY line_start ASC, atom_id ASC;
+                """)
+                atom_rows = cur.fetchall()
+
+                atoms_by_policy: dict[str, list[Any]] = {}
+                for a in atom_rows:
+                    pid = a[1]
+                    if pid not in atoms_by_policy:
+                        atoms_by_policy[pid] = []
+                    atoms_by_policy[pid].append(a)
+
+                policies: list[dict[str, Any]] = []
+                for p in pol_rows:
+                    pid = p[0]
+                    p_atoms = atoms_by_policy.get(pid, [])
+                    meta = p[8] or {}
+                    if isinstance(meta, str):
+                        try:
+                            meta = json.loads(meta)
+                        except Exception:
+                            meta = {}
+
+                    rules = []
+                    for idx, a in enumerate(p_atoms, 1):
+                        rule_title = f"{a[4] or ''} {a[5] or ''}".strip() or f"Điều khoản {idx}"
+                        canonical_text = a[9] or ""
+                        content_hash = a[11] or ""
+                        line_start = a[7] or 1
+                        rules.append({
+                            "rule_code": f"{pid}_R{idx:02d}",
+                            "title": rule_title,
+                            "kind": "DISCRETIONARY",
+                            "discount_rate": None,
+                            "cash_equivalent_vnd": None,
+                            "interest_support_months": None,
+                            "applicable_scenarios": ["PA-CHUDONG"],
+                            "required_segments": None,
+                            "min_units_purchased": None,
+                            "relations": [],
+                            "is_ambiguous": False,
+                            "is_selectable": True,
+                            "validation_status": "APPROVED_FOR_USE",
+                            "source": {
+                                "document_id": f"DOC-{pid}",
+                                "document_version": p[2] or "v1.0",
+                                "document_hash": content_hash,
+                                "clause_id": a[5] or a[4] or a[0],
+                                "section": a[4] or "Quy định chung",
+                                "page": line_start,
+                                "quote": canonical_text[:250],
+                            },
+                        })
+
+                    project_id = meta.get("project_id") or "PROJECT-VLF-001"
+                    policies.append({
+                        "policy_id": pid,
+                        "policy_version": p[2] or "v1.0",
+                        "title": p[1],
+                        "project_id": project_id,
+                        "status": "PUBLISHED" if p[5] == "ACTIVE" else p[5],
+                        "effective_from": p[3].isoformat() if p[3] else "2026-01-01",
+                        "effective_to": p[4].isoformat() if p[4] else "2026-12-31",
+                        "document_id": f"DOC-{pid}",
+                        "document_hash": p[6],
+                        "source_document": p[7] or f"{pid}.md",
+                        "created_at": p[9].isoformat() if p[9] else "2026-01-01T08:00:00Z",
+                        "rules": rules,
+                    })
+                _cached_db_policies = policies
+                return policies
+    except Exception as exc:
+        logger.warning("Could not load policies from DB: %s", exc)
+        return []
 
 def _fetch_db_units() -> list[dict[str, Any]]:
     """Đọc giỏ hàng THẬT từ DB (bảng `units` nối `projects`) — chỉ lấy trường có thật.

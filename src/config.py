@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     app_port: int = Field(default=8000, ge=1, le=65535)
     app_host: str = "0.0.0.0"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:5174"
 
     #: Khoá mã hoá API key của nhà cung cấp LLM (`src/services/llm_secrets.py`).
     #: Nhận cả `LLM_SECRET_KEY` và `SECRET_KEY`. Đặt trong `.env` là đủ — không cần export ra shell,
