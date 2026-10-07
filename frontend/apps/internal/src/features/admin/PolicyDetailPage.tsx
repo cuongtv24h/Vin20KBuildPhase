@@ -1,28 +1,4 @@
-import {
-  AlertCircle,
-  AlertTriangle,
-  ArrowLeft,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  ExternalLink,
-  FileCheck2,
-  FileText,
-  Filter,
-  HelpCircle,
-  Layers,
-  Loader2,
-  Lock,
-  Play,
-  RotateCcw,
-  Scale,
-  Search,
-  ShieldAlert,
-  ShieldCheck,
-  Sparkles,
-  Stamp,
-  XCircle,
-} from 'lucide-react'
+import { AlertCircle, AlertTriangle, ArrowLeft, Calendar, CheckCircle2, Clock, ExternalLink, FileCheck2, FileText, Filter, HelpCircle, Layers, Loader2, Lock, Play, RotateCcw, Scale, Search, ShieldAlert, ShieldCheck, Sparkles, Stamp, XCircle, Check, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { PolicyDocument, PolicyRule, RulesTestReport } from '@pricepolicy/api-client/contracts'
@@ -129,7 +105,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="font-mono font-semibold text-primary">{policy.policy_id}</span>
                 <span>·</span>
-                <Badge variant="outline" className="px-1.5 py-0 text-[11px]">
+                <Badge variant="outline" className="px-1.5 py-0 text-xs">
                   Phiên bản {policy.policy_version}
                 </Badge>
                 <span>·</span>
@@ -141,7 +117,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
                 </span>
               </div>
 
-              <p className="font-mono text-[11px] text-muted-foreground" title={policy.document_hash}>
+              <p className="font-mono text-xs text-muted-foreground" title={policy.document_hash}>
                 Tệp nguồn: <span className="text-foreground">{policy.source_document}</span> · SHA-256:{' '}
                 <span className="text-foreground">{truncateHash(policy.document_hash, 16)}</span>
               </p>
@@ -183,21 +159,21 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
         {/* Quick Stats Grid */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Card className="border-border bg-card p-3 shadow-sm">
-            <span className="text-[11px] text-muted-foreground">Tổng điều khoản số hóa</span>
+            <span className="text-xs text-muted-foreground">Tổng điều khoản số hóa</span>
             <p className="mt-1 font-display text-xl font-bold text-foreground">{policy.rules.length}</p>
           </Card>
           <Card className="border-border bg-card p-3 shadow-sm">
-            <span className="text-[11px] text-muted-foreground">Chiết khấu thương mại (%)</span>
+            <span className="text-xs text-muted-foreground">Chiết khấu thương mại (%)</span>
             <p className="mt-1 font-display text-xl font-bold text-primary">{ruleStats.discounts} điều khoản</p>
           </Card>
           <Card className="border-border bg-card p-3 shadow-sm">
-            <span className="text-[11px] text-muted-foreground">Quà tặng & Gói HTLS 0%</span>
+            <span className="text-xs text-muted-foreground">Quà tặng và Gói HTLS 0%</span>
             <p className="mt-1 font-display text-xl font-bold text-foreground">
               {ruleStats.gifts + ruleStats.bankSupport} gói ưu đãi
             </p>
           </Card>
           <Card className="border-border bg-card p-3 shadow-sm">
-            <span className="text-[11px] text-muted-foreground">Cặp quan hệ loại trừ (Exclusivity)</span>
+            <span className="text-xs text-muted-foreground">Cặp quan hệ loại trừ (Exclusivity)</span>
             <p className="mt-1 font-display text-xl font-bold text-destructive">{ruleStats.exclusiveRelations} ràng buộc</p>
           </Card>
         </div>
@@ -214,7 +190,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
                   <Layers className="h-4 w-4 text-primary" />
                   Ma trận Điều khoản Chính sách ({policy.rules.length} quy tắc)
                 </CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Mỗi quy tắc được gắn tọa độ dẫn chứng (Source Coordinates) đến từng trang và điều khoản trong văn bản gốc
                 </p>
               </div>
@@ -256,12 +232,12 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-muted/30 hover:bg-muted/30 text-[11px]">
-                      <TableHead className="w-[300px]">Tên điều khoản & Dẫn chứng</TableHead>
+                    <TableRow className="bg-muted/30 hover:bg-muted/30 text-xs">
+                      <TableHead className="w-[300px]">Tên điều khoản và Dẫn chứng</TableHead>
                       <TableHead className="w-[140px]">Phân loại</TableHead>
                       <TableHead className="w-[160px]">Giá trị ưu đãi</TableHead>
                       <TableHead className="w-[180px]">Phương án áp dụng</TableHead>
-                      <TableHead className="w-[200px]">Quan hệ ràng buộc & Loại trừ</TableHead>
+                      <TableHead className="w-[200px]">Quan hệ ràng buộc và Loại trừ</TableHead>
                       <TableHead className="w-[130px]">Trạng thái</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -273,7 +249,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
                           <div className="space-y-1">
                             <p className="font-semibold text-foreground text-xs">{r.title}</p>
                             <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="font-mono text-[11px] text-muted-foreground">{r.rule_code}</span>
+                              <span className="font-mono text-xs text-muted-foreground">{r.rule_code}</span>
                               <CitationButton title={r.title} source={r.source} ruleCode={r.rule_code} />
                             </div>
                           </div>
@@ -281,7 +257,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
 
                         {/* Kind */}
                         <TableCell>
-                          <Badge variant="outline" className="text-[10px]">
+                          <Badge variant="outline" className="text-xs">
                             {r.kind === 'PERCENT_DISCOUNT'
                               ? 'Chiết khấu %'
                               : r.kind === 'GIFT'
@@ -303,7 +279,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
                             {formatRuleValue(r)}
                           </span>
                           {r.is_ambiguous && (
-                            <p className="text-[10px] text-warning flex items-center gap-1 mt-0.5">
+                            <p className="text-xs text-warning flex items-center gap-1 mt-0.5">
                               <AlertTriangle className="h-3 w-3" /> Điều khoản cần làm rõ
                             </p>
                           )}
@@ -313,7 +289,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
                             {r.applicable_scenarios.map((sc) => (
-                              <Badge key={sc} variant="outline" className="text-[10px] bg-background">
+                              <Badge key={sc} variant="outline" className="text-xs bg-background">
                                 {sc === 'PA-CHUDONG' ? 'Tiến độ' : sc === 'PA-NHANH' ? 'Trả nhanh' : 'Vay HTLS'}
                               </Badge>
                             ))}
@@ -322,13 +298,13 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
 
                         {/* Exclusivity / Relations */}
                         <TableCell>
-                          <div className="space-y-1 text-[11px]">
+                          <div className="space-y-1 text-xs">
                             {r.relations.length > 0 ? (
                               r.relations.map((rel) => (
                                 <div key={rel.rule_code} className="flex items-center gap-1">
                                   <Badge
                                     variant={rel.type === 'MUTUALLY_EXCLUSIVE' ? 'destructive' : 'warning'}
-                                    className="px-1 py-0 text-[9px]"
+                                    className="px-1 py-0 text-xs"
                                   >
                                     {rel.type === 'MUTUALLY_EXCLUSIVE' ? 'Loại trừ' : 'Ràng buộc'}
                                   </Badge>
@@ -336,7 +312,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
                                 </div>
                               ))
                             ) : (
-                              <span className="text-muted-foreground text-[11px]">Độc lập, không loại trừ</span>
+                              <span className="text-muted-foreground text-xs">Độc lập, không loại trừ</span>
                             )}
                           </div>
                         </TableCell>
@@ -345,7 +321,7 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
                         <TableCell>
                           <Badge
                             variant={r.validation_status === 'APPROVED_FOR_USE' ? 'success' : 'outline'}
-                            className="text-[10px]"
+                            className="text-xs"
                           >
                             {r.validation_status === 'APPROVED_FOR_USE' ? 'Đã duyệt dùng' : 'Chờ xác thực'}
                           </Badge>
@@ -397,8 +373,8 @@ function PolicyDetail({ policy }: { policy: PolicyDocument }) {
               </div>
             </div>
 
-            <div className="rounded-md bg-warning/10 p-2.5 text-[11px] text-warning-foreground leading-relaxed">
-              ⚠ <strong>Lưu ý:</strong> Sau khi ban hành, chính sách sẽ được đóng băng snapshot băm SHA-256 để đảm bảo kiểm toán Time-Travel. Mọi báo giá lập trong thời hạn này sẽ tự động liên kết với phiên bản này.
+            <div className="rounded-md bg-warning/10 p-2.5 text-xs text-warning-ink leading-relaxed">
+              <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" aria-hidden="true" /> <strong>Lưu ý:</strong> Sau khi ban hành, chính sách sẽ được đóng băng snapshot băm SHA-256 để đảm bảo kiểm toán Time-Travel. Mọi báo giá lập trong thời hạn này sẽ tự động liên kết với phiên bản này.
             </div>
 
             <DialogFooter className="gap-2">
@@ -456,16 +432,16 @@ function PrePublishAuditReport({ report }: { report: RulesTestReport }) {
               </span>
               <div>
                 <CardTitle className="text-sm font-semibold">
-                  Kết Quả Kiểm Tra Trước Ban Hành (Pre-Flight Audit & Conflict Detection)
+                  Kết Quả Kiểm Tra Trước Ban Hành (Pre-Flight Audit và Conflict Detection)
                 </CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Thực hiện lúc {formatDateTime(report.checked_at)} · Kiểm thử hồi quy: {report.regression.passed}/{report.regression.total} ca đạt
                 </p>
               </div>
             </div>
 
             <Badge variant={report.can_publish ? 'success' : 'destructive'} className="text-xs">
-              {report.can_publish ? '✓ ĐỦ ĐIỀU KIỆN BAN HÀNH' : '✕ CẦN XỬ LÝ LỖI'}
+              {report.can_publish ? <><Check className="h-3 w-3" aria-hidden="true" /> ĐỦ ĐIỀU KIỆN BAN HÀNH</> : <><X className="h-3 w-3" aria-hidden="true" /> CẦN XỬ LÝ LỖI</>}
             </Badge>
           </div>
         </CardHeader>
@@ -475,7 +451,7 @@ function PrePublishAuditReport({ report }: { report: RulesTestReport }) {
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs font-semibold">
               <span>Các tiêu chí kiểm soát quy tắc:</span>
-              <div className="flex gap-2 text-[10px]">
+              <div className="flex gap-2 text-xs">
                 <span className="text-success font-bold">{passCount} Đạt</span>
                 <span className="text-warning font-bold">{warnCount} Lưu ý</span>
                 <span className="text-destructive font-bold">{failCount} Lỗi</span>
@@ -502,14 +478,14 @@ function PrePublishAuditReport({ report }: { report: RulesTestReport }) {
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs font-semibold">
               <span>Phát hiện xung đột ma trận ({report.conflict_findings.length}):</span>
-              <span className="text-[11px] text-muted-foreground">3 Cấp độ Semantic Matrix</span>
+              <span className="text-xs text-muted-foreground">3 Cấp độ Semantic Matrix</span>
             </div>
 
             {report.conflict_findings.length === 0 ? (
               <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed border-success/30 bg-success/[0.03] text-center p-4">
                 <CheckCircle2 className="h-6 w-6 text-success" />
                 <p className="mt-1 text-xs font-semibold text-success">Không có xung đột điều khoản</p>
-                <p className="text-[11px] text-muted-foreground">Các điều khoản trong chính sách nhất quán 100%.</p>
+                <p className="text-xs text-muted-foreground">Các điều khoản trong chính sách nhất quán 100%.</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -519,10 +495,10 @@ function PrePublishAuditReport({ report }: { report: RulesTestReport }) {
                     className="rounded-lg border border-border/80 bg-background/80 p-2.5 text-xs space-y-1"
                   >
                     <div className="flex items-center gap-1.5">
-                      <Badge variant={f.tier === 1 ? 'destructive' : f.tier === 2 ? 'warning' : 'outline'} className="text-[10px]">
+                      <Badge variant={f.tier === 1 ? 'destructive' : f.tier === 2 ? 'warning' : 'outline'} className="text-xs">
                         {f.tier === 1 ? 'Cấp 1: Triệt tiêu' : f.tier === 2 ? 'Cấp 2: Chồng chéo' : 'Cấp 3: Mơ hồ'}
                       </Badge>
-                      <span className="font-mono text-[10px] text-muted-foreground">
+                      <span className="font-mono text-xs text-muted-foreground">
                         {f.rule_codes.join(' ↔ ')}
                       </span>
                     </div>

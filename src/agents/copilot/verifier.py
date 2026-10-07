@@ -10,6 +10,10 @@ Thiết kế cố tình "dễ tha, khó bỏ sót":
   vì định dạng.
 - Chỉ kiểm những con số mang đơn vị/có ý nghĩa tài chính; bỏ qua số thứ tự ("bước 2", "3 phương
   án") vì chúng không phải khẳng định về dữ liệu.
+- **Số do chính người dùng nêu trong câu hỏi** ("khách có 2 tỷ") được coi là đã biết: câu trả lời
+  nhắc lại con số đó không phải là bịa. Trước đây luật này thiếu nên mọi câu trả lời hợp lệ có nhắc
+  lại ngân sách của Sale đều bị gắn cờ "có số liệu chưa đối chiếu được" — báo động giả, làm mất
+  lòng tin vào cảnh báo thật.
 - Ngoài số liệu, không phán xét văn phong.
 """
 
@@ -39,6 +43,11 @@ class VerificationResult:
 
     verified: bool = True
     unsupported: list[str] = field(default_factory=list)
+    #: Số xuất hiện trong câu trả lời **và** trong câu hỏi của Sale (ngân sách, số phòng ngủ đã nêu…):
+    #: không tính là số liệu bịa, nhưng vẫn ghi lại để đối chiếu khi cần.
+    echoed: list[str] = field(default_factory=list)
+    #: Số/mã lấy từ **bối cảnh canonical** (dải giá giỏ hàng, mã chính sách đang hiệu lực) — nguồn hệ thống.
+    from_context: list[str] = field(default_factory=list)
     checked: int = 0
     reason: str = ""
 
@@ -46,6 +55,8 @@ class VerificationResult:
         return {
             "verified": self.verified,
             "unsupported_claims": self.unsupported[:5],
+            "echoed_claims": self.echoed[:5],
+            "context_claims": self.from_context[:5],
             "checked_claims": self.checked,
             "reason": self.reason,
         }
@@ -133,8 +144,21 @@ def _claim_matches(value: float, known: set[float]) -> bool:
     return False
 
 
-def verify_reply(reply: str, observations: list[dict[str, Any]]) -> VerificationResult:
-    """Đối chiếu câu trả lời với Observation."""
+def verify_reply(
+    reply: str,
+    observations: list[dict[str, Any]],
+    question: str = "",
+    context: str = "",
+) -> VerificationResult:
+    """Đối chiếu câu trả lời với Observation.
+
+    Hai nguồn được miễn kiểm (vẫn ghi lại để đối chiếu, không tính là bịa):
+    - `question`: câu hỏi gốc của Sale — số **người dùng tự nêu** (ngân sách 2 tỷ) được phép nhắc lại.
+    - `context`: **dữ liệu canonical** đã nạp vào prompt (chính sách hiệu lực, dải giá giỏ hàng). Đây vẫn
+      là số liệu thật của hệ thống; nếu không miễn, mọi câu trả lời dùng đúng dải giá canonical đều bị
+      gắn cờ "chưa đối chiếu được" chỉ vì dữ liệu đó đến từ bối cảnh thay vì từ Observation của tool.
+      Truyền vào **chỉ** phần canonical (`prompts.canonical_facts`), không truyền phần học từ phản hồi.
+    """
     text = reply or ""
     if not text.strip():
         return VerificationResult(verified=False, reason="Câu trả lời rỗng.", checked=0)
@@ -143,7 +167,14 @@ def verify_reply(reply: str, observations: list[dict[str, Any]]) -> Verification
         return VerificationResult(verified=True, reason="Không có observation để đối chiếu.", checked=0)
 
     known_numbers, blob_norm = _observation_numbers(observations)
+    #: Số Sale tự nêu trong câu hỏi — được phép nhắc lại, không phải "bịa".
+    question_numbers = set(_money_values(question or ""))
+    #: Số liệu canonical nạp sẵn trong bối cảnh (dải giá giỏ hàng, chính sách hiệu lực) — cũng là dữ liệu thật.
+    context_numbers = set(_money_values(context or ""))
+    context_norm = grounding.normalize(context or "")
     unsupported: list[str] = []
+    echoed: list[str] = []
+    from_context: list[str] = []
     checked = 0
 
     for raw, unit in _MONEY_RE.findall(text):
@@ -157,8 +188,13 @@ def verify_reply(reply: str, observations: list[dict[str, Any]]) -> Verification
         elif unit_key in ("trieu", "tr", "tr."):
             value *= 1_000_000
         checked += 1
-        if not _claim_matches(value, known_numbers):
-            unsupported.append(f"{raw} {unit}".strip())
+        claim = f"{raw} {unit}".strip()
+        if _claim_matches(value, question_numbers):
+            echoed.append(claim)
+        elif _claim_matches(value, context_numbers):
+            from_context.append(claim)
+        elif not _claim_matches(value, known_numbers):
+            unsupported.append(claim)
 
     for raw in _PERCENT_RE.findall(text):
         if raw in _IGNORED_PERCENT:
@@ -167,20 +203,43 @@ def verify_reply(reply: str, observations: list[dict[str, Any]]) -> Verification
         if value is None or not known_numbers:
             continue
         checked += 1
-        if not _claim_matches(value, known_numbers):
+        if _claim_matches(value, question_numbers):
+            echoed.append(f"{raw}%")
+        elif _claim_matches(value, context_numbers):
+            from_context.append(f"{raw}%")
+        elif not _claim_matches(value, known_numbers):
             unsupported.append(f"{raw}%")
 
     for policy_id in _POLICY_ID_RE.findall(text):
         checked += 1
-        if grounding.normalize(policy_id) not in blob_norm:
-            unsupported.append(policy_id)
+        normalized = grounding.normalize(policy_id)
+        if normalized in blob_norm:
+            continue
+        if context_norm and normalized in context_norm:
+            # Mã chính sách đang hiệu lực đã nạp ở bối cảnh — vẫn là nguồn hệ thống.
+            from_context.append(policy_id)
+            continue
+        unsupported.append(policy_id)
 
     if not unsupported:
-        return VerificationResult(verified=True, checked=checked, reason="Mọi số liệu đều có trong Observation.")
+        reason = "Mọi số liệu đều có trong Observation."
+        if echoed:
+            reason += f" ({len(echoed)} số do người dùng nêu trong câu hỏi.)"
+        if from_context:
+            reason += f" ({len(from_context)} số/mã lấy từ bối cảnh hệ thống.)"
+        return VerificationResult(
+            verified=True,
+            echoed=sorted(set(echoed)),
+            from_context=sorted(set(from_context)),
+            checked=checked,
+            reason=reason,
+        )
 
     return VerificationResult(
         verified=False,
         unsupported=sorted(set(unsupported)),
+        echoed=sorted(set(echoed)),
+        from_context=sorted(set(from_context)),
         checked=checked,
         reason="Có số liệu/mã văn bản không xuất hiện trong Observation của tool.",
     )

@@ -24,8 +24,19 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from src.agents.copilot import commands, critic, feedback, grounding, intents, memory, planner, verifier
-from src.agents.copilot.prompts import build_system_prompt
+from src.agents.copilot import (
+    anchors,
+    commands,
+    critic,
+    feedback,
+    grounding,
+    intents,
+    memory,
+    planner,
+    reply_format,
+    verifier,
+)
+from src.agents.copilot.prompts import build_system_prompt, canonical_facts
 from src.agents.copilot.tools import COPILOT_TOOLS, TOOLS_BY_NAME
 from src.agents.tools.guardrails import scan_output_leakage, scan_prompt_injection
 
@@ -45,6 +56,13 @@ MAX_TOOL_MESSAGE_CHARS = 1_400
 MAX_TOTAL_OBSERVATION_CHARS = 6_000
 #: Trần rút gọn khi đã cạn ngân sách ngữ cảnh.
 TIGHT_TOOL_MESSAGE_CHARS = 700
+#: Tool tra cứu **dữ liệu chính sách/giỏ hàng**. Chạy thành công — kể cả khi trả về rỗng
+#: ("không có căn nào khớp tiêu chí") — vẫn là câu trả lời có căn cứ: kết luận "0 căn" là một
+#: dữ kiện của hệ thống, không phải suy đoán. Trước đây `grounded` chỉ tính `bool(citations)`
+#: nên đúng trường hợp này bị dán nhãn "chưa đối chiếu được với dữ liệu chính sách/giỏ hàng".
+_GROUNDED_LOOKUP_TOOLS = frozenset(
+    {"tra_cuu_chinh_sach", "tra_cuu_gio_hang", "tinh_phuong_an_thanh_toan", "danh_gia_von_tu_co"}
+)
 
 _ACTION_BLOCK_RE = re.compile(r"```(?:json:smart_action|json)\s*(\{.*?\})\s*```", re.DOTALL)
 _NAME_STRIP_RE = re.compile(
@@ -76,7 +94,12 @@ class CopilotEvent:
 def _sanitize_customer_name(raw: str) -> str:
     name = _NAME_STRIP_RE.sub("", str(raw or "")).strip()
     name = re.sub(r"^(?:mới\s+tên|mới\s+là|tên\s+là|tên|mới|anh|chị)\s*", "", name, flags=re.IGNORECASE).strip()
-    name = re.sub(r"[,;:\-]?\s*(?:sđt|sdt|phone|điện\s*thoại|\b0\d{8,10}\b).*$", "", name, flags=re.IGNORECASE).strip()
+    name = re.sub(
+        r"[,;:\-]?\s*(?:số\s*(?:điện\s*thoại|đt)?|sđt|sdt|phone|điện\s*thoại|\b0\d{8,10}\b).*$",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    ).strip()
     if len(name) < 2 or grounding.normalize(name) in {"moi", "khach", "khach hang", "khach moi", "anh", "chi", "lead", "null", "none"}:
         return ""
     return name
@@ -185,10 +208,61 @@ async def _execute_tool(call: dict[str, Any]) -> tuple[dict[str, Any], str, int]
     return payload, json.dumps(payload, ensure_ascii=False), TOOL_RETRIES + 1
 
 
+def _latest_data_as_of(observations: list[dict[str, Any]]) -> str | None:
+    """Mốc thời gian dữ liệu mới nhất trong các Observation (chốt P1.6)."""
+    stamps = [str(obs.get("data_as_of")) for obs in observations if obs.get("data_as_of")]
+    return max(stamps) if stamps else None
+
+
 class IntentResultLike:
     """Protocol mềm để type-check nhẹ (tránh import vòng)."""
 
     intent: str
+
+
+#: Dòng bảng markdown.
+_TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def _units_table_from_observations(observations: list[dict[str, Any]]) -> str:
+    """Bảng giỏ hàng do MÁY dựng, lấy từ kết quả `tra_cuu_gio_hang` (chốt R19).
+
+    LLM chỉ viết văn xuôi; bảng (cột, thứ tự cột, từng ô) lấy nguyên từ observation nên không thể
+    thiếu cột `Dự án`/`Phòng ngủ` hay lệch hàng do model viết lại.
+    """
+    table = ""
+    for obs in observations:
+        if obs.get("tool") != "tra_cuu_gio_hang":
+            continue
+        lines = [line.strip() for line in str(obs.get("summary") or "").splitlines() if line.strip()]
+        block = [line for line in lines if _TABLE_LINE_RE.match(line)]
+        if len(block) >= 2:
+            table = "\n".join(block)  # observation cuối cùng có bảng là bảng mới nhất
+    return table
+
+
+def _ensure_units_table(text: str, table: str) -> str:
+    """Bảo đảm câu trả lời liệt kê căn có ĐÚNG bảng giỏ hàng do máy dựng.
+
+    - Chưa có bảng nào ⇒ chèn vào cuối (chốt R16: liệt kê căn là phải có bảng).
+    - Có bảng giỏ hàng nhưng model tự viết lại (thiếu cột/lệch hàng) ⇒ thay bằng bảng chuẩn.
+    - Có bảng khác (chính sách, dòng tiền…) ⇒ giữ nguyên và thêm bảng giỏ hàng.
+    """
+    if not table:
+        return text
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if _TABLE_LINE_RE.match(line)), None)
+    if start is None:
+        return text.rstrip() + "\n\n" + table
+    end = start
+    while end < len(lines) and _TABLE_LINE_RE.match(lines[end]):
+        end += 1
+    existing = "\n".join(line.strip() for line in lines[start:end])
+    if "Mã căn" not in existing:
+        return text.rstrip() + "\n\n" + table
+    if existing == table:
+        return text
+    return "\n".join([*lines[:start], *table.splitlines(), *lines[end:]])
 
 
 def _finalize(
@@ -200,8 +274,17 @@ def _finalize(
     *,
     plan: list[planner.PlanStep] | None = None,
     slots: memory.SessionSlots | None = None,
+    question: str = "",
+    known_context: str = "",
 ) -> dict[str, Any]:
-    """Hậu xử lý câu trả lời cuối: tách Smart Card, gộp citation, kiểm rò rỉ, kiểm chứng số liệu."""
+    """Hậu xử lý câu trả lời cuối: tách Smart Card, gộp citation, kiểm rò rỉ, kiểm chứng số liệu.
+
+    `question` là câu hỏi gốc của Sale — cần để verifier không gắn cờ oan những con số do chính
+    người dùng nêu ra (ví dụ ngân sách 2 tỷ) mà câu trả lời chỉ nhắc lại.
+
+    `known_context` là **dữ liệu canonical** đã nạp vào prompt (dải giá giỏ hàng, chính sách hiệu lực) —
+    xem `prompts.canonical_facts`. Cũng là số liệu thật của hệ thống.
+    """
     action_type: str | None = None
     action_data: dict[str, Any] | None = None
     suggested_actions = list(suggested_default)
@@ -227,8 +310,37 @@ def _finalize(
 
     if action_type == intents.INTENT_CREATE_CUSTOMER and isinstance(action_data, dict):
         action_data["customer_name"] = _sanitize_customer_name(action_data.get("customer_name", ""))
+        # Chốt đợt 20: thẻ khách chỉ được mang mã căn **có thật trong giỏ** và **đã xuất hiện trong ngữ
+        # cảnh** (câu Sale vừa nói hoặc dữ liệu canonical của phiên). Model tự thêm một mã căn làm ví dụ
+        # ⇒ Sale tưởng khách quan tâm căn đó (lỗi người dùng báo với khách Chu Thúy Quỳnh).
+        unit_code = str(action_data.get("preferred_unit_code") or "").strip()
+        if unit_code:
+            haystack = grounding.normalize(f"{question} {known_context}")
+            known = grounding.normalize(unit_code) in haystack
+            if not known or grounding.find_unit(unit_code) is None:
+                logger.info("Bỏ mã căn không có ngữ cảnh khỏi thẻ khách: %s", unit_code)
+                action_data["preferred_unit_code"] = ""
 
-    leak = scan_output_leakage(text)
+    # Kết luận kiểm duyệt **buộc phải trích lại** câu đang bị kiểm để Sale biết sai ở đâu — nếu quét
+    # rò rỉ cả phần trích dẫn đó thì bộ chặn sẽ nuốt mất kết luận F8 (lỗi thật gặp ở đợt 15). Chỉ che
+    # phần nằm trong ngoặc kép và khớp ĐÚNG văn bản đã được tool kiểm duyệt; phần model tự viết vẫn bị quét.
+    engine_texts: list[str] = []
+    reviewed_texts: list[str] = []
+    for obs in observations:
+        if obs.get("tool") != "kiem_tra_phat_ngon_f8":
+            continue
+        # Câu chữ của engine (kết luận, lý do, mã luật): được hiển thị nguyên văn.
+        engine_texts.extend(str(obs.get("summary") or "").splitlines())
+        # Nội dung đang bị kiểm duyệt: chỉ miễn khi được TRÍCH DẪN trong ngoặc kép.
+        reviewed_texts.append(str(obs.get("checked_content") or ""))
+        reviewed_texts.extend(str(c) for c in (obs.get("flagged_claims") or []))
+    scan_text, masked = reply_format.mask_review_text(
+        text, engine_texts=engine_texts, reviewed_texts=reviewed_texts
+    )
+    if masked:
+        logger.info("Miễn %d đoạn trích dẫn đã kiểm duyệt khi quét rò rỉ đầu ra.", masked)
+
+    leak = scan_output_leakage(scan_text)
     if not leak.is_safe:
         logger.warning("Chặn rò rỉ ở output Copilot: %s", leak.detected_patterns)
         text = (
@@ -239,34 +351,83 @@ def _finalize(
 
     citations = _dedupe_citations([c for obs in observations for c in (obs.get("citations") or [])])
     tool_calls = [obs.get("tool") for obs in observations if obs.get("tool")]
-    grounded = bool(citations) or intent.intent in (intents.INTENT_SMALL_TALK,)
+    # `grounded` = câu trả lời dựa trên dữ liệu hệ thống. Ba đường:
+    #  1. Có citation (đường thường gặp).
+    #  2. Tool tra cứu chính sách/giỏ hàng đã chạy **thành công** — kể cả trả về rỗng, vì "0 căn khớp"
+    #     là kết luận lấy từ dữ liệu (lỗi cũ: trường hợp này bị coi là "chưa đối chiếu").
+    #  3. Câu chào hỏi/xã giao (không cần dữ liệu).
+    lookup_ok = any(
+        obs.get("tool") in _GROUNDED_LOOKUP_TOOLS
+        and not obs.get("error")
+        and not obs.get("error_code")
+        for obs in observations
+    )
+    #  4. Tool tất định tự khai báo đầu ra của nó là dữ liệu hệ thống (kết luận kiểm duyệt F8, bản nháp
+    #     dựng từ catalog) — `grounded: true` trong payload, tránh gắn nhãn "chưa đối chiếu" oan.
+    deterministic_ok = any(obs.get("grounded") is True for obs in observations)
+    grounded = (
+        bool(citations)
+        or lookup_ok
+        or deterministic_ok
+        or intent.intent in (intents.INTENT_SMALL_TALK,)
+    )
 
     # Prompt đã dặn không nhắc lệnh gạch chéo, nhưng model vẫn có thể nhắc — chặn ở output.
     text = commands.strip_command_mentions(text)
 
+    # Tên tool/tham số nội bộ (ví dụ `gia_toi_da_vnd = 0`) là chuyện kỹ thuật — Sale không được thấy,
+    # khách càng không. Dọn ở lớp tất định, trước khi kiểm chứng số liệu để con số rác không bị tính.
+    text, leaked_names = reply_format.strip_internal_names(text)
+    if leaked_names:
+        logger.warning("Đã dọn tên nội bộ lọt vào câu trả lời: %s", sorted(set(leaked_names)))
+
     if not text:
         text = "Em đã ghi nhận yêu cầu. Anh/chị cần em làm rõ thêm bước nào không ạ?"
 
-    # Verifier: mọi số liệu/mã văn bản trong câu trả lời phải có trong Observation.
-    check = verifier.verify_reply(text, observations)
+    # Verifier: mọi số liệu/mã văn bản trong câu trả lời phải có trong Observation (hoặc trong câu
+    # hỏi của Sale — số người dùng tự nêu không tính là bịa).
+    check = verifier.verify_reply(text, observations, question=question, context=known_context)
+
+    # Ghi chú nội bộ (chốt P2.4): GIỮ SẠCH nội dung trả lời — mọi cảnh báo đi vào trường riêng
+    # `internal_notes`, UI hiển thị ở banner riêng. Nhờ vậy Sale bấm "Copy cho khách" là ra văn bản
+    # gửi được ngay, không dính câu quy trình nội bộ.
+    notes: list[str] = []
+    for obs in observations:
+        tool_note = str(obs.get("internal_notes") or "").strip()
+        if tool_note:
+            notes.append(tool_note)
     if not check.verified:
         logger.warning("Verifier phát hiện số liệu không có nguồn: %s", check.unsupported)
-        text += (
-            "\n\n_Lưu ý: có số liệu chưa đối chiếu được với dữ liệu hệ thống ("
+        notes.append(
+            "có số liệu chưa đối chiếu được với dữ liệu hệ thống ("
             + ", ".join(check.unsupported[:3])
-            + ") — anh/chị kiểm tra lại giúp em trước khi dùng._"
+            + ")"
         )
-
     if not grounded and intent.intent not in (intents.INTENT_SMALL_TALK,):
-        text += "\n\n_Lưu ý: câu trả lời này chưa đối chiếu được với dữ liệu chính sách/giỏ hàng — anh/chị kiểm tra lại giúp em._"
+        notes.append("nội dung này chưa đối chiếu với dữ liệu chính sách/giỏ hàng")
+
+    # Mỏ neo `[n]` do MÁY chèn (chốt P2.3) — sau khi đã có nội dung, trước khi soi critic, để critic
+    # chỉ còn nhắc khi con số thật sự không có nguồn nào để trỏ tới.
+    anchored = anchors.annotate_reply(text, citations, question=question)
+    text = anchored.text
+
+    # Bảng giỏ hàng do MÁY dựng (chốt R19): chèn/thay **sau** mỏ neo để ô bảng không bị dính `[n]`
+    # (mỏ neo trong từng ô làm bảng rối; phần văn xuôi phía trên đã mang đủ mỏ neo).
+    text = _ensure_units_table(text, _units_table_from_observations(observations))
+
+    # Hình thức (bảng không được dính câu văn, mỗi ý một dòng, canh cột) — cũng do MÁY lo, áp sau cùng
+    # để không phá mỏ neo `[n]` vừa chèn. Hàm idempotent nên áp lại vẫn an toàn.
+    text = reply_format.normalize_markdown(text)
 
     # Critic vòng 2 (P2): chỉ soi lượt quan trọng — câu có số tiền/ưu đãi hoặc câu soạn tin, tuân thủ.
+    # Kết quả trả về ở trường `critique` (UI hiển thị banner riêng) — **không** chèn thêm câu vào nội
+    # dung trả lời.
     review = critic.Critique()
     if critic.is_high_stakes(text, intent.intent):
         review = critic.critique_reply(text, intent=intent.intent, observations=observations)
-        note = critic.revision_note(review)
-        if note:
-            text += note
+
+    # Lời nhắc của critic **không** gộp vào `internal_notes`: nó đã có trường `critique` riêng, UI gộp
+    # cả hai vào MỘT banner "Ghi chú nội bộ" — gộp ở backend sẽ hiển thị lặp hai lần.
 
     return {
         "reply": text,
@@ -274,6 +435,14 @@ def _finalize(
         "action_data": action_data,
         "suggested_actions": suggested_actions,
         "citations": citations,
+        #: Mỏ neo `[n]` → căn cứ: UI biến `[n]` thành nút bấm mở đúng nguồn (chốt P2.1).
+        "anchors": [a.as_dict() for a in anchored.anchors],
+        #: Số do Sale tự nêu đã được in đậm kèm nhãn (chốt P2.2) — không gắn mỏ neo.
+        "labeled_inputs": anchored.labeled_inputs,
+        #: Ghi chú kiểm duyệt nội bộ — KHÔNG nằm trong `reply` (chốt P2.4).
+        "internal_notes": " · ".join(notes),
+        #: Mốc thời gian dữ liệu để UI hiển thị watermark (chốt P1.6), không đưa vào văn phong.
+        "data_as_of": _latest_data_as_of(observations),
         "grounded": grounded,
         "tools_used": tool_calls,
         "verified": check.verified,
@@ -284,22 +453,71 @@ def _finalize(
     }
 
 
-def _default_suggestions(intent: str, unit_code: str | None) -> list[str]:
-    unit = unit_code or "ZEN-A-1205"
+def _format_budget_short(amount_vnd: int) -> str:
+    """`2000000000` → `2 tỷ` — dùng trong nhãn nút hành động nhanh cho gọn (chốt K4)."""
+    if amount_vnd >= 1_000_000_000:
+        value = amount_vnd / 1_000_000_000
+        text = f"{value:.1f}".rstrip("0").rstrip(".")
+        return f"{text} tỷ"
+    if amount_vnd >= 1_000_000:
+        value = amount_vnd / 1_000_000
+        text = f"{value:.0f}"
+        return f"{text} triệu"
+    return grounding.format_vnd(amount_vnd)
+
+
+def _default_suggestions(
+    intent: str,
+    unit_code: str | None,
+    entities: dict[str, Any] | None = None,
+) -> list[str]:
+    """Nút hành động nhanh (chốt K4): thay vì viết dài, gợi ý việc bấm được ngay.
+
+    Nhãn phải **mang theo ngữ cảnh** (số phòng ngủ, ngân sách) để khi Sale bấm, câu gửi vào khung chat
+    vẫn đủ dữ liệu — không thì Copilot phải hỏi lại, mất đúng cái lợi của nút bấm.
+    """
+    # Không gán cứng một mã căn khi chưa biết (trước đây là `ZEN-A-1205`): chip phải nói đúng thứ đang có
+    # ngữ cảnh, nếu không Sale bấm một nút mang mã căn chưa từng được nhắc tới.
+    unit = unit_code or ""
+    entities = entities or {}
+    bedrooms = int(entities.get("bedrooms") or 0)
+    budget = int(entities.get("amount_vnd") or 0)
+    budget_text = f" (ngân sách {_format_budget_short(budget)})" if budget else ""
     if intent == intents.INTENT_CREATE_CUSTOMER:
-        return ["Lưu khách hàng vào CRM", f"Tạo báo giá căn {unit}", f"So sánh 3 phương án căn {unit}"]
+        if unit:
+            return ["Lưu khách hàng vào CRM", f"Tạo báo giá căn {unit}", f"So sánh 3 phương án căn {unit}"]
+        return ["Lưu khách hàng vào CRM", "Lọc giỏ hàng theo ngân sách khách", "Soạn tin nhắn gửi khách"]
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
-        return ["Trình duyệt báo giá", "So sánh với phương án vay ngân hàng", "Soạn tin nhắn gửi khách"]
+        return ["Trình duyệt báo giá", "Xem bảng tính vay chi tiết", "Soạn tin nhắn gửi khách"]
+    if intent == intents.INTENT_ASSESS_FUNDS:
+        # K4: gợi ý bằng NÚT BẤM thay vì viết dài — Sale bấm là ra bảng dòng tiền chi tiết.
+        chips = ["Xem bảng tính vay chi tiết"]
+        if unit:
+            chips.append(f"Tạo báo giá căn {unit}")
+        chips.append("Soạn tin nhắn gửi khách")
+        return chips
     if intent == intents.INTENT_COMPOSE_MESSAGE:
         return ["Kiểm tra lại tuân thủ F8", "Lập báo giá đính kèm", "Đổi văn phong thân mật hơn"]
     if intent == intents.INTENT_BROWSE_UNITS:
-        return ["Xem chi tiết căn rẻ nhất", "Tạo khách hàng quan tâm", "So sánh phương án căn này"]
+        chips: list[str] = []
+        if bedrooms:
+            lower = max(1, bedrooms - 1)
+            chips.append(f"Xem bảng tính vay chi tiết cho căn {bedrooms} ngủ{budget_text}")
+            chips.append(f"Gửi danh sách căn {bedrooms} ngủ đang mở bán")
+            chips.append(f"Mở rộng sang căn {lower}PN+1{budget_text}")
+        else:
+            chips = [
+                "Xem chi tiết căn rẻ nhất",
+                "Gửi danh sách căn đang mở bán",
+                "So sánh phương án căn này",
+            ]
+        return chips
     return ["Tra cứu chính sách đang hiệu lực", "Xem giỏ hàng còn căn nào", "Tạo báo giá cho khách"]
 
 
 def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> list[tuple[str, dict[str, Any], str]]:
     """Kế hoạch dự phòng theo intent đơn (giữ tương thích khi planner không tách được gì)."""
-    ctx_unit = request.current_unit or intent.entities.get("unit_code") or "ZEN-A-1205"
+    ctx_unit = request.current_unit or intent.entities.get("unit_code") or ""
     tx_date = request.transaction_date or ""
     if intent.intent == intents.INTENT_LOOKUP_POLICY:
         return [("tra_cuu_chinh_sach", {"cau_hoi": request.message, "ngay_hieu_luc": tx_date}, "Tra cứu chính sách hiệu lực")]
@@ -313,6 +531,19 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
                     "ma_can": intent.entities.get("unit_code") or "",
                 },
                 "Lọc giỏ hàng theo tiêu chí",
+            )
+        ]
+    if intent.intent == intents.INTENT_ASSESS_FUNDS:
+        return [
+            (
+                "danh_gia_von_tu_co",
+                {
+                    "von_tu_co_vnd": intent.entities.get("amount_vnd") or 0,
+                    "so_phong_ngu": intent.entities.get("bedrooms") or 0,
+                    "ma_can": intent.entities.get("unit_code") or "",
+                    "ngay_giao_dich": tx_date,
+                },
+                "Đánh giá tổng quan vốn tự có (không bảng dòng tiền chi tiết)",
             )
         ]
     if intent.intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
@@ -355,7 +586,35 @@ async def _run_offline_react(
     if not tool_plan:
         return
 
+    executed = 0
     for name, args, reason in tool_plan[:MAX_TOOL_CALLS_PER_TURN]:
+        yield CopilotEvent("action", {"tool": name, "args": args, "reason": reason})
+        payload, _raw, attempts = await _execute_tool({"name": name, "args": args})
+        payload["tool"] = name
+        observations.append(payload)
+        executed += 1
+        yield CopilotEvent(
+            "observation",
+            {
+                "tool": name,
+                "ok": not payload.get("error") and not payload.get("error_code"),
+                "error_code": payload.get("error_code"),
+                "attempts": attempts,
+                "summary": str(payload.get("summary", ""))[:1200],
+                "citations": payload.get("citations") or [],
+                # Trường máy đọc được để eval/CI kiểm tự động (P3.2) — không đưa vào câu trả lời.
+                "match_count": payload.get("match_count"),
+                "segment_check": payload.get("segment_check"),
+                "data_as_of": payload.get("data_as_of"),
+            },
+        )
+
+    # Lọc rỗng không phải ngõ cụt (chốt P1.1/P1.2): nếu Sale có nêu ngân sách và số phòng ngủ, đi tiếp
+    # một bước **tổng quan** vốn tự có (KHÔNG phải bảng dòng tiền chi tiết) để câu trả lời có mốc
+    # "khả thi tới đâu / còn thiếu bao nhiêu" thay vì dừng ở "không có căn nào".
+    follow_up = _own_funds_follow_up(observations, intent, executed)
+    if follow_up is not None:
+        name, args, reason = follow_up
         yield CopilotEvent("action", {"tool": name, "args": args, "reason": reason})
         payload, _raw, attempts = await _execute_tool({"name": name, "args": args})
         payload["tool"] = name
@@ -369,8 +628,38 @@ async def _run_offline_react(
                 "attempts": attempts,
                 "summary": str(payload.get("summary", ""))[:1200],
                 "citations": payload.get("citations") or [],
+                # Trường máy đọc được để eval/CI kiểm tự động (P3.2) — không đưa vào câu trả lời.
+                "match_count": payload.get("match_count"),
+                "segment_check": payload.get("segment_check"),
+                "data_as_of": payload.get("data_as_of"),
             },
         )
+
+
+def _own_funds_follow_up(
+    observations: list[dict[str, Any]],
+    intent: intents.IntentResult,
+    executed: int,
+) -> tuple[str, dict[str, Any], str] | None:
+    """Bước đi tiếp khi lọc giỏ hàng ra rỗng mà Sale có nêu ngân sách + số phòng ngủ."""
+    if executed >= MAX_TOOL_CALLS_PER_TURN:
+        return None
+    browse = next((o for o in observations if o.get("tool") == "tra_cuu_gio_hang"), None)
+    if browse is None or int(browse.get("match_count") or 0) != 0:
+        return None
+    budget = int(intent.entities.get("amount_vnd") or 0)
+    bedrooms = int(intent.entities.get("bedrooms") or 0)
+    if not budget or not bedrooms:
+        return None
+    return (
+        "danh_gia_von_tu_co",
+        {
+            "von_tu_co_vnd": budget,
+            "so_phong_ngu": bedrooms,
+            "ngay_giao_dich": str(intent.entities.get("transaction_date") or ""),
+        },
+        "Lọc rỗng → ước lượng tổng quan vốn tự có để có hướng đi tiếp",
+    )
 
 
 async def stream_copilot(
@@ -405,8 +694,9 @@ async def stream_copilot(
     enriched_entity = memory.enrich_entity_with_slots(intent.entities, slots)
     intent = intents.IntentResult(intent.intent, intent.confidence, enriched_entity, intent.matched_keywords)
 
-    # 0b) Planner: chia câu nhiều ý thành nhiều bước
-    plan = planner.decompose(message, enriched_entity)
+    # 0b) Planner: chia câu nhiều ý thành nhiều bước. Truyền thêm **căn đang mở trong phiên** để bước
+    #     soạn tin/báo giá dùng đúng căn Sale đang nói tới thay vì một mã căn mặc định.
+    plan = planner.decompose(message, enriched_entity, context_unit=slots.current_unit or request.current_unit)
     observations: list[dict[str, Any]] = []
     deterministic_action = intents.build_action_card(
         message, intent, {"current_unit": slots.current_unit or request.current_unit}
@@ -462,18 +752,20 @@ async def stream_copilot(
         offline_reason = str(exc)
         logger.warning("Không khởi tạo được LLM cho Copilot (%s) — dùng offline ReAct.", exc)
 
-    system_prompt = build_system_prompt(
-        {
-            "current_unit": slots.current_unit or request.current_unit,
-            "lead_dossier_id": slots.lead_dossier_id or request.lead_dossier_id,
-            "transaction_date": slots.transaction_date or request.transaction_date,
-            "project_id": request.project_id,
-            "plan": [{"intent": s.intent, "tool": s.tool} for s in plan],
-            "history_summary": memory.summarize_history(request.history),
-            # Học từ phản hồi (P2): các lượt từng bị chê, nhắc để không lặp lại cách trả lời đó.
-            "avoid_examples": feedback.few_shot_hints(),
-        }
-    )
+    prompt_context = {
+        "current_unit": slots.current_unit or request.current_unit,
+        "lead_dossier_id": slots.lead_dossier_id or request.lead_dossier_id,
+        "transaction_date": slots.transaction_date or request.transaction_date,
+        "project_id": request.project_id,
+        "plan": [{"intent": s.intent, "tool": s.tool} for s in plan],
+        "history_summary": memory.summarize_history(request.history),
+        # Học từ phản hồi (P2): các lượt từng bị chê, nhắc để không lặp lại cách trả lời đó.
+        "avoid_examples": feedback.few_shot_hints(),
+    }
+    system_prompt = build_system_prompt(prompt_context)
+    # Chỉ phần **dữ liệu canonical** (không gồm `avoid_examples` do LLM tổng hợp) mới được coi là
+    # nguồn tham chiếu cho verifier.
+    canonical_reference = "\n".join(canonical_facts(prompt_context))
     messages: list[Any] = [SystemMessage(content=system_prompt)]
     for item in (request.history or [])[-MAX_HISTORY_MESSAGES:]:
         role = str(item.get("role", "")).lower()
@@ -511,10 +803,12 @@ async def stream_copilot(
                         str(getattr(response, "content", "") or ""),
                         observations,
                         deterministic_action,
-                        _default_suggestions(intent.intent, slots.current_unit or request.current_unit),
+                        _default_suggestions(intent.intent, slots.current_unit or request.current_unit, intent.entities),
                         intent,
                         plan=plan,
                         slots=slots,
+                        question=request.message,
+                        known_context=canonical_reference,
                     )
                     final["iterations"] = iteration
                     final["mode"] = "react"
@@ -563,10 +857,12 @@ async def stream_copilot(
                 "Em đã thu thập đủ dữ liệu cần thiết. Anh/chị xem tóm tắt bên dưới và cho em biết bước tiếp theo nhé.",
                 observations,
                 deterministic_action,
-                _default_suggestions(intent.intent, slots.current_unit or request.current_unit),
+                _default_suggestions(intent.intent, slots.current_unit or request.current_unit, intent.entities),
                 intent,
                 plan=plan,
                 slots=slots,
+                question=request.message,
+                known_context=canonical_reference,
             )
             final["iterations"] = max_iterations
             final["mode"] = "react"
@@ -603,19 +899,31 @@ async def stream_copilot(
         )
     if intent.intent == intents.INTENT_CREATE_CUSTOMER:
         name = intent.entities.get("customer_name") or "khách hàng"
+        facts: list[str] = []
+        if intent.entities.get("customer_phone"):
+            facts.append(f"SĐT {intent.entities['customer_phone']}")
+        if intent.entities.get("amount_vnd"):
+            facts.append(f"vốn tự có {grounding.format_vnd(intent.entities['amount_vnd'])}")
+        if intent.entities.get("amount_range_vnd"):
+            low, high = intent.entities["amount_range_vnd"]
+            facts.append(f"ngân sách {grounding.format_vnd(low)} – {grounding.format_vnd(high)}")
+        if intent.entities.get("unit_code"):
+            facts.append(f"quan tâm căn {intent.entities['unit_code']}")
         reply = (
             f"Em đã bóc tách hồ sơ cho {name}"
-            + (f" (SĐT {intent.entities.get('customer_phone')})" if intent.entities.get("customer_phone") else "")
+            + (f" ({', '.join(facts)})" if facts else "")
             + ". Anh/chị kiểm tra thông tin trên thẻ và bấm Khởi tạo ngay để lưu vào CRM nhé."
         )
     final = _finalize(
         reply,
         observations,
         deterministic_action,
-        _default_suggestions(intent.intent, slots.current_unit or request.current_unit),
+        _default_suggestions(intent.intent, slots.current_unit or request.current_unit, intent.entities),
         intent,
         plan=plan,
         slots=slots,
+        question=request.message,
+        known_context=canonical_reference,
     )
     final["iterations"] = 1
     final["mode"] = "offline_react"

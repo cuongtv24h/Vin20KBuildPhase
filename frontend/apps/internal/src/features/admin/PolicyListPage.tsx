@@ -109,10 +109,10 @@ export function PolicyListPage() {
             </span>
             <div>
               <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                Quản trị Chính sách Bán hàng & RAG Rules
+                Quản trị Chính sách Bán hàng và RAG Rules
               </h1>
               <p className="text-xs text-muted-foreground">
-                Nguồn chân lý duy nhất (Single Source of Truth) · Số hóa văn bản PDF, ma trận xung đột & Time-Travel Versioning
+                Nguồn chân lý duy nhất (Single Source of Truth) · Số hóa văn bản PDF, ma trận xung đột và Time-Travel Versioning
               </p>
             </div>
           </div>
@@ -136,7 +136,7 @@ export function PolicyListPage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-foreground">{metrics.total}</span>
-              <span className="text-[11px] text-muted-foreground">chính sách trong hệ thống</span>
+              <span className="text-xs text-muted-foreground">chính sách trong hệ thống</span>
             </div>
           </CardContent>
         </Card>
@@ -149,7 +149,7 @@ export function PolicyListPage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-success">{metrics.active}</span>
-              <span className="text-[11px] text-muted-foreground">đang áp dụng tính giá</span>
+              <span className="text-xs text-muted-foreground">đang áp dụng tính giá</span>
             </div>
           </CardContent>
         </Card>
@@ -162,7 +162,7 @@ export function PolicyListPage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-warning">{metrics.drafts}</span>
-              <span className="text-[11px] text-muted-foreground">chờ kiểm thử & ban hành</span>
+              <span className="text-xs text-muted-foreground">chờ kiểm thử và ban hành</span>
             </div>
           </CardContent>
         </Card>
@@ -175,7 +175,7 @@ export function PolicyListPage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-foreground">{metrics.expired}</span>
-              <span className="text-[11px] text-muted-foreground">lưu trữ đối soát Time-Travel</span>
+              <span className="text-xs text-muted-foreground">lưu trữ đối soát Time-Travel</span>
             </div>
           </CardContent>
         </Card>
@@ -188,7 +188,7 @@ export function PolicyListPage() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-foreground">{metrics.totalRules}</span>
-              <span className="text-[11px] text-muted-foreground">atoms / rules trích xuất</span>
+              <span className="text-xs text-muted-foreground">atoms / rules trích xuất</span>
             </div>
           </CardContent>
         </Card>
@@ -236,9 +236,9 @@ export function PolicyListPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">Tất cả trạng thái</SelectItem>
-                  <SelectItem value="ACTIVE">🟢 Đang có hiệu lực</SelectItem>
-                  <SelectItem value="DRAFT">🟡 Bản thảo DRAFT</SelectItem>
-                  <SelectItem value="EXPIRED">⚪ Đã hết hạn</SelectItem>
+                  <SelectItem value="ACTIVE"><span className="inline-flex items-center"><span aria-hidden="true" className="mr-2 inline-block h-2 w-2 rounded-full bg-success" />Đang có hiệu lực</span></SelectItem>
+                  <SelectItem value="DRAFT"><span className="inline-flex items-center"><span aria-hidden="true" className="mr-2 inline-block h-2 w-2 rounded-full bg-warning" />Bản thảo DRAFT</span></SelectItem>
+                  <SelectItem value="EXPIRED"><span className="inline-flex items-center"><span aria-hidden="true" className="mr-2 inline-block h-2 w-2 rounded-full bg-muted-foreground" />Đã hết hạn</span></SelectItem>
                   <SelectItem value="ARCHIVED">Lưu trữ ARCHIVED</SelectItem>
                 </SelectContent>
               </Select>
@@ -288,8 +288,8 @@ export function PolicyListPage() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/30 hover:bg-muted/30 text-[11px]">
-                    <TableHead className="w-[300px]">Văn bản & Phiên bản</TableHead>
+                  <TableRow className="bg-muted/30 hover:bg-muted/30 text-xs">
+                    <TableHead className="w-[300px]">Văn bản và Phiên bản</TableHead>
                     <TableHead className="w-[180px]">Dự án áp dụng</TableHead>
                     <TableHead className="w-[220px]">Thời hạn hiệu lực</TableHead>
                     <TableHead className="w-[130px] text-right">Điều khoản (Rules)</TableHead>
@@ -314,14 +314,14 @@ export function PolicyListPage() {
                             <p className="font-semibold text-foreground text-xs hover:text-primary transition-colors">
                               {p.title}
                             </p>
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
                               <span className="font-mono text-primary">{p.policy_id}</span>
                               <span>·</span>
-                              <Badge variant="outline" className="px-1 py-0 text-[10px]">
+                              <Badge variant="outline" className="px-1 py-0 text-xs">
                                 {p.policy_version}
                               </Badge>
                             </div>
-                            <p className="font-mono text-[10px] text-muted-foreground" title={p.document_hash}>
+                            <p className="font-mono text-xs text-muted-foreground" title={p.document_hash}>
                               {p.source_document} (SHA-256: {truncateHash(p.document_hash, 8)})
                             </p>
                           </div>
@@ -342,11 +342,11 @@ export function PolicyListPage() {
                               <span>{formatDate(p.effective_from)} – {formatDate(p.effective_to)}</span>
                             </div>
                             {isDraft ? (
-                              <span className="text-[10px] text-warning font-medium">Chưa ban hành</span>
+                              <span className="text-xs text-warning font-medium">Chưa ban hành</span>
                             ) : isExpired ? (
-                              <span className="text-[10px] text-muted-foreground">Đã hết hiệu lực</span>
+                              <span className="text-xs text-muted-foreground">Đã hết hiệu lực</span>
                             ) : (
-                              <span className="text-[10px] text-success font-medium">Đang áp dụng</span>
+                              <span className="text-xs text-success font-medium">Đang áp dụng</span>
                             )}
                           </div>
                         </TableCell>
@@ -357,7 +357,7 @@ export function PolicyListPage() {
                             <span className="font-mono font-bold text-sm tabular-nums text-foreground">
                               {p.rules.length}
                             </span>
-                            <p className="text-[10px] text-muted-foreground">quy tắc số hóa</p>
+                            <p className="text-xs text-muted-foreground">quy tắc số hóa</p>
                           </div>
                         </TableCell>
 
@@ -433,7 +433,7 @@ function UploadPolicyDialog({ onClose }: { onClose: () => void }) {
             <div className="flex items-center gap-2 text-primary">
               <UploadCloud className="h-5 w-5" />
               <DialogTitle className="text-base font-bold">
-                Tải lên & Số hóa Văn bản Chính sách Bán hàng
+                Tải lên và Số hóa Văn bản Chính sách Bán hàng
               </DialogTitle>
             </div>
             <DialogDescription className="text-xs">
@@ -465,7 +465,7 @@ function UploadPolicyDialog({ onClose }: { onClose: () => void }) {
                 <p className="text-xs font-medium text-foreground">
                   {file ? file.name : 'Kéo thả hoặc bấm để chọn tệp tin'}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {file ? `${(file.size / 1024).toFixed(1)} KB` : 'Định dạng hỗ trợ: PDF, DOCX (Tối đa 25MB)'}
                 </p>
               </label>
@@ -551,7 +551,7 @@ function UploadPolicyDialog({ onClose }: { onClose: () => void }) {
             </Button>
             <Button type="submit" variant="default" size="sm" disabled={!isValid || extract.isPending} className="gap-2">
               {extract.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              <span>{extract.isPending ? 'Đang trích xuất điều khoản…' : 'Số hóa & Trích xuất điều khoản'}</span>
+              <span>{extract.isPending ? 'Đang trích xuất điều khoản…' : 'Số hóa và Trích xuất điều khoản'}</span>
             </Button>
           </DialogFooter>
         </form>

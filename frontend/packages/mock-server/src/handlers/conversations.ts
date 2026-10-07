@@ -95,6 +95,9 @@ export const conversationHandlers = [
       assistant_message: string
       citations?: unknown[]
       action_type?: string | null
+      internal_notes?: string
+      anchors?: unknown[]
+      data_as_of?: string | null
     }>()
     if (!body?.user_message?.trim() && !body?.assistant_message?.trim()) {
       throw new MockError(422, 'INPUT_VALIDATION_ERROR', 'Lượt hội thoại phải có nội dung.')
@@ -121,6 +124,11 @@ export const conversationHandlers = [
         at,
         citations: (body.citations as CopilotConversationMessage['citations']) ?? [],
         action_type: body.action_type ?? null,
+        // Ba trường mới (chốt P2.1 · P2.4 · P1.6) phải đi cùng lượt, nếu không mở lại lịch sử
+        // sẽ mất mỏ neo bấm được, mất cảnh báo kiểm duyệt và mất mốc thời gian dữ liệu.
+        internal_notes: body.internal_notes ?? '',
+        anchors: (body.anchors as CopilotConversationMessage['anchors']) ?? [],
+        data_as_of: body.data_as_of ?? null,
       })
     }
     conversation.messages = conversation.messages.slice(-MAX_MESSAGES)

@@ -31,6 +31,8 @@ from src.services.tts_providers import (
     DEFAULT_MAX_CHARS_PER_TURN,
     default_tts_settings,
     estimate_tts_cost,
+    get_tts_provider,
+    refresh_tts_providers,
     tts_catalog,
     validate_tts_settings,
 )
@@ -132,12 +134,30 @@ async def _feedback_summary(session: AsyncSession, provider: str, voice: str) ->
     }
 
 
+def _without_missing_provider(settings: dict[str, Any]) -> dict[str, Any]:
+    """Rơi về nhà cung cấp mặc định khi nhà cung cấp đã lưu không còn trong danh mục.
+
+    Tình huống thật: quản trị viên xoá một nhà cung cấp tự thêm trong khi vẫn có người đang chọn nó.
+    Nếu cứ đem mã cũ đi kiểm tra thì trang giọng đọc trả lỗi 500 cho mọi nhân viên — không chấp nhận được.
+    Ở đây thay bằng nhà cung cấp mặc định (trình duyệt) và ghi log để quản trị viên biết.
+    """
+    provider = str(settings.get("provider") or "").strip().lower()
+    if not provider or get_tts_provider(provider) is not None:
+        return settings
+    fallback = default_tts_settings()["provider"]
+    logger.warning("tts_provider_missing provider=%s → fallback=%s", provider, fallback)
+    return {**settings, "provider": fallback}
+
+
 @router.get("/tts", response_model=TtsSettingsResponse)
 async def get_tts_settings(
     principal: Principal = Depends(require_staff_principal),
     session: AsyncSession = Depends(get_db_session),
 ) -> TtsSettingsResponse:
     """Thiết lập hiện hành + thiết lập hiệu lực cho người đang đăng nhập."""
+    # Nhà cung cấp TTS có thể do Admin thêm/sửa trong màn hình quản trị (DB) ⇒ nạp trước khi dựng danh mục,
+    # nếu không người dùng sẽ không thấy nhà cung cấp mới cho tới khi khởi động lại backend.
+    await refresh_tts_providers(session)
     base = default_tts_settings()
     default_override = await _load_scope(session, DEFAULT_SCOPE)
     user_override = await _load_scope(session, user_scope(principal.user_id))
@@ -147,12 +167,13 @@ async def get_tts_settings(
         effective.update({k: v for k, v in default_override.items() if k not in ("updated_by", "updated_at")})
     if user_override:
         effective.update({k: v for k, v in user_override.items() if k not in ("updated_by", "updated_at")})
-    effective = validate_tts_settings({}, base=effective)
+    effective = validate_tts_settings({}, base=_without_missing_provider(effective))
     effective.pop("warning", None)
 
     return TtsSettingsResponse(
         catalog=tts_catalog(),
-        default=validate_tts_settings({}, base=default_override or base) | {"is_explicit": default_override is not None},
+        default=validate_tts_settings({}, base=_without_missing_provider(default_override or base))
+        | {"is_explicit": default_override is not None},
         user_override=user_override,
         effective=effective,
         cost_hint=estimate_tts_cost(
@@ -171,6 +192,9 @@ async def update_tts_settings(
     session: AsyncSession = Depends(get_db_session),
 ) -> TtsSettingsResponse:
     """Lưu thiết lập TTS (riêng tôi hoặc toàn hệ thống — có phân quyền)."""
+    # Cùng lý do như GET: nạp bản ghi DB để nhà cung cấp do Admin thêm không bị coi là "không hợp lệ"
+    # khi người dùng lưu lựa chọn ngay sau khi thêm (backend chưa khởi động lại).
+    await refresh_tts_providers(session)
     scope = DEFAULT_SCOPE if payload.scope == "default" else user_scope(principal.user_id)
     if scope == DEFAULT_SCOPE and not principal.has_role(*DEFAULT_SCOPE_ROLES):
         raise HTTPException(
@@ -188,7 +212,7 @@ async def update_tts_settings(
 
     changes = payload.model_dump(exclude_none=True, exclude={"scope"})
     try:
-        merged = validate_tts_settings(changes, base=base)
+        merged = validate_tts_settings(changes, base=_without_missing_provider(base))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     merged.pop("warning", None)

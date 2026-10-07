@@ -1,31 +1,4 @@
-import {
-  AlertCircle,
-  AlertTriangle,
-  ArrowLeft,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  Copy,
-  Download,
-  ExternalLink,
-  FileCheck2,
-  FileEdit,
-  FileText,
-  KeyRound,
-  Layers,
-  Loader2,
-  Lock,
-  PenLine,
-  QrCode,
-  RefreshCw,
-  Scale,
-  ShieldAlert,
-  ShieldCheck,
-  Sparkles,
-  Target,
-  User,
-  XCircle,
-} from 'lucide-react'
+import { AlertCircle, AlertTriangle, ArrowLeft, Calendar, CheckCircle2, Clock, Copy, Download, ExternalLink, FileCheck2, FileEdit, FileText, KeyRound, Layers, Loader2, Lock, PenLine, QrCode, RefreshCw, Scale, ShieldAlert, ShieldCheck, Sparkles, Target, User, XCircle, Check, Star } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Quote, Scenario, ScenarioCode } from '@pricepolicy/api-client/contracts'
@@ -145,9 +118,9 @@ function Workspace({ quote, onVersionChange }: { quote: Quote; onVersionChange: 
                         <div className="flex items-center justify-between">
                           <CardTitle className="flex items-center gap-2 text-sm font-semibold">
                             <Scale className="h-4 w-4 text-primary" />
-                            Minh bạch căn cứ & Điều khoản loại trừ (Why & Why Not)
+                            Minh bạch căn cứ và Điều khoản loại trừ (Why và Why Not)
                           </CardTitle>
-                          <Badge variant="outline" className="text-[11px]">
+                          <Badge variant="outline" className="text-xs">
                             {ev.claims.length} căn cứ chứng thực
                           </Badge>
                         </div>
@@ -231,7 +204,7 @@ function RiskAuditEngineCard({ quote, currentUserId }: { quote: Quote; currentUs
               <CardTitle className="text-sm font-semibold text-foreground">
                 Hệ thống Cảm biến Rủi ro Tự động (Risk Audit Engine)
               </CardTitle>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Tự động rà soát 4 chốt an toàn nghiệp vụ trước khi kích hoạt quy trình ký số Ed25519
               </p>
             </div>
@@ -257,7 +230,7 @@ function RiskAuditEngineCard({ quote, currentUserId }: { quote: Quote; currentUs
               <strong className="text-foreground">{isSodValid ? 'Khác người lập' : 'TRÙNG NGƯỜI LẬP (VI PHẠM)'}</strong>
             </p>
           </div>
-          <Badge variant={isSodValid ? 'outline' : 'destructive'} className="shrink-0 text-[10px]">
+          <Badge variant={isSodValid ? 'outline' : 'destructive'} className="shrink-0 text-xs">
             {isSodValid ? 'HỢP LỆ' : 'VI PHẠM SOD'}
           </Badge>
         </div>
@@ -272,12 +245,12 @@ function RiskAuditEngineCard({ quote, currentUserId }: { quote: Quote; currentUs
             <p className="text-muted-foreground">
               Văn bản: <strong className="text-foreground">{quote.policy_snapshot_ref?.title || 'CSBH Đợt 3'}</strong> (Phiên bản{' '}
               {quote.policy_snapshot_ref?.policy_version || 'v2.1'}) · SHA-256:{' '}
-              <span className="font-mono text-[10px]">
+              <span className="font-mono text-xs">
                 {truncateHash(quote.policy_snapshot_ref?.snapshot_hash || '8f4a1cb239e9441a', 10)}
               </span>
             </p>
           </div>
-          <Badge variant="outline" className="shrink-0 text-[10px] text-success border-success/40">
+          <Badge variant="outline" className="shrink-0 text-xs text-success border-success/40">
             CÒN HIỆU LỰC
           </Badge>
         </div>
@@ -298,7 +271,7 @@ function RiskAuditEngineCard({ quote, currentUserId }: { quote: Quote; currentUs
               {isDiscountWithinCap ? '≤' : '>'} Hạn mức phân quyền Trưởng phòng (10.0%)
             </p>
           </div>
-          <Badge variant={isDiscountWithinCap ? 'outline' : 'warning'} className="shrink-0 text-[10px]">
+          <Badge variant={isDiscountWithinCap ? 'outline' : 'warning'} className="shrink-0 text-xs">
             {isDiscountWithinCap ? 'TRONG HẠN MỨC' : 'CHẠM TRẦN CẢNH BÁO'}
           </Badge>
         </div>
@@ -312,7 +285,7 @@ function RiskAuditEngineCard({ quote, currentUserId }: { quote: Quote; currentUs
               ) : (
                 <AlertCircle className="h-3.5 w-3.5 text-warning" />
               )}
-              <span>4. Ma trận xung đột & Loại trừ điều khoản (Exclusion Matrix)</span>
+              <span>4. Ma trận xung đột và Loại trừ điều khoản (Exclusion Matrix)</span>
             </div>
             <p className="text-muted-foreground">
               {!hasExclusions
@@ -320,7 +293,7 @@ function RiskAuditEngineCard({ quote, currentUserId }: { quote: Quote; currentUs
                 : quote.conflict_report?.findings.map((f) => f.message).join('; ')}
             </p>
           </div>
-          <Badge variant={!hasExclusions ? 'outline' : 'warning'} className="shrink-0 text-[10px]">
+          <Badge variant={!hasExclusions ? 'outline' : 'warning'} className="shrink-0 text-xs">
             {!hasExclusions ? 'KHÔNG XUNG ĐỘT' : 'CÓ ĐIỀU KHOẢN LOẠI TRỪ'}
           </Badge>
         </div>
@@ -352,7 +325,7 @@ function ScenarioComparisonGrid({
             </CardTitle>
           </div>
           {quote.recommendation && (
-            <Badge variant="gold" className="text-[11px]">
+            <Badge variant="gold" className="text-xs">
               Tối ưu: {quote.recommendation.objective}
             </Badge>
           )}
@@ -377,25 +350,25 @@ function ScenarioComparisonGrid({
                 )}
               >
                 {isRec && (
-                  <span className="absolute -top-2.5 right-3 rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold uppercase text-gold-foreground shadow-sm">
-                    ★ Tối ưu nhất
+                  <span className="absolute -top-2.5 right-3 rounded-full bg-gold px-2 py-0.5 text-xs font-bold uppercase text-gold-foreground shadow-sm">
+                    <Star className="mr-1 inline h-3 w-3 align-text-top" aria-hidden="true" /> Tối ưu nhất
                   </span>
                 )}
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-foreground">{s.label}</span>
-                    <Badge variant={isSel ? 'default' : 'outline'} className="text-[10px]">
+                    <Badge variant={isSel ? 'default' : 'outline'} className="text-xs">
                       {s.installments_count} đợt
                     </Badge>
                   </div>
 
                   <div>
-                    <span className="text-[11px] text-muted-foreground">Giá bán sau ưu đãi (gồm VAT):</span>
+                    <span className="text-xs text-muted-foreground">Giá bán sau ưu đãi (gồm VAT):</span>
                     <MoneyText amount={s.total_contract_price_vnd} size="base" className="font-bold text-foreground" />
                   </div>
 
-                  <div className="space-y-1 rounded-md bg-muted/40 p-2 text-[11px]">
+                  <div className="space-y-1 rounded-md bg-muted/40 p-2 text-xs">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Chiết khấu:</span>
                       <span className="font-semibold text-success">
@@ -416,7 +389,7 @@ function ScenarioComparisonGrid({
                       isSel ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                     )}
                   >
-                    {isSel ? '✓ Đang xem đối soát' : 'Bấm để đối soát'}
+                    {isSel ? <><Check className="mr-1 inline h-3 w-3" aria-hidden="true" /> Đang xem đối soát</> : 'Bấm để đối soát'}
                   </span>
                 </div>
               </div>
@@ -440,11 +413,11 @@ function DualReconciliationTable({ scenario, quote }: { scenario: Scenario; quot
             <CardTitle className="text-sm font-semibold">
               Bảng Tiến Độ Thanh Toán Đã Chống Sai Số (Dual Reconciliation Verified)
             </CardTitle>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Phương án: <strong className="text-foreground">{scenario.label}</strong> · Thuật toán số học 0-float Python Decimal
             </p>
           </div>
-          <Badge variant="outline" className="border-success/40 bg-success/5 text-[11px] text-success">
+          <Badge variant="outline" className="border-success/40 bg-success/5 text-xs text-success">
             <CheckCircle2 className="mr-1 h-3 w-3" /> Đối soát bù trừ: Δ = 0 VNĐ tuyệt đối
           </Badge>
         </div>
@@ -454,7 +427,7 @@ function DualReconciliationTable({ scenario, quote }: { scenario: Scenario; quot
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40 text-[11px]">
+              <TableRow className="bg-muted/40 hover:bg-muted/40 text-xs">
                 <TableHead className="w-[50px] text-center">Đợt</TableHead>
                 <TableHead className="w-[180px]">Mốc thời gian</TableHead>
                 <TableHead className="w-[80px] text-right">Tỷ lệ</TableHead>
@@ -479,7 +452,7 @@ function DualReconciliationTable({ scenario, quote }: { scenario: Scenario; quot
                     <TableCell className="text-center font-bold">{item.seq}</TableCell>
                     <TableCell>
                       <p className="font-semibold text-foreground">{item.label}</p>
-                      <p className="text-[11px] text-muted-foreground">{item.milestone}</p>
+                      <p className="text-xs text-muted-foreground">{item.milestone}</p>
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {(item.ratio * 100).toFixed(1)}%
@@ -529,7 +502,7 @@ function DualReconciliationTable({ scenario, quote }: { scenario: Scenario; quot
           </Table>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
           <span>Mã băm tính toán (Calculation Hash): <code className="font-mono text-foreground">{truncateHash(scenario.calculation_hash, 16)}</code></span>
           <span>Bảo chứng bởi Python Hardened Deterministic Engine</span>
         </div>
@@ -584,9 +557,9 @@ function DecisionPanel({ quote }: { quote: Quote }) {
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-foreground">
                   {quote.approval.decision === 'APPROVED'
-                    ? '✓ ĐÃ PHÊ DUYỆT & KÝ SỐ'
+                    ? 'ĐÃ PHÊ DUYỆT và KÝ SỐ'
                     : quote.approval.decision === 'REJECTED'
-                    ? '✕ ĐÃ TỪ CHỐI'
+                    ? 'ĐÃ TỪ CHỐI'
                     : '↺ YÊU CẦU SỬA ĐỔI'}
                 </span>
                 <Badge variant={quote.approval.decision === 'APPROVED' ? 'success' : 'outline'}>
@@ -598,12 +571,12 @@ function DecisionPanel({ quote }: { quote: Quote }) {
                 {formatDateTime(quote.approval.decided_at)}
               </p>
               {quote.approval.reason && (
-                <p className="rounded bg-background p-2 font-mono text-[11px] text-foreground">
+                <p className="rounded bg-background p-2 font-mono text-xs text-foreground">
                   "{quote.approval.reason}"
                 </p>
               )}
               {quote.approval.signature && (
-                <div className="border-t border-border/60 pt-2 font-mono text-[10px] text-muted-foreground">
+                <div className="border-t border-border/60 pt-2 font-mono text-xs text-muted-foreground">
                   <p>Thuật toán: {quote.approval.signature.algorithm}</p>
                   <p>Key ID: {quote.approval.signature.key_id}</p>
                   <p className="truncate" title={quote.approval.signature.signature}>
@@ -626,8 +599,8 @@ function DecisionPanel({ quote }: { quote: Quote }) {
     <Card className="border-primary/40 bg-card shadow-md">
       <CardHeader className="border-b border-border/60 pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-bold text-foreground">Thẩm định & Quyết định</CardTitle>
-          <Badge variant="outline" className="border-primary/40 bg-primary/5 text-primary text-[11px]">
+          <CardTitle className="text-sm font-bold text-foreground">Thẩm định và Quyết định</CardTitle>
+          <Badge variant="outline" className="border-primary/40 bg-primary/5 text-primary text-xs">
             HITL Review Gate
           </Badge>
         </div>
@@ -643,7 +616,7 @@ function DecisionPanel({ quote }: { quote: Quote }) {
         {/* Recommended summary */}
         {rec && (
           <div className="rounded-lg border border-gold/40 bg-gold/[0.05] p-3 text-xs">
-            <span className="text-[11px] text-muted-foreground">Phương án đề xuất tối ưu:</span>
+            <span className="text-xs text-muted-foreground">Phương án đề xuất tối ưu:</span>
             <div className="flex items-baseline justify-between">
               <strong className="text-sm text-foreground">{rec.label}</strong>
               <MoneyText amount={rec.total_contract_price_vnd} size="base" className="font-bold text-gold" />
@@ -670,7 +643,7 @@ function DecisionPanel({ quote }: { quote: Quote }) {
                 key={t}
                 type="button"
                 onClick={() => setReason((r) => (r ? `${r} ${t}` : t))}
-                className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 + {t.slice(0, 30)}...
               </button>
@@ -688,7 +661,7 @@ function DecisionPanel({ quote }: { quote: Quote }) {
               className="w-full gap-2 text-xs font-bold"
             >
               <CheckCircle2 className="h-4 w-4" />
-              <span>Phê duyệt & Ký số Ed25519</span>
+              <span>Phê duyệt và Ký số Ed25519</span>
             </Button>
           )}
 
@@ -738,7 +711,7 @@ function ApproveDialog({ quote, onClose }: { quote: Quote; onClose: () => void }
       const grant = await reauth.mutateAsync({ password })
       await approve.mutateAsync({ quote, extra: { note: note.trim(), reauthToken: grant.reauth_token } })
       setPassword('')
-      toast.success('Đã phê duyệt & ký số thành công', quote.quote_id)
+      toast.success('Đã phê duyệt và ký số thành công', quote.quote_id)
       onClose()
       navigate(`/manager/approvals/${quote.quote_id}`)
     } catch {
@@ -785,7 +758,7 @@ function ApproveDialog({ quote, onClose }: { quote: Quote; onClose: () => void }
           </div>
 
           {/* Cryptographic Parameters */}
-          <div className="rounded-lg border border-border/80 bg-background p-3 text-[11px] font-mono text-muted-foreground space-y-1">
+          <div className="rounded-lg border border-border/80 bg-background p-3 text-xs font-mono text-muted-foreground space-y-1">
             <p>Thuật toán ký: <span className="text-foreground font-semibold">Ed25519 (RFC 8032 - Curve25519)</span></p>
             <p>Key ID Định danh: <span className="text-foreground">key-vland-prod-signer-2026a</span></p>
             <p>Mã băm tính toán: <span className="text-foreground">{truncateHash(rec?.calculation_hash || 'c8f3812a', 16)}</span></p>
@@ -824,8 +797,8 @@ function ApproveDialog({ quote, onClose }: { quote: Quote; onClose: () => void }
             />
           </div>
 
-          <div className="rounded-md bg-warning/10 p-2.5 text-[11px] text-warning-foreground leading-relaxed">
-            ⚠ <strong>Lưu ý:</strong> Sau khi ký, hồ sơ và chính sách áp dụng sẽ bị <strong>ĐÓNG BĂNG VĨNH VIỄN</strong> trong cơ sở dữ liệu. Mọi sửa đổi sau thời điểm này đều phải tạo phiên bản mới.
+          <div className="rounded-md bg-warning/10 p-2.5 text-xs text-warning-ink leading-relaxed">
+            <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-text-bottom" aria-hidden="true" /> <strong>Lưu ý:</strong> Sau khi ký, hồ sơ và chính sách áp dụng sẽ bị <strong>ĐÓNG BĂNG VĨNH VIỄN</strong> trong cơ sở dữ liệu. Mọi sửa đổi sau thời điểm này đều phải tạo phiên bản mới.
           </div>
 
           <DialogFooter className="gap-2">
@@ -834,7 +807,7 @@ function ApproveDialog({ quote, onClose }: { quote: Quote; onClose: () => void }
             </Button>
             <Button type="submit" variant="success" size="sm" disabled={busy || !password.trim()} className="gap-2">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-              <span>Xác nhận Ký & Xuất bản PDF</span>
+              <span>Xác nhận Ký và Xuất bản PDF</span>
             </Button>
           </DialogFooter>
         </form>
@@ -853,7 +826,7 @@ function PdfArtifactCard({ quote }: { quote: Quote }) {
     <Card className="border-border bg-card shadow-sm">
       <CardHeader className="border-b border-border/60 pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold">Tài liệu & Ký số Ed25519</CardTitle>
+          <CardTitle className="text-sm font-semibold">Tài liệu và Ký số Ed25519</CardTitle>
           {quote.pdf_status && <PdfStatusBadge status={quote.pdf_status} />}
         </div>
       </CardHeader>
@@ -863,7 +836,7 @@ function PdfArtifactCard({ quote }: { quote: Quote }) {
             <div className="space-y-1 rounded-lg border border-border bg-muted/40 p-2.5">
               <div className="flex items-center justify-between text-muted-foreground">
                 <span>Mã băm SHA-256 PDF:</span>
-                <span className="font-mono text-[10px] text-foreground">{truncateHash(pdf.pdf_sha256, 12)}</span>
+                <span className="font-mono text-xs text-foreground">{truncateHash(pdf.pdf_sha256, 12)}</span>
               </div>
               <div className="flex items-center justify-between text-muted-foreground">
                 <span>Phát hành lúc:</span>

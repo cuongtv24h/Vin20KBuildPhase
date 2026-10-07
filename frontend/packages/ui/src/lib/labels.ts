@@ -85,7 +85,7 @@ export const SCENARIO_LABEL: Record<ScenarioCode, string> = {
 
 export const AGENT_STEP_LABEL: Record<AgentStep, string> = {
   POLICY_LOOKUP: 'Tra cứu chính sách theo ngày giao dịch',
-  VECTOR_RETRIEVAL: 'Đối chiếu điều khoản & kiểm tra xung đột',
+  VECTOR_RETRIEVAL: 'Đối chiếu điều khoản và kiểm tra xung đột',
   DETERMINISTIC_CALCULATION: 'Tính 3 phương án thanh toán',
 }
 
@@ -126,7 +126,7 @@ export const AUDIT_EVENT_LABEL: Record<QuoteAuditEvent['event_type'], string> = 
   ANALYSIS_COMPLETED: 'Hoàn tất phân tích',
   ESCALATED: 'Chuyển thẩm định ngoại lệ',
   SUBMITTED: 'Gửi Quản lý duyệt',
-  APPROVED: 'Phê duyệt & ký số',
+  APPROVED: 'Phê duyệt và ký số',
   REJECTED: 'Từ chối',
   REVISION_REQUESTED: 'Yêu cầu chỉnh sửa',
   VERSION_CREATED: 'Tạo phiên bản mới',
@@ -149,6 +149,8 @@ export const CONSTRAINT_LABEL: Record<keyof CustomerConstraints, string> = {
 export const PROJECT_LABEL: Record<string, string> = {
   THE_ZEN_PARK: 'The Zen Park',
   VLANDFUTURE_SAPPHIRE: 'VLandFuture Sapphire',
+  // Nhãn của dự án demo cũ (không có trong bảng `projects` của DB vận hành). Giữ lại chỉ để
+  // dữ liệu cũ hiển thị đúng tên đã lưu; danh mục dự án thật lấy từ API, không lấy từ đây.
   'PROJECT-VLF-001': 'VLand Future Riverside',
 }
 

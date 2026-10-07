@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from src.agents.copilot import intents
+from src.agents.copilot import grounding, intents
 
 # Liên từ tách mệnh đề. Giữ "và" ở mức thận trọng: chỉ tách khi hai vế đều có động từ nghiệp vụ,
 # tránh cắt vụn câu như "giá và chính sách" thành 2 bước vô nghĩa.
@@ -33,6 +33,7 @@ _WORKFLOW_ORDER = {
     intents.INTENT_LOOKUP_POLICY: 10,
     intents.INTENT_LOOKUP_CUSTOMER: 15,
     intents.INTENT_BROWSE_UNITS: 20,
+    intents.INTENT_ASSESS_FUNDS: 25,
     intents.INTENT_COMPARE_SCENARIOS: 30,
     intents.INTENT_CREATE_QUOTE: 35,
     intents.INTENT_COMPOSE_MESSAGE: 40,
@@ -67,6 +68,10 @@ def _tool_for(intent: str, args: dict) -> str | None:
         return "tra_cuu_chinh_sach"
     if intent == intents.INTENT_BROWSE_UNITS:
         return "tra_cuu_gio_hang"
+    if intent == intents.INTENT_ASSESS_FUNDS:
+        # Đánh giá vốn tự có = mốc TỔNG QUAN (chốt P1.2); muốn bảng dòng tiền chi tiết thì dùng
+        # `tinh_phuong_an_thanh_toan` (Sale bấm "Xem bảng tính vay chi tiết").
+        return "danh_gia_von_tu_co"
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
         return "tinh_phuong_an_thanh_toan"
     if intent == intents.INTENT_COMPOSE_MESSAGE:
@@ -80,26 +85,111 @@ def _tool_for(intent: str, args: dict) -> str | None:
     return None
 
 
+#: Mẫu bóc CHỦ ĐỀ của tin nhắn: phần sau "về / liên quan / nói về" là nội dung Sale muốn nhắc khách.
+_COMPOSE_TOPIC_RE = re.compile(
+    r"(?:về|về việc|liên quan (?:tới|đến)|nói về|xung quanh)\s+(?P<topic>.+)$",
+    re.IGNORECASE,
+)
+#: Đuôi câu mệnh lệnh/lịch sự không thuộc chủ đề.
+_COMPOSE_TOPIC_TRIM_RE = re.compile(
+    r"\s*(?:giúp (?:em|mình|anh|chị)|cho (?:em|mình|anh|chị)|nhé|giùm em|ạ|với ạ)\s*[.!?]*\s*$",
+    re.IGNORECASE,
+)
+#: Trần độ dài chủ đề — dài hơn là câu mệnh lệnh, không phải chủ đề.
+_COMPOSE_TOPIC_MAX_CHARS = 60
+
+
+def _compose_topic(clause: str) -> str:
+    """Bóc chủ đề tin nhắn khỏi câu mệnh lệnh của Sale ('' nếu không rõ).
+
+    Ví dụ: "Viết tin nhắn Zalo gửi khách về chiết khấu thanh toán sớm" → "chiết khấu thanh toán sớm".
+    Thà để trống còn hơn nhét nguyên câu mệnh lệnh vào tin gửi khách.
+    """
+    match = _COMPOSE_TOPIC_RE.search(str(clause or ""))
+    if not match:
+        return ""
+    topic = _COMPOSE_TOPIC_TRIM_RE.sub("", match.group("topic").strip()).strip(" .,;:")
+    if not topic or len(topic) > _COMPOSE_TOPIC_MAX_CHARS:
+        return ""
+    # Đại từ chỉ định ("căn này", "việc đó") không phải chủ đề — chúng trỏ vào ngữ cảnh hội thoại.
+    if grounding.normalize(topic) in {"can nay", "can do", "viec nay", "viec do", "no", "cai nay", "cai do"}:
+        return ""
+    return topic
+
+
+def _budget_ceiling(entity: dict) -> int:
+    """Trần ngân sách Sale nêu: mốc tiền đơn, hoặc **mốc cao của khoảng** ("3–5 tỷ" → 5 tỷ).
+
+    Vì sao cần: câu "nguyện vọng mua căn từ 3 tỷ đến 5 tỷ" trước đây bị lọc bằng 0 (không lọc) nên bảng
+    gợi ý trả về cả căn 6,1 tỷ — thông tin vô nghĩa với khách.
+    """
+    amount_range = entity.get("amount_range_vnd")
+    if amount_range:
+        # Khoảng ngân sách là nguyện vọng rõ ràng nhất ("3–5 tỷ") ⇒ lấy mốc cao làm trần.
+        return int(amount_range[1])
+    if entity.get("amount_vnd"):
+        return int(entity["amount_vnd"])
+    return 0
+
+
 def _args_for(intent: str, clause: str, entity: dict) -> dict:
     tx_date = str(entity.get("transaction_date") or "")
-    unit = str(entity.get("unit_code") or entity.get("current_unit") or "ZEN-A-1205")
+    raw_unit = str(entity.get("unit_code") or entity.get("current_unit") or "")
+    # Không có mã căn thì để TRỐNG: tool sẽ nói chưa xác định được căn, còn hơn tính nhầm cho một căn
+    # mặc định mà Sale chưa hề nhắc (lỗi bị người dùng bắt ở đợt 20).
+    unit = raw_unit
+    project_id = str(entity.get("project_id") or "")
+    if not project_id and raw_unit:
+        if raw_unit.startswith("ZEN-"):
+            project_id = "THE_ZEN_PARK"
+        elif raw_unit.startswith("SAP-"):
+            project_id = "VLANDFUTURE_SAPPHIRE"
+        elif raw_unit.startswith(("R-", "G-", "SH-")):
+            project_id = "PROJECT-VLF-001"
     if intent == intents.INTENT_LOOKUP_POLICY:
-        return {"cau_hoi": clause, "ngay_hieu_luc": tx_date}
+        return {"cau_hoi": clause, "ngay_hieu_luc": tx_date, "du_an": project_id}
     if intent == intents.INTENT_BROWSE_UNITS:
         return {
             "so_phong_ngu": entity.get("bedrooms") or 0,
-            "gia_toi_da_vnd": entity.get("amount_vnd") or 0,
+            "gia_toi_da_vnd": _budget_ceiling(entity),
             "ma_can": entity.get("unit_code") or "",
+            "du_an": project_id,
+        }
+    if intent == intents.INTENT_CREATE_CUSTOMER:
+        # Hồ sơ khách mới: gợi ý luôn các căn TRONG NGÂN SÁCH khách vừa nêu (nếu có) — bảng phải liên
+        # quan tới nguyện vọng, không phải toàn bộ giỏ hàng.
+        return {
+            "so_phong_ngu": entity.get("bedrooms") or 0,
+            "gia_toi_da_vnd": _budget_ceiling(entity),
+            "ma_can": entity.get("unit_code") or "",
+            "du_an": project_id,
+        }
+    if intent == intents.INTENT_ASSESS_FUNDS:
+        return {
+            "von_tu_co_vnd": entity.get("amount_vnd") or 0,
+            "so_phong_ngu": entity.get("bedrooms") or 0,
+            "ma_can": entity.get("unit_code") or "",
+            "ngay_giao_dich": tx_date,
         }
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
+        # Không có mã căn nhưng có tiêu chí (số phòng ngủ / ngân sách) ⇒ để tool tự chọn căn phù hợp
+        # trong giỏ thật, thay vì mượn một mã căn mẫu.
         return {
             "ma_can": unit,
             "von_tu_co_vnd": entity.get("amount_vnd") or 0,
+            "so_phong_ngu": entity.get("bedrooms") or 0,
+            "gia_toi_da_vnd": entity.get("amount_vnd") or 0,
             "muc_tieu": "MIN_INITIAL_CASH",
             "ngay_giao_dich": tx_date,
         }
     if intent == intents.INTENT_COMPOSE_MESSAGE:
-        return {"ma_can": unit, "ten_khach": entity.get("customer_name") or "", "noi_dung_chinh": ""}
+        return {
+            "ma_can": unit,
+            "ten_khach": entity.get("customer_name") or "",
+            # Chủ đề Sale muốn nhắc trong tin (nếu bóc được) để bản nháp nói ĐÚNG việc Sale yêu cầu
+            # thay vì một tin chung chung — xem `_compose_topic`.
+            "noi_dung_chinh": _compose_topic(clause),
+        }
     if intent == intents.INTENT_LOOKUP_CUSTOMER:
         return {"tu_khoa": entity.get("customer_name") or clause}
     if intent == intents.INTENT_CHECK_F8:
@@ -109,12 +199,17 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
     return {}
 
 
-def decompose(message: str, entity: dict | None = None) -> list[PlanStep]:
+def decompose(message: str, entity: dict | None = None, context_unit: str | None = None) -> list[PlanStep]:
     """Chia câu lệnh thành các bước nghiệp vụ theo thứ tự thực thi.
+
+    `context_unit` là mã căn đang mở trong phiên/hồ sơ — dùng cho các bước cần căn mà câu lệnh không nêu
+    lại (ví dụ "soạn tin cho khách" ngay sau khi đã hỏi về căn SAP-D-4201).
 
     Trả về danh sách rỗng nếu câu lệnh chỉ là small talk hoặc không có mệnh đề nghiệp vụ nào.
     """
     entity = dict(entity or {})
+    if context_unit and not entity.get("unit_code"):
+        entity["current_unit"] = context_unit
     clauses = split_clauses(message) or [message]
 
     steps: dict[str, PlanStep] = {}
@@ -145,6 +240,7 @@ def plan_summary(steps: list[PlanStep]) -> str:
     labels = {
         intents.INTENT_LOOKUP_POLICY: "tra chính sách hiệu lực",
         intents.INTENT_BROWSE_UNITS: "lọc giỏ hàng",
+        intents.INTENT_ASSESS_FUNDS: "đánh giá vốn tự có",
         intents.INTENT_COMPARE_SCENARIOS: "tính & so sánh phương án",
         intents.INTENT_CREATE_QUOTE: "lập báo giá",
         intents.INTENT_COMPOSE_MESSAGE: "soạn tin & tự kiểm F8",

@@ -433,3 +433,87 @@ async def test_test_ket_noi_xanh_thi_chat_that_cung_chay_duoc(client: AsyncClien
     assert answer.content == "pong"
     assert seen and seen[0].startswith("Mozilla/5.0"), seen[0]
 
+
+
+# ── Đợt 22 (bổ sung): “2 nhà cung cấp sẵn” phải NHÌN THẤY được, và thêm mới được ngoài chúng ──────────
+# Người dùng: “Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2 nhà cung cấp sẵn.”
+# Trước đây bảng quản trị chỉ liệt kê bản ghi DB nên khi hệ thống đang chạy bằng ENV (thường 2 nhà cung
+# cấp: primary + fallback 1) màn hình vẫn ghi “Chưa khai báo nhà cung cấp nào” ⇒ không thấy mình đang có gì.
+
+
+@pytest.mark.asyncio
+async def test_hien_thi_nha_cung_cap_doc_tu_env(client: AsyncClient, monkeypatch) -> None:
+    """ENV có 2 khoá ⇒ `env_items` liệt kê đủ 2 dòng, khoá chỉ dạng che, và nói rõ chưa bị DB đè."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-primary-0001")
+    monkeypatch.delenv("FALLBACK1_OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("FALLBACK1_OPENAI_API_KEY", "sk-env-fallback-0002")
+    monkeypatch.setenv("FALLBACK1_MODEL_NAME", "gpt-4o-mini")
+    # Settings được cache trong tiến trình ⇒ xoá cache để đọc lại ENV vừa đặt.
+    from src.config import get_settings
+
+    get_settings.cache_clear()
+
+    resp = await client.get("/api/v1/admin/llm/providers", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "env" and body["total"] == 0, "DB trống thì vẫn ưu tiên báo đang chạy bằng ENV"
+    names = [item["name"] for item in body["env_items"]]
+    assert names == ["ENV · primary", "ENV · fallback 1"]
+    primary = body["env_items"][0]
+    assert primary["provider_id"] == "ENV-PRIMARY"
+    assert primary["provider"] == "openai" and primary["has_api_key"] is True
+    assert primary["api_key_masked"].endswith("0001")
+    assert "sk-env-primary-0001" not in resp.text, "khoá ENV cũng không được trả nguyên văn"
+    assert body["env_items"][1]["is_fallback"] is True
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_them_nha_cung_cap_moi_ngoai_hai_cai_san(client: AsyncClient, monkeypatch) -> None:
+    """Thêm nhà cung cấp thứ ba (vendor khác) trong khi ENV vẫn còn 2 nhà cung cấp sẵn."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-primary-0001")
+    from src.config import get_settings
+
+    get_settings.cache_clear()
+
+    payload = dict(
+        PAYLOAD,
+        name="DeepSeek (nhà cung cấp mới)",
+        provider="deepseek",
+        base_url="https://api.deepseek.com/v1",
+        model_name="deepseek-chat",
+        api_key="sk-deepseek-9999",
+        priority=0,
+    )
+    created = await client.post("/api/v1/admin/llm/providers", json=payload, headers=ADMIN_HEADERS)
+    assert created.status_code == 201, created.text
+    assert created.json()["provider"] == "deepseek"
+
+    body = (await client.get("/api/v1/admin/llm/providers", headers=ADMIN_HEADERS)).json()
+    assert body["source"] == "db", "có bản ghi DB ⇒ DB chạy trước ENV"
+    assert [item["provider"] for item in body["items"]] == ["deepseek"]
+    # 2 nhà cung cấp ENV vẫn hiển thị (chỉ-đọc) để quản trị viên biết chúng là đường lui.
+    assert [item["provider_id"] for item in body["env_items"]] == ["ENV-PRIMARY"]
+    assert body["env_items"][0]["overridden_by_db"] is False
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_kiem_tra_ket_noi_nha_cung_cap_env(client: AsyncClient, monkeypatch, provider_server) -> None:
+    """“Test kết nối” phải chạy được cho cả nhà cung cấp ENV, không chỉ bản ghi DB."""
+    base_url, _seen = provider_server("ok")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-primary-0001")
+    monkeypatch.setenv("OPENAI_BASE_URL", base_url)
+    from src.config import get_settings
+
+    get_settings.cache_clear()
+
+    resp = await client.post("/api/v1/admin/llm/providers/ENV-PRIMARY/test", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["provider_id"] == "ENV-PRIMARY"
+    assert body["ok"] is True and body["status"] == "OK"
+    # Không ghi lịch sử kiểm tra vào DB (không có bản ghi nào cho nhà cung cấp ENV).
+    listing = (await client.get("/api/v1/admin/llm/providers", headers=ADMIN_HEADERS)).json()
+    assert listing["total"] == 0
+    get_settings.cache_clear()

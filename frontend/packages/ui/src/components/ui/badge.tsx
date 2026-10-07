@@ -3,7 +3,7 @@ import * as React from 'react'
 import { cn } from '@pricepolicy/ui/lib/utils'
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none',
+  'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide transition-colors focus:outline-none',
   {
     variants: {
       variant: {
@@ -15,7 +15,7 @@ const badgeVariants = cva(
         warning: 'border-transparent bg-warning/15 text-warning',
         danger: 'border-transparent bg-destructive/15 text-destructive',
         gold: 'border-transparent bg-gold/15 text-gold',
-        info: 'border-transparent bg-primary/10 text-primary',
+        info: 'border-transparent bg-info/15 text-info',
         muted: 'border-transparent bg-muted text-muted-foreground',
       },
     },

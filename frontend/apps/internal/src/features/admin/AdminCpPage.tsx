@@ -169,7 +169,7 @@ function InitialAdminSetup({ onSetupSuccess }: { onSetupSuccess: () => void }) {
             <ShieldCheck className="h-8 w-8" />
           </div>
           <div className="flex justify-center">
-            <Badge variant="outline" className="border-amber-500/50 bg-amber-50 text-amber-700">
+            <Badge variant="outline" className="border-warning/50 bg-warning text-warning">
               Khởi tạo hệ thống lần đầu (Chỉ 1 lần duy nhất)
             </Badge>
           </div>
@@ -250,7 +250,7 @@ function InitialAdminSetup({ onSetupSuccess }: { onSetupSuccess: () => void }) {
 
             <Button type="submit" className="w-full text-base" disabled={setup.isPending}>
               {setup.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Shield className="mr-2 h-4 w-4" />}
-              Khởi tạo Quản trị viên & Đăng nhập
+              Khởi tạo Quản trị viên và Đăng nhập
             </Button>
           </form>
         </CardContent>
@@ -292,13 +292,13 @@ function AdminUsersTab() {
   function roleBadge(role: UserRole) {
     switch (role) {
       case 'ADMIN':
-        return <Badge className="bg-purple-600 hover:bg-purple-700">ADMIN</Badge>
+        return <Badge variant="gold">ADMIN</Badge>
       case 'MANAGER':
-        return <Badge className="bg-blue-600 hover:bg-blue-700">MANAGER</Badge>
+        return <Badge variant="info">MANAGER</Badge>
       case 'SALE':
-        return <Badge className="bg-emerald-600 hover:bg-emerald-700">SALE</Badge>
+        return <Badge variant="success">SALE</Badge>
       case 'POLICY_ADMIN':
-        return <Badge className="bg-amber-600 hover:bg-amber-700">POLICY_ADMIN</Badge>
+        return <Badge variant="warning">POLICY_ADMIN</Badge>
       default:
         return <Badge variant="outline">{role}</Badge>
     }
@@ -324,26 +324,26 @@ function AdminUsersTab() {
           </Card>
           <Card>
             <CardHeader className="p-4 pb-2">
-              <CardDescription className="text-xs text-purple-600 font-semibold">Quản trị viên (ADMIN)</CardDescription>
-              <CardTitle className="text-2xl text-purple-600">{stats.admins}</CardTitle>
+              <CardDescription className="text-xs text-info font-semibold">Quản trị viên (ADMIN)</CardDescription>
+              <CardTitle className="text-2xl text-info">{stats.admins}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="p-4 pb-2">
-              <CardDescription className="text-xs text-blue-600 font-semibold">Quản lý duyệt (MGR)</CardDescription>
-              <CardTitle className="text-2xl text-blue-600">{stats.managers}</CardTitle>
+              <CardDescription className="text-xs text-info font-semibold">Quản lý duyệt (MGR)</CardDescription>
+              <CardTitle className="text-2xl text-info">{stats.managers}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="p-4 pb-2">
-              <CardDescription className="text-xs text-emerald-600 font-semibold">Kinh doanh (SALE)</CardDescription>
-              <CardTitle className="text-2xl text-emerald-600">{stats.sales}</CardTitle>
+              <CardDescription className="text-xs text-success font-semibold">Kinh doanh (SALE)</CardDescription>
+              <CardTitle className="text-2xl text-success">{stats.sales}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="p-4 pb-2">
-              <CardDescription className="text-xs text-amber-600 font-semibold">Chính sách (POL_ADM)</CardDescription>
-              <CardTitle className="text-2xl text-amber-600">{stats.policyAdmins}</CardTitle>
+              <CardDescription className="text-xs text-warning font-semibold">Chính sách (POL_ADM)</CardDescription>
+              <CardTitle className="text-2xl text-warning">{stats.policyAdmins}</CardTitle>
             </CardHeader>
           </Card>
         </div>
@@ -358,7 +358,7 @@ function AdminUsersTab() {
               <div>
                 <p className="text-sm font-semibold">Chất lượng Copilot</p>
                 <p className="text-xs text-muted-foreground">
-                  Theo dõi đánh giá 👍/👎 của Sale: tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê và nội dung
+                  Theo dõi đánh giá hữu ích/chưa đạt của Sale: tỉ lệ hài lòng, xu hướng 14 ngày, tool hay bị chê và nội dung
                   từng lượt bị chê (đã che PII khách). Số liệu này cũng được nạp lại vào prompt của trợ lý.
                 </p>
               </div>
@@ -556,9 +556,9 @@ function AdminUserManagementDashboard() {
   const [tab, setTab] = useState<AdminTab>('users')
 
   const tabs: Array<{ id: AdminTab; label: string; hint: string }> = [
-    { id: 'users', label: 'Người dùng & phân quyền', hint: 'Tài khoản, vai trò, khởi tạo' },
+    { id: 'users', label: 'Người dùng và phân quyền', hint: 'Tài khoản, vai trò, khởi tạo' },
     { id: 'providers', label: 'Nhà cung cấp LLM', hint: 'API key + đơn giá, không cần sửa ENV' },
-    { id: 'usage', label: 'Chi phí & hiệu năng', hint: 'Token, độ trễ, chi phí mỗi lượt gọi' },
+    { id: 'usage', label: 'Chi phí và hiệu năng', hint: 'Token, độ trễ, chi phí mỗi lượt gọi' },
     { id: 'tts', label: 'Giọng đọc (TTS)', hint: 'Copilot đọc câu trả lời: nhà cung cấp, giọng, đơn giá' },
   ]
 
@@ -572,7 +572,7 @@ function AdminUserManagementDashboard() {
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Tài khoản &amp; phân quyền, cấu hình nhà cung cấp LLM và đo lường chi phí/hiệu năng của trợ lý AI.
+          Tài khoản và phân quyền, cấu hình nhà cung cấp LLM và đo lường chi phí/hiệu năng của trợ lý AI.
         </p>
       </div>
 
@@ -593,7 +593,7 @@ function AdminUserManagementDashboard() {
             )}
           >
             <span className="block text-sm font-semibold">{t.label}</span>
-            <span className="block text-[11px] text-muted-foreground">{t.hint}</span>
+            <span className="block text-xs text-muted-foreground">{t.hint}</span>
           </button>
         ))}
       </div>
@@ -784,7 +784,7 @@ function EditUserDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Edit3 className="h-5 w-5 text-primary" />
-            Cập nhật tài khoản & Phân quyền
+            Cập nhật tài khoản và Phân quyền
           </DialogTitle>
           <DialogDescription>
             Đang chỉnh sửa: <strong>{userName}</strong> ({user.email})

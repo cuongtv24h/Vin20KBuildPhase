@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.config import get_settings
-from src.services.llm_secrets import decrypt_api_key
+from src.services.llm_secrets import decrypt_api_key, is_usable_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,23 @@ class ProviderConfig:
 _CACHE: list[ProviderConfig] | None = None
 
 
+def _usable_env_key(value: str | None, *, env_name: str) -> bool:
+    """Khoá trong ENV có dùng được thật không (khác rỗng **và** không phải giá trị mẫu).
+
+    `.env.example` bán sẵn dòng `OPENAI_API_KEY=sk-your-openai-or-groq-key`; nhiều máy `cp .env.example .env`
+    rồi để nguyên. Nếu coi đó là khoá thật thì hệ thống vừa báo "đã có khoá" (sai) vừa mang khoá giả đi
+    gọi nhà cung cấp (401 khó hiểu). Gặp giá trị mẫu ⇒ coi như CHƯA khai báo và ghi cảnh báo để người
+    triển khai biết vì sao nhà cung cấp không xuất hiện.
+    """
+    if is_usable_api_key(value):
+        return True
+    if str(value or "").strip():
+        logger.warning(
+            "%s trong ENV là giá trị mẫu/chỗ giữ chỗ — bỏ qua, coi như chưa khai báo khoá.", env_name
+        )
+    return False
+
+
 def _env_configs(settings: Any | None = None) -> list[ProviderConfig]:
     """Cấu hình dựng từ ENV (đường lui khi DB chưa khai báo gì).
 
@@ -52,7 +69,7 @@ def _env_configs(settings: Any | None = None) -> list[ProviderConfig]:
     """
     settings = settings or get_settings()
     configs: list[ProviderConfig] = []
-    if settings.openai_api_key:
+    if _usable_env_key(settings.openai_api_key, env_name="OPENAI_API_KEY"):
         configs.append(
             ProviderConfig(
                 provider_id="ENV-PRIMARY",
@@ -66,7 +83,7 @@ def _env_configs(settings: Any | None = None) -> list[ProviderConfig]:
                 source="env",
             )
         )
-    if settings.fallback_openai_api_key and settings.fallback_model_name:
+    if _usable_env_key(settings.fallback_openai_api_key, env_name="FALLBACK1_OPENAI_API_KEY") and settings.fallback_model_name:
         configs.append(
             ProviderConfig(
                 provider_id="ENV-FALLBACK-1",
@@ -81,7 +98,10 @@ def _env_configs(settings: Any | None = None) -> list[ProviderConfig]:
                 is_fallback=True,
             )
         )
-    if settings.fallback2_openai_api_key and settings.fallback2_model_name:
+    if (
+        _usable_env_key(settings.fallback2_openai_api_key, env_name="FALLBACK2_OPENAI_API_KEY")
+        and settings.fallback2_model_name
+    ):
         configs.append(
             ProviderConfig(
                 provider_id="ENV-FALLBACK-2",

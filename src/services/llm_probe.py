@@ -22,6 +22,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import httpx
 
@@ -112,6 +113,18 @@ def _diagnose(status_code: int, text: str, content_type: str, url: str, mitigate
     return f"Nhà cung cấp trả HTTP {status_code} tại {url}: {_short(text)}"
 
 
+def _bang_chung(evidence: dict[str, str], http_status: int, ip: str) -> str:
+    """Một dòng bằng chứng để Admin gửi thẳng cho nhà cung cấp — họ luôn hỏi `cf-ray`."""
+    parts = [f"HTTP {http_status}"]
+    for key, label in (("cf-mitigated", "cf-mitigated"), ("cf-ray", "cf-ray"), ("server", "server")):
+        if evidence.get(key):
+            parts.append(f"{label}={evidence[key]}")
+    if ip:
+        parts.append(f"từ IP máy chủ {ip}")
+    parts.append(f"lúc {datetime.now(UTC).isoformat(timespec='seconds')}")
+    return " · ".join(parts)
+
+
 def _cloudflare_detail(
     url: str,
     status_code: int,
@@ -119,6 +132,7 @@ def _cloudflare_detail(
     mode: str,
     alt_mode_ok: bool | None,
     ip: str,
+    evidence: dict[str, str] | None = None,
 ) -> str:
     """Câu trả lời cho ca Cloudflare: máy chủ này bị chặn, và cần làm gì.
 
@@ -151,6 +165,11 @@ def _cloudflare_detail(
             + (f" {ip}" if ip else " (xem IP trong khối này — bật `LLM_PUBLIC_IP` nếu chưa tự tra được)")
             + "; (2) hỏi nhà cung cấp hostname API khác không qua Cloudflare (thường là `api.<tên miền>`); "
             "(3) trỏ Base URL qua một proxy/relay ở mạng khác."
+        )
+    if evidence:
+        lines.append(
+            "Bằng chứng kèm khi liên hệ nhà cung cấp (họ thường hỏi mã cf-ray): "
+            + _bang_chung(evidence, status_code, ip)
         )
     return "\n".join(lines)
 
@@ -202,6 +221,8 @@ async def probe_llm_provider(
     attempts: list[str] = []
     started_all = time.perf_counter()
     cloudflare_hit = False
+    #: Header của lần thử bị Cloudflare chặn (cf-ray/cf-mitigated/server) — để đưa vào bằng chứng.
+    evidence: dict[str, str] = {}
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         # 1) GET /models — rẻ và cho biết luôn danh sách model.
@@ -228,7 +249,9 @@ async def probe_llm_provider(
                 )
             detail = _diagnose(resp.status_code, resp.text, ctype, models_url, resp.headers.get("cf-mitigated", ""))
             attempts.append(detail)
-            cloudflare_hit = cloudflare_hit or _is_cloudflare_failure(detail)
+            if _is_cloudflare_failure(detail):
+                cloudflare_hit = True
+                evidence = {k: resp.headers[k] for k in ("cf-ray", "cf-mitigated", "server") if resp.headers.get(k)}
         except Exception as exc:  # noqa: BLE001 — lỗi mạng hiển thị cho Admin, không raise
             attempts.append(f"Không gọi được {models_url}: {exc}")
 
@@ -266,7 +289,11 @@ async def probe_llm_provider(
                 )
             detail = _diagnose(resp.status_code, resp.text, chat_ctype, chat_url, resp.headers.get("cf-mitigated", ""))
             attempts.append(detail)
-            cloudflare_hit = cloudflare_hit or _is_cloudflare_failure(detail)
+            if _is_cloudflare_failure(detail):
+                cloudflare_hit = True
+                # Lần thử chat sát thực tế hơn → bằng chứng lấy từ đây.
+                evidence = {k: resp.headers[k] for k in ("cf-ray", "cf-mitigated", "server") if resp.headers.get(k)}
+                evidence["http-status"] = str(resp.status_code)
         except Exception as exc:  # noqa: BLE001 — lỗi mạng hiển thị cho Admin, không raise
             attempts.append(f"Không gọi được {chat_url}: {exc}")
 
@@ -325,7 +352,10 @@ async def probe_llm_provider(
     # Lỗi Cloudflare/HTML ở lần thử chat sát thực tế hơn → đưa lên trước để Admin đọc thấy ngay.
     primary = attempts[-1] if len(attempts) > 1 else attempts[0]
     if cloudflare_hit:
-        primary = _cloudflare_detail(f"{base}/chat/completions", 403, mode=mode, alt_mode_ok=alt_mode_ok, ip=ip)
+        cf_status = int(evidence.get("http-status") or 403)
+        primary = _cloudflare_detail(
+            f"{base}/chat/completions", cf_status, mode=mode, alt_mode_ok=alt_mode_ok, ip=ip, evidence=evidence
+        )
     # Cả hai đường đều bị Cloudflare ⇒ câu chẩn đoán đã nói đủ, không lặp lại.
     # Nhưng nếu `/models` cho câu trả lời khác (khoá sai, trang chủ…) thì phải giữ lại — đó mới là thông tin.
     ca_hai_deu_cloudflare = cloudflare_hit and bool(attempts) and _is_cloudflare_failure(attempts[0])

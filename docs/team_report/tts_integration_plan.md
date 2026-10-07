@@ -87,6 +87,51 @@ tối đa bao nhiêu ký tự” rồi phát audio; việc audio đến từ má
 | Kiểm soát | Giới hạn ký tự/lượt, chặn đọc nội dung ngoài phạm vi, ghi log ai đọc gì (kiểm toán), tránh lạm dụng. |
 | Che PII | Chỗ duy nhất nhìn thấy **toàn văn câu trả lời trước khi phát** là server — nơi tốt nhất để che số điện thoại/email. |
 
+### 4.1b Khoá API nằm ở đâu **hôm nay** (và chỗ nhập còn thiếu)
+
+Người dùng đã hỏi đúng một điểm dễ hiểu nhầm ở bảng “Nhà cung cấp TTS & đơn giá”: cột **Khoá API** hiện
+chữ **“Đã có”** cho OpenAI dù chưa ai cung cấp khoá. Sự thật như sau.
+
+| Nhà cung cấp | Khoá đọc từ đâu | Có chỗ nhập trên giao diện chưa? |
+| :--- | :--- | :--- |
+| Trình duyệt (Web Speech API) | Không cần khoá | — (không cần) |
+| OpenAI (`OPENAI_API_KEY`) | **DB** (Quản trị CP → Giọng đọc → Nhà cung cấp TTS) → ENV / `.env` → khoá LLM đang cấu hình | **Có** (từ đợt 22: ô nhập khoá + “Test kết nối”, lưu DB đã mã hoá) |
+| Google Cloud (`GOOGLE_APPLICATION_CREDENTIALS`) | DB (Base URL + khoá) → ENV (đường dẫn file service account) | **Có** (từ đợt 22) |
+| Azure (`AZURE_SPEECH_KEY`) | DB → ENV | **Có** (từ đợt 22) |
+| Viettel / Vbee / FPT | DB (`VIETTEL_TTS_TOKEN`, `VBEE_TOKEN`, `FPT_TTS_API_KEY` là đường lui ENV) | **Có** (từ đợt 22) |
+| Nhà cung cấp **ngoài danh mục** (self-host VieNeu, gateway nội bộ…) | DB (Base URL + khoá nhập trên giao diện) | **Có** (từ đợt 22 — thêm nhà cung cấp mới, không cần sửa mã) |
+
+**Vì sao bảng báo “Đã có” oan:** `.env.example` bán sẵn dòng `OPENAI_API_KEY=sk-your-openai-or-groq-key`,
+hướng dẫn triển khai lại là `cp .env.example .env`, và hàm kiểm tra chỉ hỏi “giá trị có khác rỗng không”.
+⇒ giá trị **mẫu** bị tính là khoá thật. Đã sửa ở ba chỗ, cùng một luật:
+
+1. `.env.example` để **trống** `OPENAI_API_KEY=` (kèm ghi chú), nên `cp` xong cũng không sinh khoá giả;
+2. `llm_secrets.is_usable_api_key()` — khoá rỗng/giá trị mẫu (`your-`, `changeme`, `placeholder`, `dummy`,
+   `example`, `<your-key>`) bị coi là **chưa có**; dùng chung cho cả TTS và LLM;
+3. `llm_providers._env_configs` **bỏ qua** khoá mẫu và ghi cảnh báo — tránh cảnh mang khoá giả đi gọi
+   nhà cung cấp rồi trả về lỗi 401 khó hiểu.
+
+**Đã nối đường đọc thật (đợt 23):** `POST /api/v1/tts/speak` + `GET /api/v1/tts/quota` — backend gọi nhà
+cung cấp, trả audio base64 kèm số ký tự/chi phí; văn bản được **che PII** (SĐT/email khách) và **cắt theo
+`max_chars_per_turn`** trước khi rời hệ thống; **cache trên đĩa** theo nội dung (đọc lại không tốn thêm tiền);
+chi phí ghi vào `llm_usage.jsonl` với `kind = "tts"` và hiện trong tab “Chi phí & hiệu năng”; **hạn mức ký tự
+mỗi ngày** (`TTS_DAILY_CHAR_BUDGET`, mặc định 300.000) chặn trước khi gọi nhà cung cấp. Giao diện tự **lùi về
+giọng trình duyệt** khi hết chuỗi nhà cung cấp lỗi/thiếu khoá — Sale không bao giờ bị “bấm mà không có gì xảy
+ra”. Đường đọc dùng **giao thức OpenAI-compatible** (`POST {base}/audio/speech`) và **sao chép cơ chế ưu
+tiên/dự phòng của nhà cung cấp LLM** (đợt 24): không còn danh sách mã cứng — mọi nhà cung cấp khai trong Quản
+trị CP có Base URL + khoá đều đọc được, nhà cung cấp ưu tiên lỗi thì tự chuyển sang nhà cung cấp kế tiếp
+(`attempts` + `fallback_used`), hết chuỗi mới lùi về giọng trình duyệt. Nhà cung cấp không dùng giao thức này
+trả 404/405 ⇒ lần thử đó ghi lỗi kèm gợi ý Base URL (thường kết thúc bằng `/v1`), hết chuỗi thì **502** nêu lý
+do — cần gateway chuyển tiếp hoặc adapter riêng.
+
+**Đã triển khai ở đợt 22** (người dùng chốt *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2
+nhà cung cấp sẵn”*): đúng đề xuất trên — bảng `tts_providers` + `GET/POST /admin/tts/providers`,
+`PUT/DELETE /admin/tts/providers/{id}`, `POST /admin/tts/providers/{id}/test` (chỉ ADMIN), khoá mã hoá Fernet
+qua `llm_secrets`, giao diện chỉ trả dạng che `sk-t…abcd` + nhãn nguồn khoá, ưu tiên **DB → ENV → kho LLM trùng
+tên**, và **thêm được nhà cung cấp mới** ngoài danh mục dựng sẵn. Nhà cung cấp mới xuất hiện ngay ở màn hình
+chọn giọng đọc (`GET /settings/tts` nạp bản ghi DB trước khi dựng danh mục). Phần **tổng hợp audio qua nhà cung
+cấp** (§7) vẫn là bước kế tiếp — hiện tiếng đọc do trình duyệt tổng hợp. Chi tiết + bằng chứng: `upgrade_new.md` §16.5h.
+
 ### 4.2 Trình tự một lượt đọc
 
 ```
@@ -172,7 +217,7 @@ hoặc tin nhắn Sale soạn, phải chạy qua guardrail như phần chat (đ�
 
 ---
 
-## 7. Hợp đồng API đề xuất cho bước kế tiếp
+## 7. Hợp đồng API cho bước kế tiếp — **đã nối (đợt 23)**
 
 ```http
 POST /api/v1/tts/speak          (staff; Idempotency-Key bắt buộc như các POST khác)
@@ -190,12 +235,24 @@ POST /api/v1/tts/speak          (staff; Idempotency-Key bắt buộc như các P
 → 402/403 khi vượt hạn mức hoặc thiếu quyền; 503 khi nhà cung cấp lỗi (UI tự lùi về giọng trình duyệt)
 ```
 
-Kèm theo:
+Kèm theo — **trạng thái thực tế sau đợt 23**:
 
-- Ghi mỗi lượt vào `llm_usage.jsonl` với `kind: "tts"` để tab **Chi phí & hiệu năng** cộng đúng (hiện log
-  đang dành cho LLM: token vào/ra; cần thêm nhánh ký tự cho TTS thay vì nhồi vào token).
-- Cache `data/tts_cache/<sha256(text|provider|voice|speed)>.<ext>` (kèm TTL/trần dung lượng) — dọn định kỳ.
-- `GET /api/v1/tts/quota` trả hạn mức còn lại trong ngày cho người gọi.
+- ✅ Ghi mỗi lượt vào `llm_usage.jsonl` với `kind: "tts"` + `chars` + `cost` (không nhồi ký tự vào token);
+  tab **Chi phí & hiệu năng** hiện thêm dòng “trong đó đọc thành tiếng: N lượt · X ký tự · Y chi phí”.
+- ✅ Cache `data/tts_cache/<sha256(text|provider|voice|model|speed)>` (TTL `TTS_CACHE_TTL_DAYS` = 7 ngày,
+  trần `TTS_CACHE_MAX_MB` = 200 MB, tự dọn file cũ nhất); `cached: true` nghĩa là **không tốn thêm tiền**.
+- ✅ `GET /api/v1/tts/quota` trả `{daily_budget, chars_today, remaining}`; vượt hạn mức ⇒ **402** và
+  **không gọi nhà cung cấp** (đã có test chứng minh không phát sinh request).
+- ➕ Thêm ngoài hợp đồng: **che PII trước khi gửi** (SĐT/email khách) và `summary_only` (chế độ rảnh tay chỉ
+  đọc 240 ký tự đầu) — hai việc trước đây nằm trong danh sách “chưa làm” của kế hoạch.
+- ✅ **Đợt 24 — sao chép cơ chế sẵn có**: `speak_capable()`/`speak_chain()` thay danh sách mã cứng
+  (`KNOWN_UNWIRED` đã bị xoá); đọc theo **ưu tiên → priority**, tự chuyển tiếp khi lỗi (ghi từng lượt thử vào
+  `llm_usage.jsonl` với `is_fallback`), đổi giọng theo nhà cung cấp thật đọc, cache hit ⇒ 0 đồng và không tiêu
+  hạn mức; `GET /admin/tts/providers` trả thêm `chain` (mắt nào sẵn sàng / tắc vì lý do gì) để màn hình quản trị
+  nói rõ thứ tự đọc.
+- ⏳ Chưa làm: **adapter riêng/gateway** cho nhà cung cấp không dùng giao thức OpenAI-compatible (nay không còn
+  bị chặn theo tên, nhưng vẫn phải có chỗ chuyển tiếp), ngân sách theo tháng và cache xuyên máy chủ (nhiều
+  instance backend dùng chung cache).
 
 ---
 

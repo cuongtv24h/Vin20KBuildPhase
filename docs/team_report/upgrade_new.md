@@ -861,8 +861,796 @@ Test lại); nếu báo chặn cả hai kiểu thì phải nhờ nhà cung cấp
 **Ảnh hưởng hiện tại với Copilot:** `codecraftapi.com` là **FallBack2** — Copilot vẫn chạy bình thường qua nhà cung
 cấp chính; nhà cung cấp này chỉ được gọi khi hai nhà cung cấp trước lỗi, nên không cần tắt vội.
 
+### 14.8 Kết quả chẩn đoán trên VM (người dùng dán lại) — `codecraftapi.com` bị chặn ở tầng IP, không sửa được từ phía ứng dụng
+
+**Người dùng nhận được (nguyên văn, rút gọn):**
+
+> Cloudflare đang chặn MÁY CHỦ NÀY bằng trang challenge “Just a moment…” ở `https://codecraftapi.com/v1/chat/completions` (HTTP 403) — không phải lỗi Base URL hay API key. … **Chẩn đoán: đã thử cả hai kiểu header (ứng dụng và trình duyệt) đều bị chặn ⇒ nhiều khả năng chặn theo IP/dải IP máy chủ** … IP công khai của máy chủ **18.140.199.175** …
+
+**Kết luận: chẩn đoán đã đúng, và đây là giới hạn thật — không có cách sửa nào ở phía mã ứng dụng.**
+
+* Công tắc `LLM_HTTP_HEADERS=browser` **đã được thử tự động** ngay trong lượt test đó (đúng như thiết kế §14.7) và vẫn bị chặn ⇒ không phải chuyện header/UA.
+* Máy chủ là `18.140.199.175` — IP **AWS (Singapore)**, thuộc dải datacenter mà Cloudflare/Bot Fight Mode đánh giá rủi ro cao. Vì vậy `Mozilla/5.0…` cũng không qua được.
+* **Đã tự kiểm tra DNS (làm được từ sandbox, không cần Internet HTTP):** `codecraftapi.com` và `www.codecraftapi.com` đều phân giải về `104.21.15.95`, `172.67.162.24`, IPv6 `2606:4700:…` — **toàn bộ là IP Cloudflare**; các hostname khác (`api.`, `api2.`, `gateway.`, `gw.`, `v1.`, `llm.`, `openai.`, `relay.`, `direct.`, `origin.`, `edge.`, `proxy.`, `dash.`, `panel.`, `admin.`, `docs.`, `status.`, `cdn.`) **không tồn tại**; các tên miền khác (`codecraftapi.net/.io/.ai/.dev/.vn`) cũng không có bản ghi. ⇒ **Không có hostname thay thế nào để trỏ Base URL sang.**
+
+**Đã bổ sung (đợt này):** câu chẩn đoán Cloudflare nay kèm **một dòng bằng chứng để gửi thẳng cho nhà cung cấp** —
+`HTTP 403 · cf-mitigated=challenge · cf-ray=… · server=cloudflare · từ IP máy chủ … · lúc <ISO-8601>`. Bộ phận hỗ trợ
+của nhà cung cấp luôn hỏi `cf-ray`; trước đây Admin phải tự đi tìm. `cf-ray`/`cf-mitigated`/`server` được lấy từ chính
+phản hồi 403 bị chặn (không phải suy đoán), có test chốt lại.
+
+**Việc cần làm (theo thứ tự thực tế):**
+
+1. **Gửi nhà cung cấp** nội dung: máy chủ `18.140.199.175` (AWS Singapore) bị Cloudflare challenge khi gọi
+   `POST /v1/chat/completions` với Bearer token; kèm dòng bằng chứng (cf-ray) trong câu chẩn đoán; đề nghị **allowlist IP**
+   hoặc cấp **hostname/endpoint không qua Cloudflare**. Nếu họ dùng Cloudflare Access/Bot Management, họ có thể tạo rule
+   cho phép theo IP — đây là việc **chỉ họ làm được**.
+2. **Trong lúc chờ:** `codecraftapi.com` là FallBack2 nên **không ảnh hưởng Copilot** — hệ thống vẫn trả lời qua nhà cung cấp
+   chính. Muốn sạch log thì tắt `is_active` của bản ghi đó (nút trong màn hình Nhà cung cấp LLM). Chi phí để giữ nguyên cũng
+   rất thấp: Cloudflare trả 403 trong ~60 ms và **không tiêu token**, nên mỗi lượt phải chuyển tiếp chỉ chậm thêm ~0,06 giây.
+3. **Nếu cần một tầng dự phòng thật:** thêm một nhà cung cấp **khác** chạy được từ máy chủ này (đo bằng chính nút Test kết nối)
+   làm FallBack2, thay vì chờ nhà cung cấp cũ sửa.
+4. **Không nên** trỏ Base URL qua proxy/relay công cộng để "lách" Cloudflare: khoá API sẽ đi qua bên thứ ba. Chỉ dùng relay
+   khi **nhà cung cấp đồng ý** (ví dụ họ cấp endpoint riêng), hoặc relay do chính mình kiểm soát.
+
+**Muốn hết hẳn phụ thuộc một IP:** dài hạn nên thêm tính năng "header bổ sung cho từng nhà cung cấp" (ví dụ service token
+`CF-Access-Client-Id/Secret` nếu nhà cung cấp phát) — hiện **chưa làm được** vì cần thêm cột vào bảng `llm_providers` mà dự án
+chưa có cơ chế migration cho DB đang chạy (ghi ở §10 mục 2). Đây là việc của một đợt sau, không phải bây giờ.
+
+### 14.9 Hỏi tiếp — "ứng dụng trên Vercel dùng cùng nhà cung cấp thì KHÔNG bị chặn, vì sao?"
+
+Câu này quan trọng vì nó **thu hẹp nguyên nhân**: cùng một nhà cung cấp, cùng API — vậy khác biệt nằm ở
+**đường đi của request**, không phải ở tài khoản/khoá.
+
+**Bốn khác biệt có thể có (xếp theo khả năng, kèm cách biết chắc):**
+
+| # | Khác biệt | Vì sao nó làm Vercel qua được | Cách phân biệt |
+| :--- | :--- | :--- | :--- |
+| 1 | **Vercel gọi từ trình duyệt** (client-side, IP của người dùng) | IP dân dụng không nằm trong danh sách "datacenter" mà Bot Fight Mode chặn; trình duyệt thật **giải được** challenge JS và giữ cookie `cf_clearance` cho các lần sau | DevTools → tab Network của ứng dụng Vercel: nếu thấy request tới `codecraftapi.com` thì là gọi từ trình duyệt; nếu chỉ thấy tên miền của chính app thì là gọi từ server |
+| 2 | **Khác dải IP ra Internet** | EC2 của mình là `18.140.199.175` (AWS **Singapore**); Vercel serverless thường ở AWS **us-east-1**/iad1 — cùng nhà cung cấp cloud nhưng khác dải, điểm rủi ro khác nhau | Chạy `curl` (bên dưới) **trên VM**: nếu bị 403 + HTML ⇒ chặn theo IP; chạy cùng lệnh đó ở một nơi khác để đối chiếu |
+| 3 | **"Dấu vân tay" client** (TLS JA3/JA4 + HTTP/2) | Cloudflare chấm điểm cả *cách* client bắt tay TLS, không chỉ User-Agent. `httpx` (Python/OpenSSL) là vân tay bị gắn cờ rất phổ biến; SDK Node/undici của Vercel khác hẳn | Cùng phép thử `curl` ở trên: nếu `curl` (vân tay khác Python) **qua được** còn nút Test vẫn bị chặn ⇒ nguyên nhân là vân tay client, sửa được ở phía mã |
+| 4 | **Endpoint/cách xác thực khác** | Ví dụ phía Vercel dùng `x-api-key` thay vì `Authorization: Bearer`; nếu nhà cung cấp có rule WAF theo header/path thì kết quả khác nhau | So DevTools/fetch code của ứng dụng Vercel xem gọi URL nào, header nào |
+
+**Phép thử 1 phút, chạy trên máy chủ (không cần API key thật — 401 cũng đã chứng minh Cloudflare cho qua):**
+
+```bash
+curl -sS -o /tmp/cf.txt -w 'HTTP %{http_code}\n' -X POST https://codecraftapi.com/v1/chat/completions \
+  -H 'Authorization: Bearer test-key' -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"ping"}],"max_tokens":1}'
+head -c 200 /tmp/cf.txt; echo
+```
+
+* `HTTP 401` + JSON ⇒ Cloudflare **cho qua**; nguyên nhân là **dấu vân tay client (#3)** ⇒ sửa được ở phía mã
+  (dùng client mang vân tay khác, ví dụ lớp impersonate kiểu trình duyệt) — cần một đợt riêng vì phải thêm phụ thuộc.
+* `HTTP 403` + HTML `Just a moment` ⇒ **chặn theo IP (#2)** ⇒ đường sửa nằm ở hạ tầng (allowlist/relay).
+
+**Phương án (chỉ để thảo luận — CHƯA triển khai):** một relay đặt ở hạ tầng không bị Cloudflare chặn
+(ví dụ chính hạ tầng Vercel của bạn, nếu nó gọi nhà cung cấp **từ server**) sẽ là đường đi hợp lệ cho máy chủ.
+Nguyên tắc nếu làm: ghim cứng host đích (không thành proxy mở), có token chặn lạm dụng, **không lưu khoá API**,
+và luôn có đường quay lại Base URL gốc khi nhà cung cấp allowlist IP xong. Đây là **đề xuất**, sẽ chỉ được
+triển khai khi có yêu cầu cụ thể.
+
+**Cảnh báo bảo mật (nên kiểm tra ngay):** nếu ứng dụng Vercel đang gọi nhà cung cấp **từ trình duyệt**, khoá API
+nằm trong mã phía client ⇒ **bất kỳ ai mở DevTools cũng lấy được khoá**, dùng hết hạn mức của bạn. Việc cần làm:
+kiểm tra như ở bảng trên; nếu đúng thì **đổi khoá mới** và chuyển lời gọi về phía server (route/serverless của Vercel).
+
 ---
 
+---
+
+## 15. Đợt 13 (2026-10-02) — Sáu việc người dùng nêu trực tiếp: mất hội thoại khi đổi trang, bấm lịch sử không ra, F5 mới hiện, thiếu "Phiên chat mới", ô nhập bị che, nút rảnh tay (Micro)
+
+### 15.1 Người dùng báo gì (nguyên văn, gộp ý)
+
+1. "Khi đang chat với Agent… chuyển qua trang khác như báo giá rồi quay lại trang Trợ Lý, mọi đoạn chat trước biến mất."
+2. "Lịch sử có lưu giữ đoạn chat, nhưng nhấn vào không ra."
+3. "Nếu nhấn F5 thì đoạn lịch sử cũ mới load ra."
+4. "Chưa có chức năng Phiên Chat mới."
+5. Chat dài, kéo lên xem tin phía trên thì **ô nhập bị ẩn**: "làm đóng khung Khung chat luôn hiển thị vị trí ở dưới, không bị che khuất."
+6. "Bổ sung nút rảnh tay (Micro)… nói và chuyển hóa thành văn bản… Nếu không phức tạp thì có thể triển khai luôn."
+
+Sáu mục này là **yêu cầu cụ thể**, nên đợt này được triển khai (khác với câu hỏi tìm hiểu — xem nguyên tắc ở cuối tài liệu).
+
+### 15.2 Nguyên nhân gốc — tìm được 4 lỗi thật, không chỉ 6 biểu hiện
+
+| # | Biểu hiện | Nguyên nhân gốc trong mã |
+|---|---|---|
+| 1 | Đổi trang là mất hội thoại | `messages` là `useState` **cục bộ** trong `SalesWorkspacePage`; đổi trang ⇒ component unmount ⇒ mất sạch. Hội thoại chỉ nằm trong RAM. **Thêm một thủ phạm phụ chỉ lộ ra khi vá mục 1:** effect "Morning Briefing" gọi `setMessages([...])` trần trong effect deps rỗng ⇒ mỗi lần quay lại trang là **ghi đè** hội thoại vừa khôi phục bằng đúng 1 tin chào. |
+| 2 | Bấm vào mục Lịch sử không ra gì | Hai lỗi cộng lại: (a) effect tải hội thoại bị **deps theo `conversationId`** nhưng nhánh `conversationId === null` vẫn `setMessages(greeting)`; (b) React Query có `staleTime: 15s` ⇒ cuộc vừa tạo/vừa xem nằm trong cache "còn tươi", bấm lại **không refetch** và không có gì để hiển thị. |
+| 3 | F5 mới load ra | F5 làm mất cache RAM; lúc đó effect mount lại chạy đúng đường tải ⇒ hiện. Đây chính là mục 1–2 nhìn từ phía khác. |
+| 4 | Chưa có Phiên chat mới | Đúng là chưa có. Cách duy nhất để "sang cuộc mới" là xoá cuộc đang mở — vừa mất dữ liệu vừa không rõ ràng. |
+| 5 | Ô nhập bị che khi chat dài | `StaffLayout` dùng `flex min-h-screen` cho khung, nhưng `<main>` lại `h-screen`; dưới ngưỡng `lg` có thêm header di động `h-14` ⇒ **tài liệu cao hơn khung nhìn 56px**, ô nhập bị đẩy khỏi vùng thấy được thay vì bị "ghim" trong khung chat. Trong trang chat cũng thiếu chuỗi `min-h-0` nên vùng cuộn không co lại được. |
+| 6 | Chưa có Micro | Window Speech Recognition (`vi-VN`) không cần backend, không cần API key ⇒ chi phí bằng 0, đúng điều kiện "nếu không phức tạp". |
+
+### 15.3 Đã sửa
+
+**Lưu hội thoại ra ngoài component (mục 1, 2, 3, 4)** — file mới
+`frontend/packages/api-client/src/copilotChatState.ts`:
+
+* Kho trạng thái phiên chat (`sessionStorage`, không phải RAM): `createCopilotChatStore({ storage?, initialConversationId? })`
+  với `subscribe/getSnapshot/setConversationId/setItems/hydrate/assignConversationId/forget/cachedItems/reset`.
+* Snapshot: `{ conversationId, items, pendingItems }`. Khoá lưu: `copilot.chatSession.v1` (nội dung) + `copilot.activeConversationId` (id đang mở).
+* Ca khó đã xử lý — **id về muộn**: người dùng gửi tin đầu khi cuộc chưa có id, rồi chuyển trang trước khi backend trả id. Khi đó nội dung được **giữ tạm** (`pendingItems`); id về muộn được **ghi vào cache dưới id đó**, không "cướp" màn hình đang mở và **không mất nội dung**.
+* `hydrate(id, items)` chỉ thay khung chat đang xem nếu `id === conversationId` (bấm mở cuộc cũ ⇒ hiện ngay; cache của cuộc khác thì lấy từ `cachedItems`).
+* JSON hỏng ⇒ về phiên trống, không ném lỗi. Giới hạn 60 mục **chỉ áp cho bản lưu tạm** (`sessionStorage`) — khung chat đang xem không bị cắt, phiên dài xem được đủ.
+* Hook: `useCopilotChatSession`, `useCopilotChatMessages`, `useCopilotChatConversationId` — thay trực tiếp `useState` cũ nên mọi chỗ đang đọc/ghi `messages` không phải sửa theo.
+
+**Nối vào trang Trợ lý** — `frontend/apps/internal/src/features/sale/SalesWorkspacePage.tsx`:
+
+* `messages`/`conversationId` nay đọc từ kho; effect tải hội thoại đặt khoá `${conversationId}#${reloadNonce}` và **không còn xoá khung chat khi `conversationId === null`**.
+* `openConversation(id, { force })` ⇒ bấm lại đúng cuộc đang mở vẫn tải lại (đếm `reloadNonce`), gỡ đúng lỗi "bấm không ra" do cache tươi 15s.
+* Xoá cuộc ⇒ gọi `copilotChatStore.forget(id)` (không để cache mồ côi).
+* Nhịp ghi lượt đầu `assignConversationId` được đánh dấu vào `loadedConversationRef` — **thẻ/smart-card chỉ có ở client** không bị mất khi lượt chat được lưu lần đầu.
+* Thêm `startNewChatSession()` + nút **"Phiên chat mới"** nằm cạnh nút "Lịch sử" (bấm khi đang trả lời thì từ chối và báo lý do, tránh mất phần đang stream). Nút luôn hiện, không phải chờ có cuộc cũ.
+* Effect "Morning Briefing" nay chỉ chào khi **khung chat còn trống** (`setMessages(prev => prev.length > 0 ? prev : [greeting])`) — nếu không thì việc khôi phục hội thoại ở mục 1 sẽ bị chính nó ghi đè lại.
+
+**Ghim ô nhập trong khung chat (mục 5)** — `frontend/apps/internal/src/components/layout/StaffLayout.tsx`:
+
+* Khung gốc: `isWorkspace ? 'h-dvh overflow-hidden' : 'min-h-screen'` (chỉ trang workspace mới ghim theo chiều cao khung nhìn; các trang khác giữ nguyên hành vi cũ).
+* `aside h-dvh`, `header shrink-0`, `main min-h-0 flex-1 overflow-hidden p-0` — phá đúng chuỗi `min-h-0` làm vùng cuộn không co được.
+* Trong trang chat: `<section>` và vùng cuộn thêm `min-h-0`; thanh soạn tin `sticky bottom-0 z-10` ⇒ **luôn nằm dưới cùng khung chat**, không bị đẩy khỏi màn hình khi lịch sử dài.
+
+**Nút rảnh tay — Micro (mục 6)** — `frontend/packages/ui/src/lib/speech.ts` (nối tiếp phần TTS đợt 6):
+
+* `getSpeechRecognitionCtor()`, `isSpeechToTextSupported()`, `SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE`;
+* `createSpeechToText({ lang='vi-VN', continuous=true, interimResults=true, onPartial, onFinal, onStateChange, onError })` → `{ supported, start, stop, isListening }`.
+* **Rảnh tay thật**: `continuous` + tự khởi động lại sau 250 ms khi trình duyệt tự `onend`, cho tới khi người dùng bấm dừng ⇒ nói một mạch không phải bấm lại từng câu.
+* Chữ tạm hiện ngay trong ô nhập để Sale thấy máy nghe đúng; câu chốt được nối vào nội dung đang có, **không ghi đè** chữ đã gõ.
+* Lỗi được dịch sang tiếng Việt thay vì im lặng: `not-allowed`/`service-not-allowed` (chưa cấp quyền micro), `audio-capture` (không thấy micro), `network`; `no-speech`/`aborted` thì bỏ qua (không làm phiền). Trình duyệt không hỗ trợ (Safari/Firefox) ⇒ nút báo rõ thay vì bấm không có gì xảy ra.
+* Nút micro nằm trong thanh soạn tin: `aria-pressed`, đổi `Mic`/`MicOff`, nhấp nháy khi đang nghe, **bị khoá trong lúc Agent đang trả lời** để tránh trộn chữ vào câu trả lời.
+
+### 15.4 Kiểm chứng (chạy thật trong sandbox)
+
+* Bộ test mới cho hai thư viện (`vitest`, môi trường `node`):
+  * `frontend/packages/api-client/src/copilotChatState.test.ts` — **10 ca**: sống qua unmount/remount, F5 (dựng lại từ sessionStorage), bấm lịch sử có cache, không ghi đè cuộc khác, phiên mới rỗng, id về muộn (giữ `pendingItems`), khoá id đang mở, JSON hỏng, phát tín hiệu cho listener.
+  * `frontend/packages/ui/src/lib/speech.test.ts` — **6 ca**: trình duyệt không hỗ trợ, tự khởi động lại, `stop()` chặn khởi động lại, `not-allowed` ra tiếng Việt, tách chữ tạm/chữ chốt, `no-speech` im lặng.
+* `cd frontend && npm test` ⇒ **api-client 10/10 · ui 6/6 · mock-server 39/39** (55 ca, 6 file).
+* `npx tsc -b apps/internal` ⇒ 0 lỗi. `npm run lint` ⇒ **126 cảnh báo, 0 lỗi** (giảm 1 so với trước do `StaffLayout` hết cảnh báo `location` toàn cục).
+* Backend: `556 passed` (không đổi — đợt này không đụng backend), `ruff check src/ tests/` sạch.
+* `npm run build -w @pricepolicy/internal` chạy thật: bundle chứa `Phiên chat mới`, `Đang nghe`, `whitespace-pre-line`; CSS có `h-dvh` ⇒ xác nhận phần ghim ô nhập vào tới bản dựng, không chỉ ở mã nguồn.
+
+### 15.5 Trên VM cần xác nhận (không có trình duyệt trong sandbox)
+
+Kịch bản bấm tay, nên chạy sau khi deploy (Ctrl+Shift+R để bỏ bundle cũ):
+
+1. Chat 2–3 lượt → sang *Báo giá* → quay lại *Trợ lý* ⇒ **hội thoại còn nguyên** (điểm 1).
+2. Mở *Lịch sử* → bấm một cuộc cũ ⇒ **hiện ngay**, không cần F5 (điểm 2). Bấm lại chính cuộc đang mở ⇒ vẫn tải lại.
+3. F5 ⇒ cuộc đang mở vẫn đó (điểm 3).
+4. Bấm **Phiên chat mới** ⇒ khung chat trống, cuộc cũ vẫn nằm trong Lịch sử (điểm 4).
+5. Chat dài (hoặc thu nhỏ cửa sổ) → cuộn lên đầu ⇒ **ô nhập vẫn nằm dưới cùng khung chat**, không bị che; header/nút không nhảy (điểm 5).
+6. Bấm Micro (Chrome/Edge, trang HTTPS) → lần đầu hiện xin quyền micro → nói "Khách hỏi phí công chứng hợp đồng thuê nhà" ⇒ chữ hiện dần trong ô nhập, nói tiếp không phải bấm lại; bấm lần nữa để dừng (điểm 6). Từ chối quyền ⇒ phải thấy thông báo tiếng Việt, không im lặng.
+
+### 15.6 Micro — nói thẳng về chi phí và giới hạn
+
+* **Không tốn tiền, không cần backend, không cần API key**: dùng bộ nhận dạng có sẵn của trình duyệt. Vì vậy đợt này triển khai luôn theo đúng điều kiện người dùng nêu.
+* **Đánh đổi đã biết, ghi rõ trong mã**: trên Chrome/Edge, đoạn ghi âm được gửi tới dịch vụ nhận dạng của Google để chuyển thành chữ (không phải xử lý tại máy). Nếu phòng pháp chế không cho phép dữ liệu khách hàng rời máy, cần phương án khác — **không phải việc đợt này**.
+* **Chỉ chạy trên Chrome/Edge (và một phần Safari); Firefox không có** ⇒ nút báo "trình duyệt chưa hỗ trợ" và vẫn gõ tay bình thường.
+* Bản này **chỉ một chiều: nói → chữ**. Chiều ngược lại (Agent đọc câu trả lời) đã có ở đợt 6 (TTS, có đường tự đọc khi được bật).
+* Muốn chất lượng cao hơn nữa (thuật ngữ bảo hiểm, tên riêng, tự sửa câu) thì cần dịch vụ STT trả phí phía server — để **thảo luận**, chưa triển khai.
+
+---
+
+## 16. Đợt 14 (2026-10-02) — Tối ưu câu trả lời Agent: độ rõ ràng, văn phong, mỏ neo `[n]`, ghi chú nội bộ, cổng chất lượng
+
+### 16.1 Người dùng yêu cầu gì
+
+Đưa ví dụ thật để so sánh **câu trả lời hiện tại** (3 dòng "Lưu ý" xếp chồng) với **câu trả lời mong muốn**
+(mỏ neo `[1]…[5]`, câu hỏi làm rõ đánh số, ghi chú kiểm duyệt gọn). Chốt phạm vi: *"tôi muốn nói về độ rõ
+ràng và văn phong hợp lý khi trả lời, làm P0 đi"*, sau đó chốt toàn bộ thiết kế P1/P2/P3 và yêu cầu triển khai.
+
+Phân tích đầy đủ (số liệu đo thật, trước/sau): `docs/team_report/agent_answer_optimization.md`.
+
+### 16.2 P0 — dọn nhiễu & sửa văn phong (commit `2dd544f`)
+
+| # | Sửa gì | Vì sao |
+|---|---|---|
+| 1 | `grounded` = có citation **hoặc** tool tra cứu chính sách/giỏ hàng chạy thành công | Câu "0 căn khớp" là **dữ liệu**, không phải "chưa đối chiếu" — trước đây bị dán nhãn sai |
+| 2 | Verifier tha **số Sale tự nêu** trong câu hỏi (`echoed_claims`) | "2 tỷ" do Sale nhập, câu trả lời nhắc lại không phải bịa |
+| 3 | Verifier tha **số/mã trong bối cảnh canonical** (`context_claims`) | "2,5 → 6,1 tỷ" là dải giá thật của giỏ, chỉ đến từ bối cảnh thay vì Observation |
+| 4 | Critic chỉ nhắc "gắn mỏ neo" khi **có** citation để trỏ tới | Lượt lọc rỗng không có nguồn nào ⇒ lời nhắc không hành động được |
+| 5 | Gộp mọi cảnh báo vào **một** trường; thêm luật văn phong cho LLM | Hết 3 dòng xếp chồng làm câu trả lời trông hỏng |
+
+Đo trên đúng ví dụ: **3 dòng cảnh báo → 0**; `grounded` False→True; `verified` False→True; `critique.ok` False→True.
+
+### 16.3 P1 — nội dung & nghiệp vụ (theo chốt của người dùng)
+
+| Mã | Chốt | Cách làm |
+|---|---|---|
+| P1.1 | Lọc rỗng ⇒ gợi ý bước 1 (bỏ trần giá, **giữ số phòng ngủ**) + câu hỏi điều hướng; **không tự hạ phòng ngủ** | `inventory_funnel.render_empty_funnel()` trả phễu đầy đủ vào Observation: khoảng giá phân khúc, căn mềm nhất, chênh lệch, **hai hướng đi tiếp** |
+| P1.2 | **Không** tính chi tiết ngay, chỉ đưa mốc tổng quan | Tool mới `danh_gia_von_tu_co`: tỷ lệ vốn tự có / giá trị HĐMB, mức tối thiểu theo phương án vay, thiếu/thừa bao nhiêu. KHÔNG trả bảng dòng tiền |
+| P1.3 | Báo căn **mềm nhất** + mức thiếu hụt, không dội căn đắt nhất | `softest_unit_line()` — nêu mã căn, diện tích, dự án, giá, chênh so với ngân sách |
+| P1.4 | Mặc định hiểu là **tổng giá**, luôn hỏi lại giả định vốn tự có | Luật trong prompt + `INTENT_ASSESS_FUNDS` cho câu hỏi về vốn tự có |
+| P1.5 | **Mọi danh sách căn đều là bảng** (kể cả 1 căn), đúng 4 cột: Mã căn · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế) | `inventory_funnel.units_table()` là đường duy nhất; `render_matches()` luôn trả bảng, không còn nhánh liệt kê dòng; `FormattedAiMessage` render bảng markdown động |
+| P1.6 | Mốc thời gian dạng **watermark**, không đưa vào văn phong | `data_as_of` trong Observation → `final.payload.data_as_of` → UI hiển thị "Dữ liệu cập nhật: DD/MM/YYYY HH:mm" |
+| P1.7 | Ưu tiên **Rõ ràng → Ngắn gọn → Đầy đủ**; phần chính 4–6 câu | Luật prompt (đổi thứ tự so với đề xuất ban đầu của tôi) |
+
+**Điều chỉnh sau khi xem bản chạy (cùng ngày):** chốt P1.5 đổi từ *"<3 căn liệt kê dòng, ≥3 căn mới dùng bảng"* thành **"cứ có căn cần liệt kê là trình bày dạng bảng"**, và tên cột lấy đúng 4 cột người dùng chốt (*Mã căn · Phòng ngủ · Diện tích · Giá niêm yết (trước thuế)*) — bỏ cột Dự án để bảng không bị tràn ngang.
+
+### 16.4 P2 — mỏ neo `[n]` & hiển thị
+
+| Mã | Chốt | Cách làm |
+|---|---|---|
+| P2.1 | `[n]` **bấm mở được** nguồn (Trust Engine) | `anchors[]` trong payload → `FormattedAiMessage` render `[n]` thành chip bấm → mở modal căn cứ |
+| P2.2 | **Không** gắn `[n]` cho số của Sale | Số có trong câu hỏi được in đậm + nhãn "(ngân sách anh/chị nhập)"; cùng một số chỉ gắn nhãn một lần |
+| P2.3 | **Máy** tự chèn ở hậu xử lý, LLM không tự viết | Module mới `src/agents/copilot/anchors.py`: quét số → đối chiếu citation theo **giá trị số học** → chèn `[n]`; gỡ mỏ neo LLM tự gõ rồi đánh lại |
+| P2.4 | Tách trường `internal_notes` khỏi nội dung | `reply` sạch (copy gửi khách nguyên văn); `internal_notes` + `anchors` + `data_as_of` lưu **cùng lượt** trong lịch sử |
+
+### 16.5 P3 — kiểm soát chất lượng
+
+| Mã | Chốt | Cách làm |
+|---|---|---|
+| P3.1 | Prompt giữ **metadata** giỏ hàng + nhãn cảnh báo + ép gọi tool khi cần số cụ thể | Bối cảnh ghi rõ "metadata của TOÀN GIỎ" và "MỌI con số chi tiết BẮT BUỘC từ kết quả tool" |
+| P3.2 | **Cổng CI**: lọc 3PN thì mọi căn trả về phải là 3PN (lỗi cấm) | `segment_check` sinh ngay trong tool; `run_copilot_eval.py` in cổng và **exit 1** nếu vi phạm, bất kể `--fail-under` |
+| P3.3 | Hallucination = 0%; không còn ghi chú rỗng/lạc hậu; thêm 2 kịch bản vàng | Thêm `expect_no_internal_notes`, chặn CI khi `hallucination_rate > 0`; thêm `EMPTY-01` (lọc rỗng) và `FUND-01` (tổng giá → đòn bẩy vốn tự có) → bộ vàng **34 câu** |
+
+**K4 (nút hành động nhanh)** — `_default_suggestions` nay sinh chip theo ngữ cảnh, mang theo dữ liệu để
+bấm là chạy ngay: *"Xem bảng tính vay chi tiết cho căn 3 ngủ (ngân sách 2 tỷ)"*, *"Gửi danh sách căn 3 ngủ
+đang mở bán"*, *"Mở rộng sang căn 2PN+1 (ngân sách 2 tỷ)"*. Đã bổ sung từ khoá nhận diện để câu từ chip
+được hiểu đúng (kèm chốt bảo vệ: câu có "dòng tiền / bảng tính vay / báo giá" vẫn đi đường tính chi tiết).
+
+### 16.5b Bổ sung cùng ngày — hình thức câu trả lời & chống lộ tên nội bộ
+
+Người dùng dán **câu trả lời thật** (chế độ LLM) và nêu hai lỗi: (1) hình thức chưa hợp lý — bảng bị
+viết dính vào câu văn nên không xuống hàng, không thành cột, lại còn emoji mũi tên và `**đậm**` mở
+nửa câu; (2) **`gia_toi_da_vnd = 0` lọt vào văn bản** — Sale không được thấy chuyện kỹ thuật, khách
+càng không.
+
+| Mã | Việc | Cách làm |
+|---|---|---|
+| P1.5b | Bảng phải nằm riêng dòng, mỗi hàng một dòng, có dòng trống trước/sau | Module mới `src/agents/copilot/reply_format.py::normalize_markdown()`: dò hàng phân cách để biết **số cột**, rồi cắt dòng theo đúng số cột — tách được cả bảng viết dính một dòng, kể cả trường hợp tiêu đề dính còn hàng phân cách ở dòng dưới. Áp ở cuối `_finalize`, sau khi chèn mỏ neo. Hàm **idempotent** |
+| P1.5b | Bỏ emoji mũi tên, đậm rác, canh lại cột | Mũi tên đầu dòng → gạch đầu dòng; `** **` → khoảng trắng (không để hai chữ dính nhau); `**` trong ô bảng bị bỏ (bảng đã có kẻ ô); đậm lẻ (mở nửa câu) → bỏ hết `**` trên dòng đó thay vì để dấu sao rác hiện ra |
+| P1.5b | Canh cột ở phía hiển thị | `frontend/packages/ui/src/lib/markdownTables.ts` + `FormattedAiMessage`: ô số (tiền, %, m²) **canh phải**, `tabular-nums`, không ngắt dòng giá; ô chữ canh trên. Lớp này còn **tách bảng dính cho dữ liệu cũ đã lưu** — câu trả lời cũ trong lịch sử cũng hiển thị đúng |
+| P2.5 | Tên tool/tham số nội bộ không được xuất hiện | `reply_format.py::strip_internal_names()`: bỏ ngoặc chỉ chứa tham số (`(gia_toi_da_vnd = 0, …)`), bỏ `ten_tham_so = giá_trị`, đổi tên tool thành cách nói nghiệp vụ (`tinh_phuong_an_thanh_toan` → "phương án thanh toán chi tiết"), dọn mọi `snake_case` còn sót + giới từ lơ lửng. Có **ghi log** danh sách đã dọn để biết model rò rỉ gì mà chỉnh prompt, không im lặng che đi |
+| — | Giảm từ gốc | `prompts.py` thêm luật hình thức (bảng trên dòng riêng, mỗi ý một dòng, không emoji mũi tên, `**` đúng cặp) và luật **cấm nhắc tên tool/trường nội bộ**, kể cả kể lể tham số đã truyền |
+
+**Kiểm chứng đúng ví dụ người dùng gửi:** câu trả lời hỏng được đưa nguyên văn vào test
+(`tests/test_agents/copilot/test_copilot_reply_format.py`, 14 ca) — sau khi qua lớp chuẩn hoá, bảng ra
+đúng 5 dòng 4 cột, không còn dòng nào vừa chữ vừa ô bảng, `➡️` thành gạch đầu dòng, `gia_toi_da_vnd`
+biến mất; test khẳng định thêm hàm **idempotent** (áp lại không đổi — dùng được cho dữ liệu cũ) và bảng
+đã đúng định dạng thì **không bị sửa**. Một ca tích hợp chạy qua `_finalize` thật để chắc hai lớp này
+nằm đúng chỗ trong đường đi của câu trả lời.
+
+### 16.5c Bộ kịch bản Sale hỏi Copilot (deliverable theo yêu cầu người dùng)
+
+Người dùng yêu cầu: *"Generate cho tôi bộ câu hỏi kịch bản thông dụng để sale hỏi copilot nhằm test luồng
+hoạt động của Copilot tuân theo khả năng và thiết kế ban đầu hợp lệ, cũng để test nội dung trả ra có ổn
+không."*
+
+| Hạng mục | Nội dung |
+|---|---|
+| `eval/copilot/sale_scenarios.json` | **57 kịch bản / 12 nhóm việc của Sale**: tra cứu giỏ hàng, lọc rỗng & điều hướng, vốn tự có, phương án thanh toán & báo giá, chính sách (kèm hiệu lực theo ngày), soạn tin, kiểm F8, hồ sơ khách, nhiều ý một lượt, ngữ cảnh hội thoại, an toàn & không bịa, xã giao. Phủ đủ 7 tool. Mỗi câu có kỳ vọng máy kiểm được + ghi chú "kiểm điều gì" |
+| Bộ chấm mở rộng | `run_copilot_eval.py` nay chấm thêm `must_not_contain`, `expect_table` (P1.5), `max_questions` (P1.7), và **vệ sinh hình thức** áp cho MỌI câu: không lộ `snake_case` nội bộ (P2.5), bảng không dính câu văn (P1.5b), không emoji mũi tên |
+| Cổng mới | Cổng **nội dung/hình thức** chặn CI mặc định (vi phạm là exit 1); cờ `--strict` siết thêm `must_contain`; cờ `--questions` chạy bộ khác bộ vàng |
+| Hai trạng thái mới | `known_gap` (lỗ hổng đã biết: vẫn chạy, vẫn báo cáo, không tính vào mẫu số) và `offline: skip` (câu cần LLM: bỏ qua khi chạy offline và **được liệt kê riêng** để không ai tưởng đã kiểm) |
+| Cổng tự động trong CI | 4 test mới trong `tests/test_agents/copilot/test_copilot_eval.py`: phủ đủ nhóm/tool, chạy đạt cổng, báo cáo lỗ hổng + câu chỉ-LLM, và kiểm chính bộ chấm |
+| Tài liệu cho Sale/QA | `docs/team_report/copilot_sale_scenarios.md`: cách chạy (offline · LLM trên VM · kiểm bằng mắt), bảng kịch bản theo nhóm, **phiếu chấm 6 điểm** cho người đọc, kết quả chạy thật, và danh sách việc cần xử lý |
+| Báo cáo | `eval/results/sale_scenarios_report.json` |
+
+**Kết quả chạy thật (offline):** 42/57 câu tính điểm (8 lỗ hổng đã biết, 7 câu chỉ-LLM) — gọi đúng tool
+**100%**, citation **100%**, bịa **0.0%**, cổng phân khúc **ĐẠT**, cổng nội dung/hình thức **ĐẠT**.
+
+**Lỗi thật phát hiện được nhờ bộ kịch bản này** (chi tiết + đề xuất ở §5 tài liệu kèm):
+
+1. **[Nghiêm trọng]** Bộ chặn rò rỉ đầu ra nuốt mất kết luận kiểm F8 khi chính câu đang kiểm tra là phát
+   ngôn bị cấm ("cam kết sinh lời 20%") — Sale không nhận được kết luận ở đúng ca quan trọng nhất. Bộ vàng
+   chỉ kiểm "có gọi tool" nên lỗi lọt qua dưới dạng `missing_terms`.
+2. **[Cao]** Thân bản nháp gửi khách trộn nhãn nội bộ (`Bản nháp (SUPPORTED)`, `F8: ALLOW_SEND`) ⇒ "Copy cho
+   khách" mang mã kiểm duyệt tới khách — vi phạm chốt P2.4/K2.
+3. **[Trung bình]** `POL-04` trong bộ vàng kỳ vọng phiên bản chính sách `V2.0` không tồn tại trong dữ liệu
+   canonical ⇒ kỳ vọng không thể đạt, và `must_contain` hiện chưa nằm trong cổng CI (cờ `--strict` đã sẵn).
+4. **[Thấp]** Lớp tất định chỉ hiểu 50/57 câu (7 câu cần LLM: bóc tên dự án, hỏi theo mã căn, thời hạn ưu
+   đãi, đại từ "căn này"); chip "mở rộng phân khúc" giữ nguyên trần giá cũ nên lại ra kết quả rỗng.
+
+### 16.5d Sửa hai lỗi nặng nhất do bộ kịch bản phát hiện + phân tích lỗi time-travel
+
+**Lỗi 1 — kết luận kiểm duyệt F8 bị bộ chặn rò rỉ nuốt mất.** Kết luận buộc phải trích lại câu bị chặn
+("cam kết sinh lời 20%"), mà luật cấm `ILLEGAL_COMMITMENT_VI` khớp chính phần trích dẫn ⇒ toàn bộ câu trả
+lời bị thay bằng câu từ chối chung ⇒ **đúng ca quan trọng nhất, Sale không nhận được cảnh báo**.
+
+*Cách sửa* (`reply_format.mask_review_text` + `graph._finalize`), tách đúng hai loại văn bản:
+- `engine_texts` — câu chữ **do engine kiểm duyệt viết** (kết luận, lý do, mã luật): miễn theo kiểu trùng
+  nguyên văn (≥ 12 ký tự). Engine viết thì hiển thị nguyên văn là đúng, và model không thể lợi dụng vì câu
+  nó tự viết không trùng nguyên văn.
+- `reviewed_texts` — **nội dung đang bị kiểm** (câu Sale nhờ kiểm, câu bị gắn cờ): **chỉ** miễn khi nằm
+  trong ngoặc kép và khớp đúng văn bản đó (tức là đang được trích dẫn để chỉ chỗ sai).
+- Test khoá **cả hai chiều**: cam kết trái luật do model tự viết (kể cả bọc ngoặc kép) và rò rỉ API key
+  vẫn bị chặn như cũ; biến thể khó hơn (lời giải thích của engine cũng chứa cụm bị cấm) cũng không làm mất
+  kết luận. Kèm theo: F8 khai báo `grounded: true` (đầu ra tất định) nên không còn ghi chú "chưa đối chiếu"
+  gây nhiễu — nằm trong nhóm sửa của lỗi này.
+
+**Lỗi 2 — bản nháp gửi khách trộn nhãn kiểm duyệt nội bộ** (`Bản nháp (SUPPORTED)`, `F8: ALLOW_SEND`) ⇒
+bấm "Copy cho khách" là khách nhận luôn mã nội bộ, vi phạm chốt P2.4/K2.
+
+*Cách sửa*: `soan_tin_tu_van` trả `summary` = **thân tin** (văn bản gửi khách) và `internal_notes` =
+kết luận kiểm duyệt dạng **tiếng Việt**; `_finalize` gom `internal_notes` do tool khai báo vào banner nội
+bộ. Bộ chấm có thêm tiêu chí `notes_contain` để kiểm **cả hai chiều**: thân tin CẤM chứa mã nội bộ, banner
+nội bộ BẮT BUỘC có kết luận kiểm duyệt. Thêm `planner._compose_topic` bóc chủ đề Sale yêu cầu ("về chiết
+khấu thanh toán sớm") để bản nháp nói đúng việc, và không nhét câu mệnh lệnh vào tin gửi khách.
+
+**Kết quả:** hai câu chuyển từ nhãn "lỗ hổng đã biết" sang **tiêu chí kiểm thật** và đang ĐẠT; bộ kịch
+bản còn 5 câu ghi nhận lỗ hổng (AT-03, AT-04, AT-05, CS-07, CS-08, RONG-04). `pytest` **633 passed**.
+
+**Lỗi time-travel chính sách — phân tích để chốt (chưa sửa).** Ba vấn đề tách biệt:
+
+| | Vấn đề | Bằng chứng |
+|---|---|---|
+| a | **Dữ liệu thiếu**: chỉ có `CSBH-ZEN-2026-V3.1` (01/08→31/12/2026) và `CSBH-SAPPHIRE-2026-V1.0` (01/01→31/12/2026). Ngày 15/07/2026 **không bản nào** của The Zen Park hiệu lực ⇒ kỳ vọng `V2.0` của `POL-04` không thể đạt | bảng `POLICIES_DATA` |
+| b | **Code rơi về ứng viên đầu tiên**: `resolve_active_policy` khi không có bản nào phủ ngày vẫn trả về chính sách đầu tiên của dự án, câu trả lời vẫn ghi "đang hiệu lực tại <ngày>" | chạy thật CS-08: tiêu đề "(VLandFuture Sapphire)" nhưng nội dung trích `CSBH-ZEN-2026-V3.1` |
+| c | **Tên dự án không được truyền xuống tool**: `_args_for(LOOKUP_POLICY)` chỉ truyền câu hỏi + ngày ⇒ tool trộn hai dự án | `planner._args_for` |
+
+**Bàn giao:** người dùng chuyển việc #3 cho Gemini (2026-10-02) — bản giao chi tiết ở
+`docs/team_report/handoff_policy_timetravel.md` (ba nguyên nhân kèm vị trí code, hành vi đúng, tiêu chí
+nghiệm thu, cách kiểm chứng, ràng buộc kỹ thuật). Kịch bản `CS-08` mới được thêm để Gemini có ca
+kiểm chạy được ngay cả ở chế độ offline.
+
+Hệ quả nghiệp vụ: **Sale có thể trích sai văn bản chính sách cho giao dịch tháng 7**. Ba lựa chọn A (chỉ
+sửa kỳ vọng), B (sửa code cho trung thực + bóc tên dự án — đề xuất làm trước), C (B + thêm dữ liệu lịch sử
+`CSBH-ZEN-2026-V2.0` để demo đúng năng lực time-travel) được trình bày kèm đánh giá được/mất trong
+`docs/team_report/copilot_sale_scenarios.md` §5.2, chờ người dùng chốt.
+
+### 16.5e Đợt 19 (2026-10-03) — Bảng giỏ hàng, con số "44 căn" và tên dự án không có trong DB
+
+**Người dùng báo ba nhóm việc** (kèm ảnh chụp một câu trả lời của Copilot):
+
+1. Bảng căn hộ hiển thị **lệch** và **thiếu cột `Dự án`, `Phòng ngủ`**; màn hình PC rộng nên có thêm
+   **số tầng**, **hướng**; màn hình nhỏ hiện ít cột hơn.
+2. Bỏ dòng chữ **"Enter để gửi · Ctrl+Enter để xuống dòng"** trên giao diện (phím tắt giữ nguyên).
+3. Kiểm tra số liệu: vì sao câu trả lời nói **"44 căn"** khi DB chỉ có **40**, và vì sao có
+   **"VLand Future Riverside"** khi DB chỉ ghi **The Zen Park** và **VLandFuture Sapphire**.
+
+#### Nguyên nhân gốc — lần theo code, không đoán
+
+| # | Hiện tượng | Nguyên nhân thật | Vị trí |
+|---|---|---|---|
+| a | "44 căn" | `grounding.list_units()` **cộng thẳng** 40 căn đọc từ DB với 4 căn fixture còn trống ⇒ 44. Dải giá "từ 2,5 tỷ" cũng là giá **căn fixture** (ZEN-A-0803) lẫn vào giỏ thật | `src/agents/copilot/grounding.py`, `src/api/endpoints/catalog.py` (`/units`, `/public/projects`) |
+| b | "VLand Future Riverside" | Tên dự án **gán cứng** ở 3 tầng: lớp đọc DB (`_fetch_db_units` gán `project_name = "VLand Future Riverside"` cho **mọi** dòng), API catalog (`_unit_model_to_dict`), và UI (`Rổ hàng căn hộ nổi bật — VLand Future Riverside`, badge CRM, mục chọn dự án `P-001`) | `grounding.py`, `catalog.py`, `SalesWorkspacePage.tsx`, `LeadInboxPage.tsx` |
+| c | Cột `Diện tích` sai số | `_unit_model_to_dict` **suy diễn** diện tích theo loại căn (2BR → 72.0m², 3BR → 98.5m²) và gán "tháp"/"view" theo tiền tố mã căn — DB không hề lưu các trường này | `catalog.py`, `grounding.py` |
+| d | Bảng thiếu cột / lệch hàng | Bảng trong câu trả lời do **LLM tự viết lại** từ Observation: model bỏ bớt cột và có thể viết thiếu ô ⇒ lệch cột; UI lại không có lưới an toàn khi hàng thiếu ô | `reply_format.py` (không dựng bảng), `inventory_funnel.py`, `FormattedAiMessage.tsx` |
+| e | Dòng gợi ý phím | Chuỗi tĩnh trong khối trạng thái TTS (dùng chung một `<span>` với "Đang tự đọc câu trả lời mới") | `SalesWorkspacePage.tsx` |
+| f | Rổ hàng nổi bật (card) | Card hardcode 4 căn `R-02.02 / R-03.05 / R-05.01 / R-01.08` — căn **không tồn tại** trong dữ liệu vận hành; bấm "Báo giá căn này" là tạo báo giá cho căn ma | `SalesWorkspacePage.tsx` |
+
+#### Đã sửa
+
+- **Một luật gộp duy nhất** (`src/contracts/units.py` → `merge_units`): DB là nguồn chính; fixture chỉ bù
+  cho dự án **DB chưa có dữ liệu**; khử trùng theo mã căn. Dùng chung cho cả lớp Copilot và API catalog
+  (`/units`, `/public/projects`) nên không còn chỗ nào cộng trùng. Giỏ hàng trên máy có DB 40 căn: **40**
+  (trước là 44/45).
+- **Tên dự án lấy từ bảng `projects`** (JOIN trong `_fetch_db_units`, `project_name` ưu tiên dữ liệu DB);
+  dự án lạ thì trả về **chính mã dự án**, không bịa tên. `PROJECT-VLF-001` chỉ còn là dự án fixture, không
+  tự sinh ra trong danh mục.
+- **Bỏ mọi suy diễn số liệu**: `area_m2` không có trong DB ⇒ trả `0.0` và giao diện in `—`; bỏ hẳn
+  map diện tích theo loại căn và nhãn "tháp/view" theo tiền tố mã căn. Ánh xạ `unit_type → số phòng ngủ`
+  giữ lại vì đó là ánh xạ nghiệp vụ ("3BR" = 3 phòng ngủ), đặt ở `src/contracts/units.py` để hai tầng dùng chung.
+- **Bảng giỏ hàng do máy dựng** (`inventory_funnel`): cột cơ bản **Mã căn · Dự án · Phòng ngủ · Diện tích ·
+  Giá niêm yết (trước thuế)**, cộng **cột mở rộng cho màn hình rộng** `Tầng*`, `Hướng / view*` (dấu `*` là
+  dấu máy đọc, UI ẩn ở màn hình nhỏ bằng `hidden xl:table-cell`). `graph._ensure_units_table` **chèn/thay**
+  bảng chuẩn vào câu trả lời sau khi gắn mỏ neo ⇒ model không thể làm mất cột hay lệch hàng.
+- **UI chống lệch cột**: mọi hàng được bù/cắt về đúng số cột tiêu đề (`alignRow`) nên dữ liệu cũ đã lưu
+  cũng không còn bị đẩy lệch.
+- **Bỏ dòng gợi ý phím** (giữ nguyên hành vi Enter/Ctrl+Enter), đổi placeholder ô chat thành "Ra lệnh cho Copilot…".
+- **Card rổ hàng + form khách + form báo giá** đọc từ `/units` thật; CRM không còn ghi cứng dự án `P-001`
+  / căn `R-02.02`; badge tiêu đề và mục chọn dự án lấy theo danh mục thật.
+
+#### Kiểm chứng (chạy thật trong sandbox)
+
+- `pytest -q` → **657 passed** (+21 ca mới: `test_catalog_real_inventory.py` 5, `test_units.py` 6,
+  `test_copilot_basket_data_integrity.py` 10).
+- **Postgres tạm 40 căn / 2 dự án** (đúng dữ liệu vận hành): `grounding.list_units()` = **40**,
+  `/api/v1/units` = **40**, `/api/v1/public/projects` = 2 dự án với tên thật, `available_units` 20/18 (2 căn
+  SOLD không tính), không còn chuỗi "Riverside", `PROJECT-VLF-001` trả 0 căn.
+- `ruff check src/ tests/` sạch. Frontend: `npm test` → **70 ca** (api-client 14, ui 17, mock-server 39),
+  `tsc -b apps/internal` 0 lỗi, build nội bộ OK.
+- `scripts/run_copilot_eval.py` (34 câu vàng): tool **100%** · citation **100%** · bịa **0.0%** · cổng phân khúc ĐẠT.
+- Bộ kịch bản Sale: **47/51** câu tính điểm (trước 46) · tool 100% · citation 100% · bịa 0.0% · các cổng ĐẠT;
+  câu còn thiếu từ khoá là `RONG-04` (lỗ hổng đã biết, câu hỏi phân khúc 4 ngủ không tồn tại).
+
+#### Nói thẳng phần chưa làm được
+
+- ~~**DB vận hành không lưu `diện tích` và `hướng`**…~~ → **đã làm ở đợt 20** (xem §16.5f): thêm 2 cột
+  `area_m2`, `view` và sinh giá trị cho 40 căn hiện có bằng script migration chạy được nhiều lần.
+- **Chưa kiểm bằng trình duyệt** (sandbox không có Chromium): cột mở rộng ở PC rộng / ẩn ở màn hình nhỏ mới
+  xác nhận ở mức mã + typecheck + build + unit test của lớp tiện ích.
+- Ảnh chụp của người dùng **không có trong sandbox** nên phần "bảng lệch" được xử lý theo nguyên nhân code
+  (model tự viết lại bảng + UI không canh số cột), không phải theo ảnh.
+
+### 16.5f Đợt 20 (2026-10-03) — Hai cột DB `area_m2`/`view`, câu trả lời sẵn sàng gửi khách, và ba lỗi ngữ cảnh
+
+**Người dùng yêu cầu bốn việc** (đây là lần **đảo ngược có chủ ý** quyết định "chưa thêm cột DB" của đợt 19):
+
+1. **Chỉnh lý DB**: thêm 2 cột **diện tích** và **hướng/view** vào bảng `units`, **tự sinh giá trị phù hợp
+   cho 40 căn hiện có**. Người dùng chốt **tên cột là `View`** (bỏ cách gọi "Hướng / view").
+2. **Câu trả lời còn "khá tốt" nhưng chưa có format/canh lề/xuống dòng** — phải tách thành các **đoạn rõ
+   ràng, sẵn sàng gửi khách**.
+3. **Thẻ "Xác nhận tham số tạo báo giá"** sau khi bấm "Chọn PA vay 0%" vẫn ghi *"Chưa chọn căn — chọn trên
+   card báo giá"* dù lượt trước đã nói rõ mã căn; kiểm tra thêm **có bắt được ngữ cảnh khách hàng không**.
+4. **Thẻ khách hàng bóc tách sai**: tên ra *"Chu Thúy Quỳnh, số"*, **"Căn hộ quan tâm: ZEN-A-1101" bịa**,
+   và **mất nguyện vọng 3–5 tỷ**.
+
+#### 1. DB: `area_m2` + `view` (script migration chạy được nhiều lần)
+
+| Thành phần | Nội dung |
+|---|---|
+| Model | `UnitModel` += `area_m2: float \| None`, `view: str(128) \| None` — **đều NULL-able**, không phá dữ liệu cũ |
+| Migration | `scripts/migrate_units_area_view.py`: `ALTER TABLE … ADD COLUMN IF NOT EXISTS` + guard `information_schema` (DB cũ chưa có cột vẫn `--dry-run` được) + backfill **chỉ** các dòng `area_m2 IS NULL`/`view` rỗng; `--dry-run` / `--all` |
+| Nguồn giá trị | `src/contracts/units.py`: `suggest_area_m2(unit_type, floor, code)` (bảng `AREA_BY_UNIT_TYPE`: Studio 35 · 1BR 48,5 · 2BR 72 · 2BR+ 84,2 · 3BR 98,5 · 4BR 128 · Shophouse 135, lệch ±1m² **tất định** theo tầng + 3 số cuối mã căn) và `suggest_view` (mã `R-` → view sông · `G-` → công viên & hồ cảnh quan · `SH-/SHP-` → mặt tiền đại lộ · còn lại → view nội khu) |
+| Seed | `scripts/seed_canonical_inventory.py` ghi luôn 2 cột khi tạo/đối chiếu căn ⇒ DB mới không cần chạy migration |
+| Lớp đọc | `grounding._fetch_db_units` (SELECT + payload), `catalog._unit_model_to_dict` (giá trị thật; `0.0`/`""` chỉ khi NULL), header bảng rộng đổi thành `Tầng* · View*` |
+
+**Nói thẳng: đây là giá trị sinh tự động để hệ thống có đủ trường, KHÔNG phải số đo thực tế.** Công thức
+tất định nên mọi môi trường ra cùng con số; khi có dữ liệu chính thức chỉ cần `UPDATE` đè (hoặc sửa bảng
+`AREA_BY_UNIT_TYPE` rồi chạy `--all`).
+
+#### 2. Hình thức: mục in đậm + mỗi ý một dòng, và **giữ nguyên cấu trúc dòng**
+
+Phát hiện quan trọng hơn cả việc "thêm mục": `commands.strip_command_mentions()` — hàm dọn lệnh gạch chéo
+khỏi câu trả lời — **gom cả câu trả lời theo dấu câu rồi nối bằng khoảng trắng**. Vì hầu như câu nào cũng có
+"anh/chị" (có dấu `/`), hàm này chạy trên **mọi** câu trả lời và **xoá sạch xuống dòng**: kết quả engine 3
+phương án từ 6 dòng có gạch đầu dòng biến thành **một khối chữ**. Đây chính là "chưa có format/canh lề/xuống
+dòng" mà người dùng thấy.
+
+- `commands.strip_command_mentions` xử lý **theo từng dòng**, dòng không nhắc lệnh đi qua nguyên vẹn.
+- `reply_format.structure_sections()`: **mục in đậm** (`**KHUYẾN NGHỊ:**`, `**LƯU Ý:**`…) + **mỗi câu một dòng**,
+  nhãn phương án in đậm (`**PA-NHANH (Thanh toán nhanh):** …`) nằm cùng dòng với mô tả của nó.
+- Hàm chỉ tác động lên **đoạn văn xuôi** (`_apply_sections` theo từng run dòng): bảng, danh sách và kết quả
+  engine do máy dựng **không bị viết lại**; văn xuôi không có nhãn mục giữ nguyên (không biến mọi câu thành
+  gạch đầu dòng).
+- Sửa tiếp một ca biên phát hiện khi thử: đoạn dẫn kết thúc bằng `:` có thể "nuốt" cặp `**` mở đầu của nhãn
+  kế tiếp ⇒ `**PA-NHANH:**` bị coi là nhãn trần và **không tách dòng**. Nay nhận diện in đậm bằng **văn bản
+  gốc** (`_starts_bold`) và mốc lấy lại cặp `**` của chính nó, nên nhãn phương án luôn tách dòng và giữ in đậm.
+- Lớp tool bớt chữ nội bộ: `Phương án thanh toán cho căn … (ưu tiên ít vốn ban đầu nhất):` thay cho
+  `objective MIN_INITIAL_CASH`; dòng "Sanity 6 kiểm tra kế toán" đổi thành câu nghiệp vụ.
+
+#### 3 + 4. Ba lỗi ngữ cảnh — cùng một nguyên nhân: **đoán hộ người dùng**
+
+| Lỗi | Nguyên nhân gốc | Cách sửa |
+|---|---|---|
+| Thẻ khách hiện `ZEN-A-1101`, note bịa "quan tâm căn …" | `intents.build_action_card` **gán cứng** `ZEN-A-1205` khi không tìm thấy mã căn, và `1_500_000_000` khi không có vốn | Bỏ mọi giá trị mặc định: chưa biết căn ⇒ để trống; chưa biết vốn ⇒ `null`. Thêm chốt ở `graph._finalize`: mã căn trên thẻ khách phải **có thật trong giỏ** *và* **xuất hiện trong ngữ cảnh** (câu Sale nói hoặc dữ liệu canonical), nếu không thì bị gỡ |
+| Mất nguyện vọng 3–5 tỷ | `extract_amount` chỉ lấy **mốc tiền đầu tiên** ⇒ câu có 2 loại số (vốn tự có 2 tỷ *và* khoảng 3–5 tỷ) chỉ nhớ 2 tỷ | `intents.match_amount_range` nhận `từ 3 tỷ đến 5 tỷ`, `3-5 tỷ`, `500 triệu - 1 tỷ` (mốc sau quyết định đơn vị); **khoét khoảng ra khỏi câu** rồi mới bóc số đơn ⇒ giữ **cả hai**; thẻ có `budget_min_vnd`/`budget_max_vnd` và `needs_summary` ghi đủ |
+| Tên ra "Chu Thúy Quỳnh, số" | Regex nhãn SĐT chỉ xử lý `sđt\|sdt\|phone\|điện thoại`, không xử lý chữ **"số"** đứng trước | Bổ sung `số (điện thoại/đt)?` vào cả `intents.extract_name` và `graph._sanitize_customer_name` |
+| Thẻ "Chưa chọn căn" | `startQuoteCreationFlow` chỉ đọc `hồ sơ khách`; `handleConfirmQuoteAction` đọc `copilotUnit` — **hai nguồn khác nhau**, và mã căn Sale gõ trong ô chat không được nạp vào ngữ cảnh phiên | Một hàm dùng chung `quoteContext.resolveQuoteUnitCode()` (căn của hành động → ngữ cảnh phiên → hồ sơ khách), bóc mã căn từ câu chat, **dự án suy ra từ chính căn** tra được (hồ sơ thiếu `project_id` không còn chặn báo giá) |
+| Bảng gợi ý kèm cả căn 6,1 tỷ | Bước tra giỏ lấy `gia_toi_da_vnd` từ `amount_vnd` (đã chuyển thành khoảng ⇒ 0 = không lọc) | `planner._budget_ceiling()`: ưu tiên **mốc cao của khoảng** (3–5 tỷ ⇒ 5 tỷ), rồi mới tới mốc tiền đơn |
+| Thẻ khách tự điền SĐT `0900000000`, khả năng trả `25 triệu/tháng`, mức độ `HOT` | FE `SmartCustomerCard` điền mặc định "cho đủ trường" | Bỏ hết; thiếu SĐT thì **báo lỗi ngay trên thẻ** thay vì lưu số giả |
+
+Ngữ cảnh **khách hàng** đã kiểm: `detectContextLeadId` nhận tên/SĐT/mã hồ sơ trong câu chat ⇒ chọn hồ sơ
+tương ứng; khách **vừa tạo** trở thành ngữ cảnh ngay (`setSelectedLeadId` + `setContextLeadId`), nên thẻ báo
+giá sau đó mang đúng tên khách.
+
+#### Kiểm chứng (chạy thật trong sandbox)
+
+- **Postgres tạm, schema `units` KIỂU CŨ** (8 cột, 40 dòng): `--dry-run` in bảng đối chiếu *"— → 36"* (không
+  crash), chạy thật → **"Đã cập nhật 40/40 căn"**, chạy lại → **"40 căn đều đã có đủ"**; DB đếm `(40, 40, 40)`;
+  `grounding.list_units()` 40/40 căn có area + view; bảng máy dựng in `| … | Tầng* | View* |` với
+  `SAP-D-4200 · 36m² · View nội khu · Tầng 42`.
+- `pytest -q` → **686 passed** (657 → 686): 15 ca cho thẻ khách/ngữ cảnh căn, 21 ca cho hình thức câu trả lời.
+- `ruff check src/ tests/ scripts/` → sạch.
+- Frontend: `npm test` → **76 ca** (thêm workspace `@pricepolicy/internal` với 6 ca ngữ cảnh báo giá),
+  `tsc -b apps/internal` 0 lỗi, build nội bộ OK.
+- Eval: câu vàng 34 → tool **100%** · citation **100%** · bịa **0.0%** · cổng nội dung/hình thức **ĐẠT**;
+  bộ kịch bản Sale → tool **100%** · citation **100%** · bịa **0.0%** (các lỗ hổng đã biết giữ nguyên:
+  `RONG-04`, `AT-03`, `AT-05`).
+- Sửa kèm trong bộ kịch bản: câu `PA-05` *"Phương án nào phải nộp đợt 1 ít nhất?"* nay chạy trong ngữ cảnh
+  **đang mở một căn** (`context.current_unit`) — đúng như lúc Sale tư vấn; nhờ vậy tài liệu hoá luôn luật
+  "không bịa mã căn khi ngữ cảnh trống" (tài liệu JSON kèm `docs/team_report/copilot_sale_scenarios.md`
+  đã sinh lại, `--check` khớp).
+
+#### Nói thẳng phần chưa làm được (đợt 20)
+
+- **Giá trị `area_m2`/`view` là số sinh tự động**, không phải số đo; cần người có dữ liệu thật đè lên.
+- **Chưa kiểm bằng trình duyệt** (sandbox không có Chromium): thẻ xác nhận báo giá, thẻ khách hàng, và các
+  mục in đậm trong câu trả lời mới xác nhận ở mức mã + typecheck + unit test + build.
+- **Câu trả lời do LLM viết** (chế độ `--mode llm`) chưa chạy được trong sandbox (không có API key); luật
+  định dạng mới đã đưa vào prompt và **luôn có lớp tất định `structure_sections` chạy sau** để hình thức
+  không phụ thuộc model.
+- **Chưa deploy lên VM** trong lượt này; muốn thấy trên `demoday.work.gd` cần chạy `git up` (hoặc
+  `scripts/deploy.sh`) trên VM.
+
+### 16.5g Đợt 21 (2026-10-03) — “Khoá API của OpenAI ở đâu? Tôi đã cung cấp đâu?”
+
+**Người dùng hỏi** (kèm bảng “Nhà cung cấp TTS & đơn giá” chụp từ màn hình quản trị): khoá API của OpenAI
+nằm ở đâu, người dùng **chưa** cung cấp khoá nào, và hiện **không có chỗ** để khai báo các khoá này.
+
+#### Sự thật (tra trong mã, không đoán)
+
+| Câu hỏi | Trả lời |
+|---|---|
+| Badge “Đã có” lấy từ đâu? | `tts_catalog()[…]["api_key_configured"]` → `tts_providers.is_provider_configured()`; giao diện chỉ hiện `Đã có`/`Chưa có`, **không bao giờ** nhận được chính khoá |
+| Vì sao báo “Đã có” dù chưa ai cung cấp? | `.env.example` bán sẵn `OPENAI_API_KEY=sk-your-openai-or-groq-key`, hướng dẫn triển khai là `cp .env.example .env`, và hàm kiểm tra chỉ hỏi **“khác rỗng?”** ⇒ giá trị **mẫu** bị tính là khoá thật. Đã tái hiện trong sandbox: đặt đúng giá trị đó vào ENV thì `api_key_configured = True` |
+| Chỗ nhập khoá hiện có | **Chỉ cho LLM**: màn hình quản trị → tab “Nhà cung cấp LLM” (`POST/PUT /admin/llm/providers`, khoá mã hoá Fernet qua `llm_secrets`, che khi hiển thị, có “Test kết nối”, ưu tiên DB → ENV) |
+| Chỗ nhập khoá TTS | **Chưa có.** TTS chỉ đọc ENV (`OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_SPEECH_KEY`, `VIETTEL_TTS_TOKEN`, `VBEE_TOKEN`, `FPT_TTS_API_KEY`); API `PUT /settings/tts` chỉ đổi **nhà cung cấp + giọng**, không có trường khoá |
+| Hệ quả phụ | Khoá OpenAI nhập trong CP (DB) **không** làm badge của tab TTS chuyển sang “Đã có”, vì `is_provider_configured` chỉ nhìn ENV/Settings — **đã nối lại trong lượt này** (xem mục 6 dưới) |
+
+#### Đã sửa trong lượt này (cùng một luật: khoá **mẫu** không phải khoá)
+
+1. `.env.example`: `OPENAI_API_KEY=` để **trống** (kèm ghi chú), nên `cp .env.example .env` không sinh khoá giả.
+2. `llm_secrets.is_usable_api_key()` / `looks_like_placeholder_key()`: rỗng hoặc giá trị mẫu (`your-`, `changeme`,
+   `placeholder`, `dummy`, `example`, `todo`, `<…>`) ⇒ coi như **chưa có khoá**; dùng chung cho TTS và LLM.
+3. `tts_providers.is_provider_configured()`: chỉ trả `True` khi khoá **dùng được** ⇒ badge phản ánh đúng thực tế.
+4. `llm_providers._env_configs()`: **bỏ qua** khoá mẫu + ghi cảnh báo (trước đây dựng thành nhà cung cấp ENV và
+   mang khoá giả đi gọi ⇒ lỗi 401 khó hiểu).
+5. `docs/team_report/tts_integration_plan.md` §4.1b: bảng “khoá đọc từ đâu / đã có chỗ nhập chưa” cho từng
+   nhà cung cấp + việc còn thiếu.
+6. Giao diện nói đúng sự thật: tab “Giọng đọc (TTS)” ghi rõ khoá đọc từ ENV của máy chủ và **chưa có ô nhập
+   khoá TTS** *(đợt 22 đã bù: nay có ô nhập khoá + thêm nhà cung cấp — §16.5h)*; câu nhắc trong workspace Sale
+   đổi từ “Cần khai báo khoá…” (treo lơ lửng, không có chỗ khai báo) thành “quản trị viên khai báo trong ENV
+   của máy chủ” *(đợt 22: trỏ tới màn hình quản trị)*.
+7. **Nối khoá LLM vào badge TTS**: nhà cung cấp TTS trùng vendor với LLM (hiện là OpenAI) nay được coi là
+   “đã có khoá” khi khoá đã khai trong màn hình quản trị → tab “Nhà cung cấp LLM” (khoá lưu DB, mã hoá
+   Fernet). Trước đây quản trị viên nhập khoá trên giao diện xong badge vẫn hiện “Chưa có” — trái với chính
+   ghi chú của catalog (“dùng chung khoá với LLM đang cấu hình”). Nhà cung cấp khác vendor (Azure, Viettel,
+   Vbee, FPT, Google) **không** hưởng ké khoá OpenAI; khoá mẫu trong DB cũng không tính.
+
+#### Chưa làm (chờ người dùng quyết)
+
+Đưa 6 nhà cung cấp TTS vào **cùng cơ chế khoá của LLM** (ô nhập khoá + “Test kết nối”, lưu DB mã hoá, DB → ENV,
+UI chỉ trả `api_key_configured`) — khi đó màn hình quản trị là **một chỗ duy nhất** khai báo khoá cho cả LLM
+và TTS, đồng thời nối khoá DB của LLM vào badge TTS để hết lệch trạng thái. Chưa triển khai vì người dùng
+đang hỏi để hiểu vấn đề (quy tắc đợt 13).
+
+> **Cập nhật đợt 22:** người dùng đã chốt *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2 nhà
+> cung cấp sẵn”* ⇒ đã triển khai đúng đề xuất này và mở rộng thêm phần thêm nhà cung cấp mới — xem **§16.5h**.
+
+#### Kiểm chứng
+
+- `pytest -q` → **711 passed** (686 → 711; +25 ca ở `tests/test_services/test_api_key_placeholders.py`).
+- `ruff check src/ tests/ scripts/` → sạch. `OPENAI_API_KEY=sk-your-openai-or-groq-key` ⇒ `openai`
+  `api_key_configured = False`, `browser = True`; khoá thật ⇒ `True`; `GET /api/v1/settings/tts` không trả
+  khoá và cũng không trả chuỗi giá trị.
+- Frontend: `npm test` 76 ca (mock-server 39 · api-client 14 · ui 17 · internal 6), `tsc -b apps/internal`
+  0 lỗi, build nội bộ OK.
+
+### 16.5h Đợt 22 (2026-10-03) — Nhập khoá TTS trên giao diện & thêm nhà cung cấp ngoài danh mục
+
+**Người dùng chốt** (nguyên văn): *“Dùng sẵn cơ chế cũ đã có, cho phép thêm mới nhà cung cấp ngoài 2 nhà cung
+cấp sẵn.”* Diễn giải đã dùng để triển khai: **không** dựng cơ chế mới — dùng đúng cơ chế của tab “Nhà cung cấp
+LLM” (ô nhập khoá + “Test kết nối”, lưu DB đã mã hoá Fernet, ưu tiên **DB → ENV**) và mở rộng để **thêm được cả
+nhà cung cấp ngoài danh mục có sẵn** (self-host, gateway nội bộ, nhà cung cấp khác), thay vì bó vào danh sách
+7 nhà cung cấp dựng sẵn.
+
+**“2 nhà cung cấp sẵn” là 2 cái nào — tra ra bằng mã, không đoán:** khi DB chưa có bản ghi nào, hệ thống chạy
+bằng cấu hình ENV do `llm_providers._env_configs()` dựng: **`ENV · primary`** (`OPENAI_API_KEY`) và
+**`ENV · fallback 1`** (`FALLBACK1_OPENAI_API_KEY`, ví dụ DeepSeek) — tối đa 3 nếu khai thêm `FALLBACK2_*`.
+Nhưng bảng quản trị chỉ liệt kê **bản ghi DB**, nên đúng lúc đang chạy bằng 2 nhà cung cấp ấy thì màn hình
+ghi *“Chưa khai báo nhà cung cấp nào trong hệ thống”* — quản trị viên không nhìn thấy mình đang có gì.
+Đã sửa trong lượt này (mục “Bổ sung” bên dưới).
+
+#### Đã làm
+
+**Backend**
+
+| Thành phần | Nội dung |
+|---|---|
+| Bảng `tts_providers` (`src/db/models.py`) | `provider_id` (`TTS-{hex10}`), `provider` (slug), `label`, `mode` (`api`/`browser`), `base_url`, `default_model`, `env_key`, `price_per_1m_chars`, `currency`, `price_note`, `verified_at`, `note`, `voices_json`, `supports_streaming`, `voice_cloning`, `api_key_encrypted`, `priority`, `is_active`, `last_test_*`, `created_at`, `updated_at`. Tạo bảng bằng `Base.metadata.create_all` (idempotent, cùng đường với các bảng hiện có; không thêm alembic — đúng chốt của người dùng) |
+| `src/services/tts_providers.py` | `set_tts_provider_rows` / `refresh_tts_providers` / `tts_row_to_dict`; **`resolve_tts_providers()`** gộp: danh mục dựng sẵn → bản ghi **đè** theo mã (giữ đúng vị trí cũ) → nhà cung cấp **mới** (sắp theo `priority`); `provider_key_source()` (db/env/llm/browser/none); `resolve_provider_api_key()` (DB → ENV → kho LLM) |
+| `src/api/endpoints/tts_admin.py` (mới) | `GET/POST /admin/tts/providers`, `PUT/DELETE /admin/tts/providers/{provider_id}`, `POST /admin/tts/providers/{provider_id}/test`; `require_admin` (chỉ ADMIN); khoá **chỉ trả dạng che** (`sk-t…abcd`) + nhãn nguồn khoá; `provider_ref` của endpoint test nhận **cả** `provider_id` lẫn mã dựng sẵn (ví dụ `openai`) |
+| `src/services/tts_probe.py` (mới) | “Test kết nối” **không tổng hợp thử** (tổng hợp là tốn tiền thật): trình duyệt ⇒ `NO_KEY_NEEDED`; thiếu khoá ⇒ `NOT_CONFIGURED` (kèm tên biến ENV); gateway OpenAI-compatible ⇒ `GET /models`; nhà cung cấp khác ⇒ thử `/voices` rồi base URL, không kiểm tra được thì trả `UNSUPPORTED` + hướng dẫn kiểm bằng tay (dùng lại đúng bộ chẩn đoán Cloudflare/HTML của `llm_probe`) |
+| `src/api/endpoints/settings.py` | `GET /settings/tts` nạp bản ghi DB trước khi dựng danh mục ⇒ thêm nhà cung cấp xong là **dùng được ngay**, không phải khởi động lại backend; `tts_catalog()` trả thêm `custom`, `provider_id`, `key_source`, `base_url`, `env_key` |
+
+**Giao diện (Admin CP → Giọng đọc)**
+
+- Thay bảng chỉ-đọc bằng thẻ quản trị (`TtsProvidersCard.tsx`): nút **Thêm nhà cung cấp**, nút **Sửa/Khai báo**
+  trên từng dòng, nút **Test kết nối** từng dòng, **Xoá** (bản ghi đè thì nhà cung cấp dựng sẵn vẫn còn, quay về
+  đơn giá gốc); cột “Khoá API” hiện badge + **nguồn khoá** + khoá che.
+- Hộp thoại khai báo theo đúng khuôn tab LLM (gồm cả `autoComplete="new-password"` để Chrome không tự điền vào
+  ô Base URL/khoá — lỗi đã gặp ở đợt 9): mã, tên, cách đọc, Base URL, model, biến ENV, khoá, đơn giá/1M ký tự,
+  đơn vị tiền, ghi chú giá, danh sách giọng (`mã | nhãn | giới tính`), mức ưu tiên, đang dùng / streaming /
+  nhân bản giọng. **Lưu xong không đóng hộp thoại** để bấm “Test kết nối” ngay (giống tab LLM).
+- Ghi chú cũ “hiện **chưa có ô nhập khoá TTS**” (đợt 21) đã được thay bằng mô tả đúng: khoá nhập trên giao diện,
+  ưu tiên DB → ENV → kho LLM trùng tên; nói rõ **mức độ hoàn thiện** (tiếng đọc hiện vẫn do trình duyệt tổng hợp,
+  đường gọi nhà cung cấp trả phí là bước kế tiếp của `tts_integration_plan.md` §7).
+- Workspace Sale: câu “quản trị viên khai báo trong ENV của máy chủ” → “khai báo ở **Quản trị CP → Giọng đọc →
+  Nhà cung cấp TTS** (hoặc ENV của máy chủ)”.
+
+**Mock server** (`handlers/tts.ts` + `handlers/ttsAdmin.ts`): cùng ngữ nghĩa backend (đè theo mã, nhà cung cấp
+mới, khoá chỉ dạng che, DB → ENV, xoá bản ghi đè không làm mất nhà cung cấp dựng sẵn); mock **không** cấu hình
+khoá ENV nào nên các nhà cung cấp trả phí vẫn báo “chưa có” cho tới khi nhập khoá — giữ đúng nguyên tắc đợt 21
+(không hứa hão). “Test kết nối” trong mock ghi rõ “(mô phỏng trong mock)”.
+
+#### Kiểm chứng
+
+- `pytest -q` → **738 passed** (711 → 738; +24 ca `tests/test_api/test_tts_providers_admin.py`, +3 ca
+  `tests/test_api/test_llm_admin.py` cho `env_items` / thêm nhà cung cấp thứ ba / test nhà cung cấp ENV),
+  `ruff` sạch.
+- Test backend phủ: phân quyền (SALE 403, chưa đăng nhập 403), thêm nhà cung cấp mới, bản ghi đè giữ vị trí,
+  xoá bản ghi đè → về giá gốc, xoá nhà cung cấp tự thêm → biến mất, **khoá không lộ** trong mọi phản hồi,
+  DB thắng ENV rồi quay lại ENV khi xoá, khoá mẫu trong ENV không tính là có khoá, 5 tình huống “Test kết nối”
+  (trình duyệt / thiếu khoá / gateway OK / sai khoá 401 / không mở endpoint kiểm tra).
+- Frontend: `npm test` **83 ca** (mock-server 46 · api-client 14 · ui 17 · internal 6),
+  `tsc -b apps/internal` 0 lỗi, `npm run build` OK, `oxlint` không phát sinh cảnh báo mới.
+- Luồng mới có test riêng trên mock: `packages/mock-server/src/ttsAdmin.test.ts` (6 ca) — đóng vai **đặc tả hợp
+  đồng** cho backend thật.
+- Không đụng vào đường trả lời Copilot ⇒ golden/bank không cần chạy lại (danh mục TTS chỉ được dùng ở
+  `settings.py` và `tts_admin.py`; kiểm bằng `grep`).
+
+#### Triển khai (VM)
+
+Bảng `tts_providers` **tự tạo** khi backend khởi động (`src/main.py` gọi `Base.metadata.create_all`, idempotent
+— cùng đường với mọi bảng khác, không cần alembic). Nếu chưa khởi động lại, `scripts/verify_schema.py` sẽ liệt
+kê `tts_providers` là bảng còn thiếu; trang giọng đọc vẫn chạy với danh mục dựng sẵn (đã có ca test cho tình
+huống này).
+
+#### Bổ sung cùng lượt — “2 nhà cung cấp sẵn” phải NHÌN THẤY được
+
+Người dùng nhắc lại đúng câu chốt ở đầu lượt ⇒ rà lại tab “Nhà cung cấp LLM” và tìm ra lỗ hổng thật: bảng chỉ
+đọc `LLMProviderModel` (DB), còn nhà cung cấp đọc từ ENV thì **không hiện ở đâu cả**. Đã bù:
+
+1. `GET /admin/llm/providers` trả thêm `env_items` — nhà cung cấp dựng từ ENV (`ENV · primary`,
+   `ENV · fallback 1`…), **chỉ-đọc**, khoá ở dạng che, kèm cờ `overridden_by_db`.
+2. `POST /admin/llm/providers/{id}/test` nhận **cả** `ENV-PRIMARY`/`ENV-FALLBACK-1` ⇒ bấm “Test kết nối” được
+   cho chính 2 nhà cung cấp đang chạy thật, trước khi quyết định thêm nhà cung cấp mới.
+3. Tab LLM thêm thẻ **“Nhà cung cấp đọc từ biến môi trường máy chủ”** (chỉ-đọc + nút Test, kết quả giữ trong
+   phiên xem) và banner nói đúng *“Đang chạy bằng N nhà cung cấp đọc từ biến môi trường…”* thay cho câu gây
+   hiểu nhầm “chưa khai báo nhà cung cấp nào”.
+4. Nhãn nói rõ **thêm mới là thêm ở đâu**: khai báo trong hệ thống ⇒ bản ghi DB thắng ENV (đúng cơ chế cũ), và
+   thêm được vendor ngoài 2 cái đang có (DeepSeek, Kimi, Qwen…). Mock server phản chiếu hành vi này để có test
+   hợp đồng (`ENV-PRIMARY`/`ENV-FALLBACK-1`).
+
+#### Còn lại (nói thẳng)
+
+- Chưa bấm thử trên trình duyệt (sandbox không có Chromium) và chưa chạy trên VM.
+- Chưa gọi nhà cung cấp TTS thật từ sandbox (không có khoá) — câu chẩn đoán của “Test kết nối” mới kiểm bằng
+  server giả.
+- Đợt này **chỉ** quản lý nhà cung cấp & khoá: phần **tổng hợp audio qua backend** (`POST /api/v1/tts/speak`,
+  cache, ghi chi phí) vẫn là việc kế tiếp của `tts_integration_plan.md` §7; hiện tiếng đọc do trình duyệt tổng hợp.
+
+### 16.5i Đợt 23 (2026-10-03) — Đọc thành tiếng **qua nhà cung cấp thật** (nối tiếp §7 của kế hoạch TTS)
+
+Tiếp mạch đợt 22 (đã có chỗ khai báo nhà cung cấp + khoá): lượt này nối **đường đọc thật** —
+
+```
+POST /api/v1/tts/speak   (staff)  → audio_base64, mime, chars, cached, cost, currency, latency_ms, quota
+GET  /api/v1/tts/quota   (staff)  → daily_budget, chars_today, remaining
+```
+
+| Việc | Cách làm |
+|---|---|
+| Gọi nhà cung cấp | `POST {base}/audio/speech` (giao thức OpenAI-compatible) — dùng cho OpenAI, gateway nội bộ và máy chủ tự dựng kiểu OpenAI (ví dụ VieNeu-TTS). *(Đợt 24 bỏ danh sách mã cứng: mọi nhà cung cấp có Base URL + khoá đều đi đường này, xem §16.5j.)* |
+| Giọng trình duyệt | Không đi qua backend (409 + giải thích) — vẫn là đường **0 đồng** mặc định |
+| Che PII | SĐT (`0912345678` → `091***78`) và email (`***@***`) bị che **trước khi** văn bản rời hệ thống (việc còn thiếu của kế hoạch §6) |
+| Cắt chữ | Theo `max_chars_per_turn`; chế độ rảnh tay (`summary_only`) chỉ đọc **240 ký tự đầu** — vừa đỡ tốn tiền vừa không bắt khách chờ |
+| Cache | `data/tts_cache/<sha256(text\|provider\|voice\|model\|speed)>`, TTL 7 ngày, trần 200 MB, tự dọn file cũ nhất. `cached: true` ⇒ **không tốn thêm tiền** |
+| Đo chi phí | Ghi `llm_usage.jsonl` với `kind="tts"` + `chars` + `cost` (ký tự × đơn giá/1M **ký tự**, không nhồi vào token). Tab “Chi phí & hiệu năng” hiện thêm dòng “trong đó đọc thành tiếng: …” |
+| Hạn mức | `TTS_DAILY_CHAR_BUDGET` (mặc định **300.000 ký tự/ngày**); vượt ⇒ **402 và KHÔNG gọi nhà cung cấp** (test chứng minh không phát sinh request) |
+| Lỗi nhà cung cấp | 502/503 với câu đọc được; giao diện **tự lùi về giọng trình duyệt** + nói lý do — Sale không bị “bấm mà không có gì xảy ra” |
+| Giao diện | Workspace Sale gọi `api.tts.speak`, phát audio bằng thẻ `<audio>` (bấm lần hai là dừng); mock server phản chiếu hành vi để có test hợp đồng |
+
+**Vì sao 300.000 ký tự/ngày:** khoảng 9.000 ký tự/ngày/nhân viên với ~30 người — thoải mái cho dùng thật,
+nhưng chặn được ca một phiên bị lặp đọc câu trả lời dài hàng nghìn lần (rủi ro tiền thật, khác với LLM vốn
+đã có ngân sách riêng).
+
+#### Kiểm chứng
+
+- `pytest -q` → **749 passed** (+11 ca `tests/test_api/test_tts_speak.py`), `ruff` sạch.
+  Các ca đáng chú ý: che PII + cắt chữ **trước khi** gửi (đọc lại thân request mà server giả nhận được);
+  cache không gọi nhà cung cấp lần hai; ghi `kind="tts"`/`chars`/`cost` rồi tab chi phí cộng đúng;
+  vượt hạn mức ⇒ 402 và **không** có request nào ra ngoài; nhà cung cấp tự thêm (OpenAI-compatible) đọc được.
+- Frontend: `npm test` **85 ca** (mock-server 48 · api-client 14 · ui 17 · internal 6), `tsc -b apps/internal`
+  0 lỗi, build OK, oxlint không phát sinh cảnh báo mới.
+- Không đụng đường trả lời Copilot ⇒ golden/bank không phải chạy lại.
+
+#### Còn lại (nói thẳng)
+
+- *(Đợt 24 đã bỏ danh sách cứng — mọi nhà cung cấp có Base URL + khoá đều đọc được; xem §16.5j.)*
+  Nhà cung cấp **không** dùng giao thức OpenAI-compatible vẫn cần gateway chuyển tiếp hoặc adapter riêng.
+- Chưa gọi được nhà cung cấp thật từ sandbox (không có khoá) — mới kiểm bằng server giả; cần bấm tay trên VM
+  với một khoá thật để xác nhận chất lượng giọng.
+- Cache và hạn mức đang ở **một máy**: nhiều instance backend sẽ không dùng chung cache/hạn mức
+  (hạn mức đọc từ file `llm_usage.jsonl` — khi log lớn nên chuyển sang DB; hiện quét tối đa 20.000 dòng).
+- Chưa có ngân sách theo **tháng** và chưa có cảnh báo khi chi phí TTS tăng bất thường.
+
+### 16.5j Đợt 24 (2026-10-03) — Sao chép cơ chế sẵn có: **thêm nhà cung cấp mới là đọc được ngay**
+
+Người dùng chốt: *“A, sao chép cơ chế sẵn có, cho phép thêm nhà cung cấp mới.”* Đợt 22 đã mở phần **khai báo**
+nhà cung cấp (thêm bao nhiêu cũng được, khoá Fernet, DB → ENV), nhưng đường **đọc** vẫn còn danh sách mã cứng:
+`speak_style_for` + `KNOWN_UNWIRED` liệt kê 5 mã (Google/Azure/Viettel/Vbee/FPT) ⇒ chọn nhà cung cấp mới thêm là
+bị **501 “chưa nối adapter”**. Lượt này áp đúng nguyên tắc của đợt 22 cho đường đọc — không còn mã nào bị chặn
+theo tên.
+
+| Trước | Sau (đợt 24) |
+|---|---|
+| `KNOWN_UNWIRED = {google_cloud, azure, viettel, vbee, fpt}` ⇒ 501 | `speak_capable()` chỉ xét **điều kiện kỹ thuật**: đang bật · có `base_url` · có khoá dùng được (DB → ENV → kho LLM). Không nhìn tên nhà cung cấp |
+| Chỉ gọi **một** nhà cung cấp; lỗi ⇒ 502/503 dừng ngay | `speak_chain()` xếp **nhà cung cấp ưu tiên trước, rồi theo `priority`** — đúng cơ chế dự phòng của nhà cung cấp LLM (`llm_providers`) |
+| Lỗi không ghi nhật ký | Mỗi lần thử ghi một dòng `llm_usage.jsonl` (`ok`, `error`, `is_fallback`) ⇒ tab “Chi phí & hiệu năng” thấy cả lượt hỏng và biết lượt nào là dự phòng |
+| Giọng gửi nguyên như người dùng chọn | `voice_for()` giữ giọng đã chọn **nếu nhà cung cấp thật sự có** giọng đó, không thì lấy giọng đầu của họ (không gửi mã lạ ⇒ không bị 400) |
+| Đọc lại từ cache vẫn tính tiền và tiêu hạn mức | Cache hit ⇒ `cost: 0`, **không** tiêu hạn mức ngày (không có gì được gửi ra ngoài) |
+
+Hợp đồng trả về thêm hai trường để giao diện nói thật với Sale:
+
+```
+fallback_used: bool          # true khi nhà cung cấp đã đọc KHÔNG phải nhà cung cấp ưu tiên
+attempts: [ {provider, label, ok, status, detail, voice, model} ]   # từng lần thử, theo đúng thứ tự đã gọi
+```
+
+Quy tắc lỗi (không đổi so với đợt 23, chỉ áp cho từng mắt của chuỗi):
+
+- **402** khi vượt hạn mức ký tự/ngày: chặn **trước cả chuỗi** — không đốt thêm một đồng nào (test chứng minh
+  không có request nào ra ngoài), và lượt đọc lại từ cache vẫn được phép.
+- Hết chuỗi mà vẫn lỗi ⇒ **502 `ALL_PROVIDERS_FAILED`** kèm lý do của **từng** nhà cung cấp; không nhà cung cấp nào
+  đủ điều kiện ⇒ **503** nói rõ cần Base URL + khoá, kèm chỗ nhập (Quản trị CP → Giọng đọc).
+- Nhà cung cấp trả **400/404/405** ⇒ lần thử đó ghi lỗi kèm gợi ý Base URL theo giao thức OpenAI-compatible
+  (thường kết thúc bằng `/v1`) và chuỗi đọc tiếp nhà cung cấp kế tiếp; hết chuỗi thì **502** nêu lại đúng lý do
+  đó. Nói cách khác lỗi giờ nói về *phản hồi của nhà cung cấp*, không còn là “chưa làm adapter”.
+- Giọng trình duyệt vẫn **không** đi qua backend (409) — đường 0 đồng mặc định không đổi.
+
+**Nhìn thấy được, không chỉ chạy được:**
+
+1. `GET /admin/tts/providers` trả thêm `chain` — từng mắt kèm `ready` + `reason` (thiếu Base URL / thiếu khoá /
+   đang tắt) ⇒ thẻ quản trị in **“Thứ tự đọc: 1. … → 2. …”** và danh sách **“Chưa đọc được: … (lý do)”**.
+2. Workspace Sale: khi phải chuyển tiếp, hiện thông báo *“<A> không đọc được — đã tự chuyển sang <B>”* thay vì im lặng.
+3. Mock server phản chiếu đúng chuỗi (bản ghi có Base URL chứa `/mock-fail` là mắt lỗi để test được đường dự phòng)
+   ⇒ có test hợp đồng cho cả `chain`, `attempts`, `fallback_used` và luật “đọc lại không tính tiền”.
+
+#### Kiểm chứng
+
+- `pytest -q` → **752 passed** (+3 ca so với đợt 23; `tests/test_api/test_tts_speak.py` nay 13 ca, gồm: nhà cung
+  cấp **bất kỳ** do quản trị viên tự thêm vẫn đọc được, chuyển tiếp khi nhà cung cấp ưu tiên lỗi, giọng được
+  đổi theo nhà cung cấp thật đọc, nhật ký có đủ lượt hỏng + cờ dự phòng, cache hit ⇒ 0 đồng và hạn mức không đổi,
+  hết chuỗi ⇒ 502 nêu lý do + gợi ý Base URL;
+  `tests/test_api/test_tts_providers_admin.py` thêm ca chuỗi đọc nói rõ **thứ tự** + **chỗ tắc**),
+  `ruff check src/ tests/ scripts/` sạch.
+- Frontend: `npm test` → **86 ca** (mock-server **49** — thêm ca chuyển tiếp dự phòng · api-client 14 · ui 17 ·
+  internal 6), `tsc -b apps/internal` 0 lỗi, build OK, oxlint 0 lỗi (126 cảnh báo, không tăng).
+- Không đụng đường trả lời Copilot ⇒ golden/bank không phải chạy lại.
+
+#### Còn lại (nói thẳng)
+
+- Nhà cung cấp **không** dùng giao thức OpenAI-compatible (Google/Azure/Viettel/Vbee/FPT…) vẫn cần **gateway
+  chuyển tiếp** hoặc adapter riêng — cơ chế mới chỉ bảo đảm *không chặn theo tên*, không tự biến API riêng của
+  họ thành `/audio/speech`.
+- Chưa gọi nhà cung cấp thật từ sandbox (không có khoá) và chưa bấm trên trình duyệt/VM.
+- Nhà cung cấp trả **200 với thân audio rỗng** hiện vẫn rơi vào nhánh lỗi chung (câu báo còn nhắc “mã 200”) — nên
+  tách thành `PROVIDER_ERROR` rõ nghĩa ở lượt sau; đã ghi vào danh sách việc còn lại.
+
+### 16.6 Bằng chứng chạy thật (sandbox)
+
+- `pytest -q` → **633 passed** (572 → 633; thêm 5 file test: `test_copilot_anchors.py` 12 ca,
+  `test_copilot_inventory_funnel.py` 15 ca, `test_copilot_reply_format.py` 14 ca,
+  `test_copilot_f8_and_draft.py` 13 ca, +2 ca trong `test_copilot_answer_clarity.py`).
+- `ruff check src/ tests/ scripts/` → sạch. `npm run lint` → **126 cảnh báo, 0 lỗi**.
+- Frontend: `npm test` → api-client **14**, ui **12**, mock-server **39** (65 tổng); `tsc -b apps/internal` 0 lỗi;
+  build nội bộ OK.
+- `scripts/run_copilot_eval.py` (34 câu vàng): tool **100%** · citation **100%** · **bịa 0.0%** ·
+  **cổng phân khúc ĐẠT**.
+- Bộ kịch bản Sale (58 câu, 7 câu chỉ chạy ở chế độ LLM): 46/51 câu tính điểm — tool **100%** ·
+  citation **100%** · bịa **0.0%** · cổng phân khúc **ĐẠT** · cổng nội dung/hình thức **ĐẠT**.
+- Ví dụ chạy thật: câu "2 tỷ là vốn tự có thì có mua được căn 3 ngủ không?" → 3 mỏ neo
+  (`31.8%`, `2.171.600.000 ₫`, `6.832.000.000 ₫`), nhãn ngân sách đúng, **không** còn ghi chú nội bộ.
+
+### 16.7 Số liệu quan trọng (đo từ dữ liệu canonical, không suy đoán)
+
+Giỏ đang mở bán có **4 căn**: ZEN-A-0803 (1PN, 2,5 tỷ) · ZEN-A-1205 (2PN, 4,2 tỷ) · SAP-01-2204 (2PN, 5,8 tỷ)
+· ZEN-B-1502 (3PN, 6,1 tỷ). Phân khúc 3PN: **1 căn**; lọc 3PN ≤ 2 tỷ: **0 căn**.
+
+*(Cập nhật đợt 20: bảng `units` đã có `area_m2` + `view`; giá trị đang là **số sinh tự động** theo loại căn
+và nhóm tháp — ví dụ ZEN-A-1205 72,5m² · SAP-01-2204 81m² · R-02.02 71,5m², view theo tiền tố mã căn.)*
+
+*(Cập nhật đợt 19: đây là số của **fixture canonical** — máy sandbox không có DB vận hành. Trên VM có DB
+thật, giỏ hàng lấy từ DB và fixture chỉ bù cho dự án DB chưa có; số căn vì vậy là số của DB, không phải 4.)*
+
+Với **2 tỷ vốn tự có** cho ZEN-B-1502 (HĐMB 6,832 tỷ): tỷ lệ **29,3%**, mức tối thiểu theo phương án vay
+**31,8% ≈ 2,1716 tỷ** ⇒ **thiếu 171,6 triệu**. Lưu ý: bản "câu trả lời mong muốn" trong ví dụ của người dùng
+viết *"hoàn toàn khả thi"*, nhưng số liệu engine cho thấy **còn thiếu 171,6 triệu** — báo đúng số thiếu có
+giá trị tư vấn cao hơn một câu khẳng định chung.
+
+### 16.8 Còn lại (nói thẳng)
+
+0. **Đợt 23 + 24 (chưa xong)**: đường đọc qua nhà cung cấp đã nối (`POST /tts/speak`) và đã **sao chép cơ chế
+   ưu tiên/dự phòng của LLM** (không danh sách mã cứng — nhà cung cấp mới thêm là đọc được, lỗi thì tự chuyển
+   tiếp), nhưng mới kiểm bằng server giả: chưa gọi nhà cung cấp thật (sandbox không có khoá) và chưa bấm trên
+   trình duyệt/VM. Chi tiết + việc còn lại: §16.5i và §16.5j.
+0b. **Đợt 22 (chưa xong)**: màn hình quản trị nhà cung cấp TTS mới chỉ xác nhận ở mức mã nguồn + typecheck +
+   test hợp đồng (mock) — chưa bấm trên trình duyệt (sandbox không có Chromium) và chưa chạy trên VM.
+   Chi tiết: §16.5h.
+0c. **Đợt 20 (chưa xong)**: chưa kiểm giao diện bằng trình duyệt (sandbox không có Chromium) và chưa deploy
+   lên VM; câu trả lời ở chế độ **LLM thật** chưa chạy được ở đây (không có API key) — phần hình thức đã có
+   lớp tất định chạy sau nên không phụ thuộc model.
+1. **Phần văn phong do LLM viết chưa đo được trong sandbox** (không có API key/egress): luật prompt P0.5/P1.7/K2
+   mới chỉ kiểm được ở chế độ offline (ghép Observation). Cần một vòng chạy `--mode llm` hoặc bấm tay trên VM.
+2. **UI chưa kiểm bằng trình duyệt** (sandbox không có Chromium): mỏ neo bấm được, nút "Copy cho khách",
+   watermark thời gian, chip hành động — mới xác nhận ở mức mã nguồn + typecheck + build.
+3. **Một số con số chưa có mỏ neo** dù đã có nguồn: mỏ neo trỏ tới **citation**; con số chỉ nằm trong
+   Observation (không nằm trong citation) sẽ không được gắn `[n]` dù verifier coi là hợp lệ. Muốn phủ 100%
+   thì cần sinh thêm citation cho từng dòng số liệu — nên làm cùng lúc với việc mở rộng `anchors`.
+4. **Ghi chú nội bộ giờ sống cùng hội thoại** (đã lưu `internal_notes` trong bản ghi lượt), nhưng **mock server
+   và backend đều đã đổi hợp đồng** — nếu VM còn chạy bundle cũ thì nên deploy cùng lượt để tránh lệch.
 ## 10. Còn lại (nói thẳng, không hứa quá)
 
 1. **Học từ phản hồi mới ở mức "log + few-shot + màn hình theo dõi"**, chưa fine-tune/weight-tuning.
@@ -895,3 +1683,8 @@ cấp chính; nhà cung cấp này chỉ được gọi khi hai nhà cung cấp 
     chuyển tiếp đã được chứng minh bằng test gọi thật (§14.6), nhưng một nút "Test cả chuỗi" trong màn hình
     quản trị sẽ giúp Admin tự tin trước khi sự cố thật xảy ra — nên làm cùng lúc với việc hiển thị số lần
     phải chuyển tiếp lên tab Chi phí & hiệu năng.
+
+**Nguyên tắc làm việc (người dùng yêu cầu, ghi lại để không lặp lại):** câu hỏi của người dùng để **tìm hiểu vấn đề**
+thì phần trả lời dừng ở **thảo luận – phản biện – đề xuất giải pháp**; **không tự triển khai** tính năng/code mới
+cho tới khi có yêu cầu cụ thể. Bản relay Vercel viết ở lượt trước đã được **gỡ khỏi repo** theo yêu cầu này; ở đây
+chỉ còn phần phân tích nguyên nhân và các phương án để thảo luận.

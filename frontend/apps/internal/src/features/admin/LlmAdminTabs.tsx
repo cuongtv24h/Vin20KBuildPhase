@@ -1,7 +1,7 @@
-import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Mic, Plus, RefreshCw, Trash2, Volume2, Zap } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ExternalLink, KeyRound, Loader2, Plus, RefreshCw, Trash2, Volume2, Zap } from 'lucide-react'
 import { useState } from 'react'
 
-import type { LlmProvider, LlmProviderPayload, LlmProviderTestResult } from '@pricepolicy/api-client/contracts'
+import type { LlmEnvProvider, LlmProvider, LlmProviderPayload, LlmProviderTestResult } from '@pricepolicy/api-client/contracts'
 import {
   useCreateLlmProvider,
   useDeleteLlmProvider,
@@ -35,6 +35,8 @@ import {
   TableRow,
 } from '@pricepolicy/ui/components/ui/table'
 import { toast } from '@pricepolicy/ui/state/toastStore'
+
+import { TtsProvidersCard, TtsProvidersFootnote } from './TtsProvidersCard'
 
 const EMPTY_FORM: LlmProviderPayload = {
   name: '',
@@ -250,7 +252,7 @@ function ProviderFormDialog({
                   : 'sk-...'
               }
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Khoá được mã hoá khi lưu và chỉ hiển thị dạng che (ví dụ <code>sk-t…abcd</code>).
             </p>
           </div>
@@ -327,8 +329,8 @@ function ProviderFormDialog({
                 className={
                   'flex items-start gap-2 rounded-lg border p-3 text-xs ' +
                   (testResult.ok
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                    : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-500')
+                    ? 'border-success/30 bg-success/10 text-success'
+                    : 'border-warning/40 bg-warning/10 text-warning')
                 }
               >
                 {testResult.ok ? (
@@ -347,7 +349,7 @@ function ProviderFormDialog({
               </div>
             ) : (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                 Đã lưu cấu hình — bấm “Test kết nối” để gọi thử nhà cung cấp bằng khoá vừa lưu.
               </p>
             )}
@@ -389,14 +391,19 @@ export function LlmProvidersTab() {
   const [deleting, setDeleting] = useState<LlmProvider | null>(null)
 
   const providers = data?.items ?? []
+  const envItems = data?.env_items ?? []
   const usingEnvFallback = data?.source !== 'db'
+  /** Kết quả “Test kết nối” của nhà cung cấp ENV — chỉ giữ trong phiên xem (backend không lưu lịch sử). */
+  const [envTest, setEnvTest] = useState<Record<string, LlmProviderTestResult>>({})
 
-  async function runTest(provider: LlmProvider) {
+  async function runTest(provider: LlmProvider | LlmEnvProvider) {
     setTesting(provider.provider_id)
     try {
       const result = await testProvider.mutateAsync(provider.provider_id)
       if (result.ok) toast.success(`${provider.name}: kết nối OK (${result.latency_ms} ms)`)
       else toast.error(`${provider.name}: ${result.detail}`)
+      // Nhà cung cấp ENV không có bản ghi DB để lưu lịch sử ⇒ giữ kết quả trong phiên xem này.
+      if (!('is_active' in provider)) setEnvTest((prev) => ({ ...prev, [provider.provider_id]: result }))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Không kiểm tra được kết nối.')
     } finally {
@@ -406,17 +413,22 @@ export function LlmProvidersTab() {
 
   return (
     <div className="space-y-5">
-      <Card className={usingEnvFallback ? 'border-amber-500/40 bg-amber-500/[0.04]' : ''}>
+      <Card className={usingEnvFallback ? 'border-warning/40 bg-warning/[0.04]' : ''}>
         <CardContent className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2">
             <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
             <div>
               {data?.source === 'env' ? (
                 <>
-                  <p className="font-medium">Đang dùng API key từ biến môi trường (chưa khai báo nhà cung cấp nào trong hệ thống).</p>
+                  <p className="font-medium">
+                    {envItems.length > 0
+                      ? `Đang chạy bằng ${envItems.length} nhà cung cấp đọc từ biến môi trường của máy chủ (liệt kê ở bảng bên dưới).`
+                      : 'Đang dùng API key từ biến môi trường (chưa khai báo nhà cung cấp nào trong hệ thống).'}
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Khai báo bên dưới để chủ động đổi khoá/đơn giá — khi có ít nhất một nhà cung cấp đang hoạt động,
-                    hệ thống ưu tiên dùng cấu hình này thay cho ENV.
+                    Khai báo thêm nhà cung cấp bên dưới (kể cả nhà cung cấp khác ngoài hai cái đang có) để chủ động
+                    đổi khoá/đơn giá — khi có ít nhất một nhà cung cấp đang hoạt động, hệ thống ưu tiên dùng cấu hình
+                    này thay cho ENV.
                   </p>
                 </>
               ) : data?.source === 'none' ? (
@@ -435,7 +447,7 @@ export function LlmProvidersTab() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="outline" className="text-[11px]">
+            <Badge variant="outline" className="text-xs">
               Nguồn: {data?.source === 'db' ? 'DB' : data?.source === 'env' ? 'ENV' : 'chưa có'}
             </Badge>
             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => refetch()} title="Tải lại">
@@ -459,7 +471,7 @@ export function LlmProvidersTab() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Nhà cung cấp đã khai báo</CardTitle>
           <CardDescription>
-            Đơn giá (đơn giá/1 triệu token) là cơ sở quy đổi chi phí ở tab “Chi phí &amp; hiệu năng”.
+            Đơn giá (đơn giá/1 triệu token) là cơ sở quy đổi chi phí ở tab “Chi phí và hiệu năng”.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -498,7 +510,7 @@ export function LlmProvidersTab() {
                 providers.map((p) => (
                   <TableRow key={p.provider_id} className={p.is_active ? '' : 'opacity-60'}>
                     <TableCell>
-                      <Badge variant={p.priority === 0 ? 'default' : 'outline'} className="text-[11px]">
+                      <Badge variant={p.priority === 0 ? 'default' : 'outline'} className="text-xs">
                         {p.priority === 0 ? 'Chính' : `#${p.priority}`}
                       </Badge>
                     </TableCell>
@@ -516,9 +528,9 @@ export function LlmProvidersTab() {
                       {p.last_test_status ? (
                         <div className="flex items-center gap-1.5 text-xs">
                           {p.last_test_status === 'OK' ? (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                           ) : (
-                            <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                            <AlertCircle className="h-3.5 w-3.5 text-warning" />
                           )}
                           <span>{p.last_test_status}</span>
                           {p.last_test_latency_ms != null && (
@@ -575,6 +587,85 @@ export function LlmProvidersTab() {
           </Table>
         </CardContent>
       </Card>
+
+      {envItems.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Nhà cung cấp đọc từ biến môi trường máy chủ</CardTitle>
+            <CardDescription>
+              Đây là những nhà cung cấp hệ thống đang thực sự chạy khi chưa khai báo trong DB (chỉ-đọc, khoá đã che).
+              Bấm “Test kết nối” để kiểm tra ngay; muốn đổi khoá/đơn giá hoặc thêm nhà cung cấp khác (ví dụ
+              DeepSeek, Kimi, Qwen…) thì khai báo ở bảng trên — bản ghi trong hệ thống sẽ được ưu tiên thay cho ENV.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[130px]">Nguồn</TableHead>
+                  <TableHead>Tên / Model</TableHead>
+                  <TableHead>API key</TableHead>
+                  <TableHead className="w-[130px]">Kiểm tra</TableHead>
+                  <TableHead className="w-[150px] text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {envItems.map((item) => (
+                  <TableRow key={item.provider_id}>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[11px]">
+                        {item.is_fallback ? 'ENV · dự phòng' : 'ENV · chính'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{item.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {item.provider} · {item.model_name}
+                        {item.base_url ? ` · ${item.base_url}` : ''}
+                        {item.overridden_by_db ? ' · đã có bản ghi trong hệ thống (bản ghi thắng)' : ''}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{item.api_key_masked}</TableCell>
+                    <TableCell>
+                      {envTest[item.provider_id] ? (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          {envTest[item.provider_id].ok ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          ) : (
+                            <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
+                          )}
+                          <span>{envTest[item.provider_id].status}</span>
+                          {envTest[item.provider_id].latency_ms > 0 && (
+                            <span className="text-muted-foreground">{envTest[item.provider_id].latency_ms} ms</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Chưa kiểm tra</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        title="Kiểm tra kết nối"
+                        disabled={testing === item.provider_id}
+                        onClick={() => void runTest(item)}
+                      >
+                        {testing === item.provider_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Zap className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       <ProviderFormDialog open={dialogOpen} editing={editing} onClose={() => setDialogOpen(false)} />
 
@@ -690,16 +781,24 @@ export function LlmUsageTab() {
               <CardHeader className="p-4 pb-2">
                 <CardDescription className="text-xs">Lượt gọi</CardDescription>
                 <CardTitle className="text-2xl">{s.total_calls.toLocaleString('vi-VN')}</CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Lỗi {(s.error_rate * 100).toFixed(1)}% ({s.failed_calls} lượt)
                 </p>
+                {/* Đọc thành tiếng tính tiền theo KÝ TỰ, không theo token ⇒ tách riêng cho khỏi hiểu nhầm. */}
+                {(s.tts_calls ?? 0) > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    trong đó đọc thành tiếng: {(s.tts_calls ?? 0).toLocaleString('vi-VN')} lượt ·{' '}
+                    {(s.tts_chars ?? 0).toLocaleString('vi-VN')} ký tự ·{' '}
+                    {fmtMoney(s.tts_cost ?? 0, s.currency)}
+                  </p>
+                )}
               </CardHeader>
             </Card>
             <Card>
               <CardHeader className="p-4 pb-2">
                 <CardDescription className="text-xs">Token dùng</CardDescription>
                 <CardTitle className="text-2xl">{s.total_tokens.toLocaleString('vi-VN')}</CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   vào {s.total_input_tokens.toLocaleString('vi-VN')} · ra {s.total_output_tokens.toLocaleString('vi-VN')}
                 </p>
               </CardHeader>
@@ -710,7 +809,7 @@ export function LlmUsageTab() {
                 <CardTitle className="text-2xl">
                   {Math.round(s.p50_latency_ms)} / {Math.round(s.p95_latency_ms)} ms
                 </CardTitle>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Bình quân {fmtMoney(s.avg_cost_per_call, s.currency)}/lượt
                 </p>
               </CardHeader>
@@ -819,7 +918,7 @@ export function LlmUsageTab() {
                         <TableCell className="text-sm">
                           {r.provider} · {r.model_name}
                           {r.is_fallback && (
-                            <Badge variant="outline" className="ml-2 text-[10px]">
+                            <Badge variant="outline" className="ml-2 text-xs">
                               dự phòng
                             </Badge>
                           )}
@@ -831,9 +930,9 @@ export function LlmUsageTab() {
                         <TableCell className="text-right text-xs">{fmtMoney(r.cost, r.currency)}</TableCell>
                         <TableCell>
                           {r.ok ? (
-                            <Badge className="bg-emerald-600 text-[10px] hover:bg-emerald-700">OK</Badge>
+                            <Badge variant="success" className="text-xs">OK</Badge>
                           ) : (
-                            <Badge variant="destructive" className="text-[10px]">
+                            <Badge variant="destructive" className="text-xs">
                               {r.error ?? 'LỖI'}
                             </Badge>
                           )}
@@ -848,7 +947,7 @@ export function LlmUsageTab() {
         </>
       )}
 
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <ExternalLink className="h-3 w-3" />
         Cần đổi khoá hay thêm model? Sang tab “Nhà cung cấp LLM” để khai báo — không cần chỉnh ENV.
       </p>
@@ -958,7 +1057,7 @@ export function TtsTab() {
                     value={data.default.max_chars_per_turn}
                     onChange={(e) => void save({ max_chars_per_turn: Number(e.target.value) })}
                   />
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     Câu trả lời dài hơn sẽ chỉ đọc phần đầu — vừa đỡ tốn tiền vừa không bắt khách chờ.
                   </p>
                 </div>
@@ -998,66 +1097,9 @@ export function TtsTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Nhà cung cấp TTS &amp; đơn giá</CardTitle>
-          <CardDescription>
-            Đơn giá là giá niêm yết của nhà cung cấp, kèm mốc kiểm chứng — đối chiếu lại trước khi quyết toán.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Nhà cung cấp</TableHead>
-                <TableHead className="text-right">Đơn giá / 1M ký tự</TableHead>
-                <TableHead className="w-[130px]">Khoá API</TableHead>
-                <TableHead className="w-[120px]">Kiểm chứng</TableHead>
-                <TableHead>Ghi chú</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(data?.catalog ?? []).map((c) => (
-                <TableRow key={c.provider}>
-                  <TableCell>
-                    <div className="font-medium">{c.label}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {c.mode === 'browser' ? 'Đọc tại trình duyệt' : c.default_model}
-                      {c.voices.length ? ` · ${c.voices.length} giọng` : ''}
-                      {c.supports_streaming ? ' · có streaming' : ''}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right text-sm">
-                    {c.price_per_1m_chars === 0
-                      ? 'Miễn phí'
-                      : `${c.price_per_1m_chars.toLocaleString('vi-VN')} ${c.currency}`}
-                  </TableCell>
-                  <TableCell>
-                    {c.mode === 'browser' ? (
-                      <span className="text-xs text-muted-foreground">Không cần</span>
-                    ) : c.api_key_configured ? (
-                      <Badge className="bg-emerald-600 text-[10px] hover:bg-emerald-700">Đã có</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px] text-amber-600">
-                        Chưa có
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{c.verified_at || '—'}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{c.price_note || c.note}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <TtsProvidersCard />
 
-      <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Mic className="h-3 w-3" />
-        Chi tiết phương án kỹ thuật (đọc tại trình duyệt vs gọi API TTS, chi phí, cách nối endpoint tổng hợp
-        audio): <code>docs/team_report/tts_integration_plan.md</code>. Lựa chọn riêng của từng nhân viên nằm
-        trong workspace ở nút “Giọng đọc”.
-      </p>
+      <TtsProvidersFootnote />
     </div>
   )
 }

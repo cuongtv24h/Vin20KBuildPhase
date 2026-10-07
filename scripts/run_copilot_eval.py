@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import json
 import logging
+import re
 import statistics
 import sys
 import time
@@ -40,7 +41,15 @@ if str(ROOT) not in sys.path:
 from src.agents.copilot.graph import CopilotRequest, stream_copilot  # noqa: E402
 
 GOLDEN_PATH = ROOT / "eval" / "copilot" / "golden_questions.json"
+SALE_SCENARIOS_PATH = ROOT / "eval" / "copilot" / "sale_scenarios.json"
 DEFAULT_REPORT = ROOT / "eval" / "results" / "copilot_report.json"
+
+#: Bộ kịch bản Sale (đợt 15) — phủ 12 nhóm việc Sale làm hằng ngày + luật hình thức P1.5b/P2.5.
+#: Chấm thêm 4 nhóm tiêu chí nội dung mà bộ vàng không có:
+#:   must_not_contain (CẤM xuất hiện), expect_table (phải có bảng), max_questions (tối đa N câu hỏi),
+#:   và "vệ sinh hình thức" chung: không lộ snake_case nội bộ, không để bảng dính câu văn, không emoji mũi tên.
+_INTERNAL_JARGON_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+_ARROW_EMOJI = "➡\ufe0f"
 
 
 async def run_question(question: dict[str, Any], *, mode: str) -> dict[str, Any]:
@@ -81,6 +90,10 @@ async def run_question(question: dict[str, Any], *, mode: str) -> dict[str, Any]
         # Chi phí/chất lượng bổ sung (P2): đọc thẳng từ payload cuối, không tính lại.
         "critique_ok": bool((final.get("critique") or {}).get("ok", True)),
         "critique_issues": [i.get("code") for i in ((final.get("critique") or {}).get("issues") or [])],
+        # Cổng CI P3.2: mọi lần lọc theo số phòng ngủ phải trả về ĐÚNG phân khúc đó.
+        "segment_checks": [d.get("segment_check") for k, d in events if k == "observation" and d.get("segment_check")],
+        # Chốt P3.3: câu tra cứu phải sạch cảnh báo — không còn ghi chú rỗng/hết hạn rà soát.
+        "internal_notes": str(final.get("internal_notes") or ""),
         "observation_chars": int((final.get("context_budget") or {}).get("observation_chars") or 0),
         "cached_tool_results": int((final.get("context_budget") or {}).get("cached_tool_results") or 0),
         "plan_steps": len(final.get("plan") or []),
@@ -125,6 +138,12 @@ def score(question: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     expect_refusal = bool(question.get("expect_refusal"))
     expect_grounded = bool(question.get("expect_grounded"))
 
+    # P3.2 — lỗi trộn phân khúc là lỗi CẤM: sai một ca là hỏng cả lượt đánh giá.
+    segment_ok = all(check.get("ok", True) for check in (result.get("segment_checks") or []))
+    # P3.3 — câu tra cứu không được còn ghi chú nội bộ rỗng/lạc hậu (số liệu phải đã đối chiếu được).
+    expect_clean_notes = bool(question.get("expect_no_internal_notes"))
+    notes_ok = not expect_clean_notes or not str(result.get("internal_notes") or "").strip()
+
     hallucinated = False
     # Câu bị guardrail chặn: `verified=False` là do input bị chặn, không phải bịa.
     if not result["verified"] and not (expect_refusal and result["refused"]):
@@ -133,16 +152,56 @@ def score(question: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         hallucinated = True
     if expect_refusal and not result["refused"]:
         hallucinated = True
+    if not segment_ok:
+        hallucinated = True  # trộn phân khúc: tính là sai nghiêm trọng (báo bằng cổng riêng bên dưới)
+    if not notes_ok:
+        hallucinated = True
     if question.get("expect_no_tools") and tools:
         hallucinated = True
 
     missing_terms = [t for t in question.get("must_contain") or [] if t.lower() not in result["reply"].lower()]
+
+    # ── Tiêu chí NỘI DUNG/HÌNH THỨC (bộ kịch bản Sale) ──────────────────────────
+    reply = str(result["reply"])
+    lines = reply.split("\n")
+    forbidden_hits = [t for t in question.get("must_not_contain") or [] if t.lower() in reply.lower()]
+    table_ok = (not question.get("expect_table")) or any(
+        line.strip().startswith("|") and line.strip().endswith("|") for line in lines
+    )
+    max_questions = question.get("max_questions")
+    questions_ok = max_questions is None or reply.count("?") <= int(max_questions)
+
+    # `notes_contain`: nội dung phải xuất hiện ở **banner ghi chú nội bộ** (không phải trong thân văn bản).
+    # Dùng cho luật P2.4/K2: thân tin gửi khách phải SẠCH, còn kết luận kiểm duyệt vẫn phải tới tay Sale.
+    notes_text = str(result.get("internal_notes") or "")
+    missing_notes = [t for t in question.get("notes_contain") or [] if t.lower() not in notes_text.lower()]
+
+    # Vệ sinh hình thức — luật đã chốt, áp cho MỌI câu (không cần khai báo trong đề):
+    #  1. không lộ định danh nội bộ kiểu `gia_toi_da_vnd` (P2.5);
+    #  2. bảng phải nằm riêng dòng, không dính câu văn (P1.5b);
+    #  3. không dùng emoji mũi tên ➡️ (P1.5b).
+    hygiene: list[str] = []
+    jargon = sorted(set(_INTERNAL_JARGON_RE.findall(reply)))
+    if jargon:
+        hygiene.append(f"lộ tên nội bộ: {', '.join(jargon[:3])}")
+    if any("|" in line and not line.strip().startswith("|") for line in lines):
+        hygiene.append("bảng dính câu văn (P1.5b)")
+    if _ARROW_EMOJI in reply:
+        hygiene.append("còn emoji mũi tên ➡️ (P1.5b)")
 
     return {
         "tool_ok": tool_ok,
         "citation_ok": citation_ok,
         "hallucinated": hallucinated,
         "missing_terms": missing_terms,
+        "segment_ok": segment_ok,
+        "notes_ok": notes_ok,
+        "forbidden_hits": forbidden_hits,
+        "missing_notes": missing_notes,
+        "table_ok": table_ok,
+        "questions_ok": questions_ok,
+        "hygiene": hygiene,
+        "known_gap": bool(question.get("known_gap")),
     }
 
 
@@ -158,11 +217,42 @@ def summarize(results: list[dict[str, Any]], scored: list[dict[str, Any]]) -> di
         bucket["citation_ok"] += int(s["citation_ok"])
         bucket["hallucinated"] += int(s["hallucinated"])
 
+    segment_violations = [r["id"] for r, s in zip(results, scored, strict=True) if not s["segment_ok"]]
+
+    # Câu ghi nhận lỗ hổng đã biết (known_gap) vẫn chạy và vẫn báo cáo, nhưng KHÔNG tính vào mẫu số
+    # của các chỉ số — bộ chấm phải phản ánh đúng phần hệ thống đang làm được.
+    scored_ids = [r["id"] for r, s in zip(results, scored, strict=True) if not s.get("known_gap")]
+    known_gap_ids = [r["id"] for r, s in zip(results, scored, strict=True) if s.get("known_gap")]
+    denominator = len(scored_ids) or 1
+    by_id = {r["id"]: s for r, s in zip(results, scored, strict=True)}
+
+    content_violations: list[dict[str, Any]] = []
+    for qid in scored_ids:
+        s = by_id[qid]
+        for term in s["forbidden_hits"]:
+            content_violations.append({"id": qid, "kind": "must_not_contain", "detail": term})
+        if not s["table_ok"]:
+            content_violations.append({"id": qid, "kind": "expect_table", "detail": "thiếu bảng markdown"})
+        if not s["questions_ok"]:
+            content_violations.append({"id": qid, "kind": "max_questions", "detail": "hỏi lại quá nhiều câu"})
+        for term in s.get("missing_notes") or []:
+            content_violations.append(
+                {"id": qid, "kind": "notes_contain", "detail": f"banner nội bộ thiếu: {term}"}
+            )
+        for issue in s["hygiene"]:
+            content_violations.append({"id": qid, "kind": "hygiene", "detail": issue})
+
     return {
         "total": total,
-        "tool_selection_accuracy": round(sum(s["tool_ok"] for s in scored) / total, 4) if total else 0.0,
-        "citation_precision": round(sum(s["citation_ok"] for s in scored) / total, 4) if total else 0.0,
-        "hallucination_rate": round(sum(s["hallucinated"] for s in scored) / total, 4) if total else 0.0,
+        "scored_total": len(scored_ids),
+        "known_gap_ids": known_gap_ids,
+        "content_violations": content_violations,
+        "forbidden_term_hits": [v for v in content_violations if v["kind"] == "must_not_contain"],
+        "segment_gate_ok": not segment_violations,
+        "segment_violations": segment_violations,
+        "tool_selection_accuracy": round(sum(by_id[qid]["tool_ok"] for qid in scored_ids) / denominator, 4),
+        "citation_precision": round(sum(by_id[qid]["citation_ok"] for qid in scored_ids) / denominator, 4),
+        "hallucination_rate": round(sum(by_id[qid]["hallucinated"] for qid in scored_ids) / denominator, 4),
         "p95_latency_ms": latencies[p95_index] if latencies else 0.0,
         "mean_latency_ms": round(statistics.fmean(latencies), 1) if latencies else 0.0,
         "missing_terms": {r["id"]: s["missing_terms"] for r, s in zip(results, scored, strict=True) if s["missing_terms"]},
@@ -177,17 +267,37 @@ def summarize(results: list[dict[str, Any]], scored: list[dict[str, Any]]) -> di
     }
 
 
-async def run_eval(mode: str, limit: int | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
-    questions = golden["questions"]
+async def run_eval(
+    mode: str,
+    limit: int | None = None,
+    path: Path | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Chạy một bộ câu hỏi (mặc định là bộ VÀNG) và chấm điểm.
+
+    `path` cho phép chạy bộ KỊCH BẢN SALE (`eval/copilot/sale_scenarios.json`) — cùng bộ chấm, nhưng
+    có thêm tiêu chí nội dung/hình thức. Câu có `offline: "skip"` bị bỏ qua khi chạy offline (chúng cần
+    LLM hiểu câu) và được liệt kê riêng trong báo cáo để không ai tưởng là đã kiểm.
+    """
+    source = json.loads((path or GOLDEN_PATH).read_text(encoding="utf-8"))
+    questions = source["questions"]
     if limit:
         questions = questions[:limit]
 
+    skipped_offline = [q["id"] for q in questions if mode == "offline" and q.get("offline") == "skip"]
+    active = [q for q in questions if not (mode == "offline" and q.get("offline") == "skip")]
+
     results: list[dict[str, Any]] = []
-    for question in questions:
+    for question in active:
         results.append(await run_question(question, mode=mode))
-    scored = [score(q, r) for q, r in zip(questions, results, strict=True)]
-    return results, scored, summarize(results, scored)
+    scored = [score(q, r) for q, r in zip(active, results, strict=True)]
+    report = summarize(results, scored)
+    report["skipped_offline"] = skipped_offline
+    report["question_file"] = str((path or GOLDEN_PATH).name)
+    # Câu vừa là lỗ hổng đã biết vừa chỉ chạy được với LLM vẫn phải xuất hiện trong danh sách lỗ hổng —
+    # bỏ qua khi chấm offline không có nghĩa là nó biến mất khỏi báo cáo.
+    file_gaps = {q["id"] for q in questions if q.get("known_gap")}
+    report["known_gap_ids"] = sorted(set(report["known_gap_ids"]) | (file_gaps & set(skipped_offline)))
+    return results, scored, report
 
 
 def print_report(results: list[dict[str, Any]], scored: list[dict[str, Any]], report: dict[str, Any], mode: str) -> None:
@@ -198,13 +308,36 @@ def print_report(results: list[dict[str, Any]], scored: list[dict[str, Any]], re
         note = ", ".join(result["tools"]) or "—"
         if s["missing_terms"]:
             note += f" | thiếu: {s['missing_terms']}"
+        if s.get("forbidden_hits"):
+            note += f" | CẤM: {s['forbidden_hits']}"
+        if s.get("hygiene"):
+            note += f" | hình thức: {s['hygiene']}"
+        if not s.get("table_ok", True):
+            note += " | thiếu bảng"
+        if s.get("missing_notes"):
+            note += f" | thiếu ở banner nội bộ: {s['missing_notes']}"
+        if s.get("known_gap"):
+            note += " | [lỗ hổng đã biết]"
+
         print(f"{result['id']:<9}{result['group']:<14}{flags}{result['latency_ms']:>8.0f}  {note}")
 
     print("\n--- Chỉ số tổng ---")
     print(f"  tool_selection_accuracy : {report['tool_selection_accuracy']:.1%}")
     print(f"  citation_precision      : {report['citation_precision']:.1%}")
     print(f"  hallucination_rate      : {report['hallucination_rate']:.1%}")
+    gate = "ĐẠT" if report.get("segment_gate_ok") else f"VI PHẠM ở {report.get('segment_violations')}"
+    print(f"  cổng phân khúc (P3.2)   : {gate} — lọc N phòng ngủ phải trả về đúng N phòng ngủ")
     print(f"  p95_latency_ms          : {report['p95_latency_ms']:.0f} ms (trung bình {report['mean_latency_ms']:.0f} ms)")
+    if report.get("scored_total") is not None and report.get("scored_total") != report.get("total"):
+        print(f"  câu tính điểm           : {report['scored_total']} (bỏ {report['total'] - report['scored_total']} câu lỗ hổng đã biết)")
+    violations = report.get("content_violations") or []
+    print(f"  cổng nội dung/hình thức : {'ĐẠT' if not violations else 'VI PHẠM'} ({len(violations)} mục)")
+    for v in violations[:12]:
+        print(f"      - {v['id']}: [{v['kind']}] {v['detail']}")
+    if report.get("known_gap_ids"):
+        print(f"  lỗ hổng đã biết        : {', '.join(report['known_gap_ids'])} (xem notes trong file kịch bản)")
+    if report.get("skipped_offline"):
+        print(f"  chỉ chạy --mode llm    : {', '.join(report['skipped_offline'])}")
     quality = report.get("quality") or {}
     if quality:
         print("\n--- Chi phí & kiểm duyệt (P2) ---")
@@ -231,9 +364,20 @@ def main() -> int:
         default=None,
         help="Ngưỡng tool_selection_accuracy tối thiểu; dưới ngưỡng thì exit 1 (dùng trong CI)",
     )
+    parser.add_argument(
+        "--questions",
+        type=Path,
+        default=GOLDEN_PATH,
+        help="File câu hỏi (mặc định: bộ vàng; dùng eval/copilot/sale_scenarios.json cho bộ kịch bản Sale)",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Coi cả nội dung THIẾU (must_contain) là lỗi — nên bật khi chạy --mode llm trên VM",
+    )
     args = parser.parse_args()
 
-    results, scored, report = asyncio.run(run_eval(args.mode, args.limit))
+    results, scored, report = asyncio.run(run_eval(args.mode, args.limit, args.questions))
     print_report(results, scored, report, args.mode)
 
     args.json.parent.mkdir(parents=True, exist_ok=True)
@@ -247,8 +391,24 @@ def main() -> int:
         shown_path = args.json
     print(f"\nĐã ghi báo cáo: {shown_path}")
 
+    # Cổng bắt buộc (chốt P3.2): trộn phân khúc là lỗi cấm — chặn CI bất kể có truyền --fail-under hay không.
+    if not report.get("segment_gate_ok", True):
+        print(f"THẤT BẠI: vi phạm phân khúc ở {report.get('segment_violations')}")
+        return 1
+    # Chốt P3.3: câu tra cứu không được còn ghi chú nội bộ (số liệu phải đã đối chiếu được).
+    if report["hallucination_rate"] > 0:
+        print(f"THẤT BẠI: hallucination_rate {report['hallucination_rate']:.1%} > 0%")
+        return 1
     if args.fail_under is not None and report["tool_selection_accuracy"] < args.fail_under:
         print(f"THẤT BẠI: tool_selection_accuracy dưới ngưỡng {args.fail_under:.0%}")
+        return 1
+    # Cổng NỘI DUNG/HÌNH THỨC (đợt 15): nội dung bị cấm, thiếu bảng, hỏi dồn, lộ tên nội bộ, bảng dính
+    # câu văn — đều là lỗi đã từng xảy ra thật nên phải chặn CI, không chỉ in ra cho đẹp.
+    if report.get("content_violations"):
+        print(f"THẤT BẠI: {len(report['content_violations'])} vi phạm nội dung/hình thức")
+        return 1
+    if args.strict and report.get("missing_terms"):
+        print(f"THẤT BẠI (--strict): thiếu nội dung bắt buộc ở {list(report['missing_terms'])}")
         return 1
     return 0
 

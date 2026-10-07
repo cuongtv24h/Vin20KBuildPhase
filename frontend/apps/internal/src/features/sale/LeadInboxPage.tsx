@@ -1,30 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import {
-  ArrowRight,
-  FilePlus2,
-  Inbox,
-  Phone,
-  ShieldCheck,
-  UserPlus,
-  UserCheck,
-  Users,
-  Search,
-  Sparkles,
-  Edit3,
-  Save,
-  Trash2,
-  Flame,
-  CheckCircle2,
-  Clock,
-  Building,
-  DollarSign,
-  Tag,
-  MessageSquare,
-  X,
-  ExternalLink,
-  RefreshCw,
-  ChevronRight,
-} from 'lucide-react'
+import { ArrowRight, FilePlus2, Inbox, Phone, ShieldCheck, UserPlus, UserCheck, Users, Search, Sparkles, Edit3, Save, Trash2, Flame, CheckCircle2, Clock, Building, DollarSign, Tag, MessageSquare, X, ExternalLink, RefreshCw, ChevronRight, CloudSun, Snowflake } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type {
   LeadDossier,
@@ -40,6 +15,7 @@ import {
   useCreateLead,
   useUpdateLead,
   useDeleteLead,
+  useProjectOverviews,
 } from '@pricepolicy/api-client/hooks'
 import { MoneyText } from '@pricepolicy/ui/components/common/MoneyText'
 import { EmptyState, PageHeader, QueryState } from '@pricepolicy/ui/components/common/PageStates'
@@ -66,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@pricepolicy/ui/components/ui/select'
-import { formatDateTime, formatRelative, formatVnd, formatNumber } from '@pricepolicy/ui/lib/format'
+import { formatDateTime, formatNote, formatRelative, formatVnd, formatNumber, maskPhone } from '@pricepolicy/ui/lib/format'
 import {
   DOSSIER_STATUS_LABEL,
   OBJECTIVE_LABEL,
@@ -83,6 +59,8 @@ import { cn } from '@pricepolicy/ui/lib/utils'
 export function LeadInboxPage() {
   const leadsQuery = useLeads()
   const createLeadMutation = useCreateLead()
+  // Danh mục dự án THẬT — hồ sơ khách phải gắn vào một dự án có trong DB, không ghi cứng mã dự án cũ.
+  const projectsQuery = useProjectOverviews()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -99,8 +77,10 @@ export function LeadInboxPage() {
     customer_name: '',
     customer_phone: '',
     customer_segment: 'NEW_CUSTOMER',
-    project_id: 'P-001',
-    preferred_unit_code: 'R-02.02',
+    // Dự án chốt theo danh mục thật khi mở form (xem executeCreate); mã căn để trống vì
+    // 'R-02.02' không tồn tại trong giỏ hàng vận hành.
+    project_id: '',
+    preferred_unit_code: '',
     bedrooms: 2,
     own_funds_vnd: 1500000000,
     monthly_capacity_vnd: 25000000,
@@ -124,7 +104,10 @@ export function LeadInboxPage() {
       return
     }
     try {
-      const created = await createLeadMutation.mutateAsync(newForm)
+      const created = await createLeadMutation.mutateAsync({
+        ...newForm,
+        project_id: newForm.project_id || projectsQuery.data?.[0]?.project.project_id || undefined,
+      })
       toast.success('Đã thêm khách hàng mới vào CRM', created.customer?.full_name || created.customer_name)
       setIsCreateOpen(false)
       setParams({ id: created.dossier_id })
@@ -132,8 +115,8 @@ export function LeadInboxPage() {
         customer_name: '',
         customer_phone: '',
         customer_segment: 'NEW_CUSTOMER',
-        project_id: 'P-001',
-        preferred_unit_code: 'R-02.02',
+        project_id: '',
+        preferred_unit_code: '',
         bedrooms: 2,
         own_funds_vnd: 1500000000,
         monthly_capacity_vnd: 25000000,
@@ -184,24 +167,25 @@ export function LeadInboxPage() {
   return (
     <div className="space-y-6">
       {/* 1. Header & Actions */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 lg:flex-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
               CRM Quản trị khách hàng
             </h1>
+            {/* Badge cũ ghi cứng "VLand Future Riverside" — dự án không có trong dữ liệu vận hành. */}
             <Badge variant="outline" className="border-primary/30 text-primary bg-primary/10 text-xs">
-              VLand Future Riverside
+              Danh mục dự án theo dữ liệu vận hành
             </Badge>
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
             Theo dõi, phân loại và cập nhật hồ sơ khách hàng tiềm năng cho chuyên viên kinh doanh
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 text-xs border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10">
+        <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+          <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 text-xs border-warning/40 text-warning hover:bg-warning/10">
             <Link to="/sale/workspace">
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <Sparkles className="h-3.5 w-3.5 text-warning" />
               Mở Trợ lý Copilot
             </Link>
           </Button>
@@ -230,8 +214,8 @@ export function LeadInboxPage() {
         <Card className="border-border bg-card shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Tổng khách hàng</p>
-              <p className="font-display text-2xl font-bold text-foreground mt-0.5">{kpis.total}</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tổng khách hàng</p>
+              <p className="font-display text-2xl font-semibold text-foreground mt-0.5">{kpis.total}</p>
             </div>
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
               <Users className="h-5 w-5" />
@@ -239,37 +223,37 @@ export function LeadInboxPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-red-500/20 bg-red-500/[0.02] shadow-xs">
+        <Card className="border-destructive/20 bg-destructive/[0.02] shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-red-700 dark:text-red-400 uppercase tracking-wider">Khách HOT 🔥</p>
-              <p className="font-display text-2xl font-bold text-red-600 dark:text-red-400 mt-0.5">{kpis.hot}</p>
+              <p className="text-xs font-medium text-destructive uppercase tracking-wider">Khách HOT</p>
+              <p className="font-display text-2xl font-semibold text-destructive mt-0.5">{kpis.hot}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-500/10 text-red-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
               <Flame className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-blue-500/20 bg-blue-500/[0.02] shadow-xs">
+        <Card className="border-info/20 bg-info/[0.02] shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-blue-700 dark:text-blue-400 uppercase tracking-wider">Đang tư vấn</p>
-              <p className="font-display text-2xl font-bold text-blue-600 dark:text-blue-400 mt-0.5">{kpis.inProgress}</p>
+              <p className="text-xs font-medium text-info uppercase tracking-wider">Đang tư vấn</p>
+              <p className="font-display text-2xl font-semibold text-info mt-0.5">{kpis.inProgress}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-info/10 text-info">
               <Clock className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-emerald-500/20 bg-emerald-500/[0.02] shadow-xs">
+        <Card className="border-success/20 bg-success/[0.02] shadow-xs">
           <CardContent className="p-3.5 flex items-center justify-between">
             <div>
-              <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 uppercase tracking-wider">Đã lên báo giá</p>
-              <p className="font-display text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">{kpis.converted}</p>
+              <p className="text-xs font-medium text-success uppercase tracking-wider">Đã lên báo giá</p>
+              <p className="font-display text-2xl font-semibold text-success mt-0.5">{kpis.converted}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-success/10 text-success">
               <CheckCircle2 className="h-5 w-5" />
             </div>
           </CardContent>
@@ -296,13 +280,18 @@ export function LeadInboxPage() {
                 type="button"
                 onClick={() => setTemperatureFilter(temp)}
                 className={cn(
-                  'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
                   temperatureFilter === temp
                     ? 'bg-primary text-primary-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                {temp === 'ALL' ? 'Tất cả' : temp === 'HOT' ? '🔥 HOT' : temp === 'WARM' ? '⛅ WARM' : '❄️ COLD'}
+                {temp === 'ALL' ? 'Tất cả' : (
+                  <span className="inline-flex items-center gap-1">
+                    {temp === 'HOT' ? <Flame className="h-3.5 w-3.5" aria-hidden="true" /> : temp === 'WARM' ? <CloudSun className="h-3.5 w-3.5" aria-hidden="true" /> : <Snowflake className="h-3.5 w-3.5" aria-hidden="true" />}
+                    {temp}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -348,9 +337,9 @@ export function LeadInboxPage() {
             filteredLeads.map((d) => {
               const isSelected = d.dossier_id === selectedId
               const custName = d.customer?.full_name || d.customer_name || 'Khách hàng'
-              const phone = d.customer?.phone || d.customer_phone_masked || '090***'
+              const phone = d.customer?.phone || d.customer_phone_masked || ''
               const temp = d.temperature || d.lead_temperature || 'WARM'
-              const unit = d.constraints?.preferred_unit_code || d.preferred_unit_code || d.unit_code || 'R-02.02'
+              const unit = d.constraints?.preferred_unit_code || d.preferred_unit_code || d.unit_code || '—'
               const funds = d.constraints?.own_funds_vnd || 0
               const segment = d.constraints?.customer_segment || d.customer_segment || d.segment || 'NEW_CUSTOMER'
 
@@ -370,38 +359,38 @@ export function LeadInboxPage() {
                           <span className="font-bold text-sm text-foreground truncate">{custName}</span>
                           <TemperatureBadge temperature={temp} />
                           {d.status === 'CONVERTED_TO_QUOTE' && (
-                            <Badge variant="outline" className="border-emerald-500/30 text-emerald-700 bg-emerald-500/10 text-[9px] px-1 py-0">
+                            <Badge variant="outline" className="border-success/30 text-success bg-success/10 text-xs px-1 py-0">
                               Đã chốt báo giá
                             </Badge>
                           )}
                         </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-2">
-                          <span>📞 {phone}</span>
+                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" aria-hidden="true" /> {maskPhone(phone) || 'Chưa có SĐT'}</span>
                           <span>·</span>
                           <span>{SEGMENT_LABEL[segment as CustomerSegment] || segment}</span>
                         </div>
                       </div>
-                      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
                         {formatRelative(d.created_at)}
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2 text-[11px]">
+                    <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2 text-xs">
                       <div>
                         <span className="text-muted-foreground">Căn quan tâm: </span>
                         <span className="font-semibold text-foreground">{unit}</span>
                       </div>
                       <div className="text-right">
                         <span className="text-muted-foreground">Vốn tự có: </span>
-                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        <span className="font-semibold text-success">
                           {funds > 0 ? formatVnd(funds) : 'Chưa rõ'}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between pt-1">
-                      <p className="text-[11px] text-muted-foreground line-clamp-1 italic max-w-[240px]">
-                        {d.needs_summary || 'Nhu cầu quan tâm dự án...'}
+                      <p className="text-xs text-muted-foreground line-clamp-1 italic max-w-[240px]">
+                        {formatNote(d.needs_summary)}
                       </p>
                       <Button
                         variant="ghost"
@@ -410,7 +399,7 @@ export function LeadInboxPage() {
                           e.stopPropagation()
                           navigate(`/sale/workspace?id=${d.dossier_id}`)
                         }}
-                        className="h-6 px-2 text-[10px] font-semibold text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 gap-1 rounded-md"
+                        className="h-6 px-2 text-xs font-semibold text-warning hover:text-warning hover:bg-warning/10 gap-1 rounded-md"
                       >
                         <Sparkles className="h-3 w-3" />
                         Hỏi Copilot
@@ -523,9 +512,9 @@ export function LeadInboxPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="HOT">🔥 HOT</SelectItem>
-                    <SelectItem value="WARM">⛅ WARM</SelectItem>
-                    <SelectItem value="COLD">❄️ COLD</SelectItem>
+                    <SelectItem value="HOT"><span className="inline-flex items-center gap-2"><Flame className="h-3.5 w-3.5" aria-hidden="true" /> HOT</span></SelectItem>
+                    <SelectItem value="WARM"><span className="inline-flex items-center gap-2"><CloudSun className="h-3.5 w-3.5" aria-hidden="true" /> WARM</span></SelectItem>
+                    <SelectItem value="COLD"><span className="inline-flex items-center gap-2"><Snowflake className="h-3.5 w-3.5" aria-hidden="true" /> COLD</span></SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -547,7 +536,7 @@ export function LeadInboxPage() {
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-xs">Vốn tự có sẵn sàng</Label>
-                  <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="text-xs font-semibold text-success">
                     {formatNumber(newForm.own_funds_vnd || 0)} ₫
                   </span>
                 </div>
@@ -566,7 +555,7 @@ export function LeadInboxPage() {
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-xs">Khả năng chi trả/tháng</Label>
-                  <span className="text-[11px] font-semibold text-primary">
+                  <span className="text-xs font-semibold text-primary">
                     {formatNumber(newForm.monthly_capacity_vnd || 0)} ₫
                   </span>
                 </div>
@@ -631,7 +620,7 @@ function CustomerCrmEditor({
 
   // Editable fields
   const [customerName, setCustomerName] = useState(dossier.customer?.full_name || dossier.customer_name || '')
-  const [customerPhone, setCustomerPhone] = useState(dossier.customer?.phone || dossier.customer_phone || '')
+  const [customerPhone, setCustomerPhone] = useState('')
   const [segment, setSegment] = useState<CustomerSegment>(c.customer_segment || dossier.customer_segment || dossier.segment || 'NEW_CUSTOMER')
   const [temperature, setTemperature] = useState<LeadTemperature>(dossier.temperature || dossier.lead_temperature || 'WARM')
   const [status, setStatus] = useState<LeadDossierStatus>(dossier.status || 'NEW')
@@ -645,7 +634,7 @@ function CustomerCrmEditor({
   // Reset values when switching dossiers
   useEffect(() => {
     setCustomerName(dossier.customer?.full_name || dossier.customer_name || '')
-    setCustomerPhone(dossier.customer?.phone || dossier.customer_phone || '')
+    setCustomerPhone('')
     setSegment(c.customer_segment || dossier.customer_segment || dossier.segment || 'NEW_CUSTOMER')
     setTemperature(dossier.temperature || dossier.lead_temperature || 'WARM')
     setStatus(dossier.status || 'NEW')
@@ -722,9 +711,9 @@ function CustomerCrmEditor({
               variant="outline"
               size="sm"
               onClick={onAskCopilot}
-              className="h-8 text-xs border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 gap-1.5"
+              className="h-8 text-xs border-warning/40 text-warning hover:bg-warning/10 gap-1.5"
             >
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <Sparkles className="h-3.5 w-3.5 text-warning" />
               Hỏi Copilot cho khách này
             </Button>
             <Button
@@ -760,7 +749,7 @@ function CustomerCrmEditor({
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 className="mt-1 h-8 text-xs"
-                placeholder="0912345678"
+                placeholder={maskPhone(dossier.customer?.phone || dossier.customer_phone || dossier.customer_phone_masked) || '0912345678'}
               />
             </div>
           </div>
@@ -788,9 +777,9 @@ function CustomerCrmEditor({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="HOT">🔥 HOT (Rất tiềm năng)</SelectItem>
-                  <SelectItem value="WARM">⛅ WARM (Quan tâm)</SelectItem>
-                  <SelectItem value="COLD">❄️ COLD (Khảo sát)</SelectItem>
+                  <SelectItem value="HOT"><span className="inline-flex items-center gap-2"><Flame className="h-3.5 w-3.5" aria-hidden="true" /> HOT (Rất tiềm năng)</span></SelectItem>
+                  <SelectItem value="WARM"><span className="inline-flex items-center gap-2"><CloudSun className="h-3.5 w-3.5" aria-hidden="true" /> WARM (Quan tâm)</span></SelectItem>
+                  <SelectItem value="COLD"><span className="inline-flex items-center gap-2"><Snowflake className="h-3.5 w-3.5" aria-hidden="true" /> COLD (Khảo sát)</span></SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -817,7 +806,7 @@ function CustomerCrmEditor({
                 value={preferredUnit}
                 onChange={(e) => setPreferredUnit(e.target.value)}
                 className="mt-1 h-8 text-xs"
-                placeholder="R-02.02, R-05.01..."
+                placeholder="ZEN-A-1205, SAP-01-2204..."
               />
             </div>
             <div>
@@ -843,7 +832,7 @@ function CustomerCrmEditor({
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-medium">Vốn tự có sẵn sàng</Label>
-                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                <span className="text-xs font-semibold text-success">
                   {formatNumber(ownFunds)} ₫
                 </span>
               </div>
@@ -862,7 +851,7 @@ function CustomerCrmEditor({
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-medium">Khả năng chi trả hàng tháng</Label>
-                <span className="text-[11px] font-semibold text-primary">
+                <span className="text-xs font-semibold text-primary">
                   {formatNumber(monthlyCapacity)} ₫
                 </span>
               </div>
@@ -894,7 +883,7 @@ function CustomerCrmEditor({
           </div>
 
           <div>
-            <Label className="text-xs font-medium">Ghi chú nhu cầu & khẩu vị khách hàng</Label>
+            <Label className="text-xs font-medium">Ghi chú nhu cầu và khẩu vị khách hàng</Label>
             <Textarea
               rows={3}
               value={needsSummary}

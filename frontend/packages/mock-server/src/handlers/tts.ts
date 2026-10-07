@@ -14,7 +14,7 @@ import { route } from './route'
  * - phản hồi giọng đọc được đếm để tính tỉ lệ hài lòng.
  */
 
-interface CatalogEntry {
+export interface CatalogEntry {
   provider: string
   label: string
   mode: 'browser' | 'api'
@@ -27,7 +27,147 @@ interface CatalogEntry {
   voice_cloning: boolean
   note: string
   voices: Array<{ code: string; label: string; gender: 'male' | 'female' | 'neutral' }>
+  /** Những trường dưới đây chỉ có ở danh mục hiệu lực (bản ghi do Admin thêm/đè). */
+  base_url?: string
+  env_key?: string
+  custom?: boolean
+  provider_id?: string
+  priority?: number
+  is_active?: boolean
+  api_key_masked?: string
+  key_source?: 'db' | 'env' | 'llm' | 'browser' | 'none'
+  last_test_status?: string | null
+  last_test_latency_ms?: number | null
+  last_tested_at?: string | null
 }
+
+/**
+ * Bản ghi do Admin khai trong màn hình quản trị (mô phỏng bảng `tts_providers`) — cùng cơ chế với
+ * nhà cung cấp LLM: khoá lưu trong "DB" (mock giữ trong tiến trình, chỉ trả dạng che), ưu tiên DB → ENV.
+ */
+export interface TtsProviderRow {
+  provider_id: string
+  provider: string
+  label: string
+  mode: 'browser' | 'api'
+  base_url: string
+  default_model: string
+  env_key: string
+  price_per_1m_chars: number
+  currency: string
+  price_note: string
+  verified_at: string
+  note: string
+  voices: Array<{ code: string; label: string; gender: 'male' | 'female' | 'neutral' }>
+  supports_streaming: boolean
+  voice_cloning: boolean
+  /** Khoá dạng che — mock không bao giờ giữ/trả khoá thô. */
+  api_key_masked: string
+  has_key: boolean
+  key_source: 'db' | 'env' | 'llm' | 'browser' | 'none'
+  priority: number
+  is_active: boolean
+  last_test_status: string | null
+  last_test_latency_ms: number | null
+  last_tested_at: string | null
+}
+
+let providerRows: TtsProviderRow[] = []
+let providerSeq = 0
+/**
+ * Tên biến ENV của từng nhà cung cấp — dùng để *hiển thị gợi ý* cho quản trị viên biết khoá ENV nằm ở đâu.
+ * KHÔNG dùng để suy ra "đã có khoá": mock không cấu hình khoá ENV nào, nên các nhà cung cấp trả phí đều
+ * báo `none` (chưa có khoá) cho tới khi quản trị viên nhập khoá trong màn hình quản trị — UI nhờ vậy nói
+ * thật với người dùng thay vì hứa hão.
+ */
+export const BUILTIN_ENV_KEYS: Record<string, string> = {
+  openai: 'OPENAI_API_KEY',
+  google_cloud: 'GOOGLE_APPLICATION_CREDENTIALS',
+  viettel: 'VIETTEL_TTS_TOKEN',
+}
+
+export const getProviderRows = () => providerRows
+export const setProviderRows = (rows: TtsProviderRow[]) => {
+  providerRows = rows
+}
+export const nextProviderId = () => `TTS-${String((providerSeq += 1)).padStart(4, '0')}`
+
+/** Danh mục hiệu lực: dựng sẵn + bản ghi đè theo mã + nhà cung cấp mới (sắp theo priority). */
+export function effectiveCatalog(): CatalogEntry[] {
+  const rows = providerRows.filter((r) => r.is_active)
+  const bySlug = new Map(rows.map((r) => [r.provider, r]))
+  const merged: CatalogEntry[] = CATALOG.map((base) => {
+    const row = bySlug.get(base.provider)
+    if (!row) {
+      return {
+        ...base,
+        env_key: BUILTIN_ENV_KEYS[base.provider] ?? '',
+        key_source: base.mode === 'browser' ? 'browser' : 'none',
+      }
+    }
+    return {
+      ...base,
+      provider: base.provider,
+      label: row.label || base.label,
+      mode: row.mode,
+      default_model: row.default_model || base.default_model,
+      price_per_1m_chars: row.price_per_1m_chars,
+      currency: row.currency,
+      price_note: row.price_note || base.price_note,
+      verified_at: row.verified_at || base.verified_at,
+      note: row.note || base.note,
+      voices: row.voices.length ? row.voices : base.voices,
+      supports_streaming: row.supports_streaming,
+      voice_cloning: row.voice_cloning,
+      base_url: row.base_url,
+      env_key: row.env_key,
+      custom: false,
+      provider_id: row.provider_id,
+      priority: row.priority,
+      is_active: row.is_active,
+      api_key_masked: row.api_key_masked,
+      key_source: row.key_source,
+      last_test_status: row.last_test_status,
+      last_test_latency_ms: row.last_test_latency_ms,
+      last_tested_at: row.last_tested_at,
+    }
+  })
+  const builtin = new Set(CATALOG.map((c) => c.provider))
+  const customs = rows
+    .filter((r) => !builtin.has(r.provider))
+    .sort((a, b) => a.priority - b.priority || a.provider.localeCompare(b.provider))
+    .map<CatalogEntry>((row) => ({
+      provider: row.provider,
+      label: row.label,
+      mode: row.mode,
+      default_model: row.default_model,
+      price_per_1m_chars: row.price_per_1m_chars,
+      currency: row.currency,
+      price_note: row.price_note,
+      verified_at: row.verified_at,
+      supports_streaming: row.supports_streaming,
+      voice_cloning: row.voice_cloning,
+      note: row.note,
+      voices: row.voices,
+      base_url: row.base_url,
+      env_key: row.env_key,
+      custom: true,
+      provider_id: row.provider_id,
+      priority: row.priority,
+      is_active: row.is_active,
+      api_key_masked: row.api_key_masked,
+      key_source: row.key_source,
+      last_test_status: row.last_test_status,
+      last_test_latency_ms: row.last_test_latency_ms,
+      last_tested_at: row.last_tested_at,
+    }))
+  return [...merged, ...customs]
+}
+
+/** Cờ "đã có khoá" cho màn hình giọng đọc: trình duyệt luôn sẵn sàng, còn lại theo nguồn khoá. */
+export const isConfigured = (entry: CatalogEntry) =>
+  entry.mode === 'browser' || (entry.key_source ?? 'none') !== 'none'
+
 
 /** Rút gọn danh mục so với backend (mock không cần đủ 7 nhà cung cấp, nhưng giữ đúng hình dạng). */
 const CATALOG: CatalogEntry[] = [
@@ -120,10 +260,12 @@ onReset(() => {
   defaultScope = null
   userScopes = {}
   feedback = []
+  providerRows = []
+  providerSeq = 0
 })
 
 const costOf = (settings: TtsSettings, chars: number) => {
-  const entry = CATALOG.find((c) => c.provider === settings.provider) ?? CATALOG[0]
+  const entry = effectiveCatalog().find((c) => c.provider === settings.provider) ?? CATALOG[0]
   const billable = Math.min(chars, settings.max_chars_per_turn)
   return {
     provider: entry.provider,
@@ -149,8 +291,19 @@ function mergedSettings(userId: string): TtsSettings {
   if (defaultScope) Object.assign(base, stripMeta(defaultScope))
   const mine = userScopes[userId]
   if (mine) Object.assign(base, stripMeta(mine))
+  // Nhà cung cấp đã chọn có thể đã bị quản trị viên xoá khỏi danh mục ⇒ rơi về mặc định thay vì
+  // trả về lựa chọn không còn dùng được (backend thật cũng xử lý như vậy).
+  if (!effectiveCatalog().some((c) => c.provider === base.provider)) {
+    base.provider = DEFAULT_SETTINGS.provider
+    base.voice = DEFAULT_SETTINGS.voice
+    base.model = DEFAULT_SETTINGS.model
+  }
   return base
 }
+
+/** Số phạm vi thiết lập (mặc định + hồ sơ riêng) đang chọn một nhà cung cấp. */
+export const scopesUsingProvider = (provider: string) =>
+  (defaultScope?.provider === provider ? 1 : 0) + Object.values(userScopes).filter((s) => s.provider === provider).length
 
 const stripMeta = (scope: TtsSettingsScope): TtsSettings => {
   const { updated_by: _updatedBy, updated_at: _updatedAt, is_explicit: _isExplicit, ...rest } = scope
@@ -158,7 +311,7 @@ const stripMeta = (scope: TtsSettingsScope): TtsSettings => {
 }
 
 function validate(payload: Partial<TtsSettings>): TtsSettings {
-  const provider = CATALOG.find((c) => c.provider === payload.provider)
+  const provider = effectiveCatalog().find((c) => c.provider === payload.provider)
   if (payload.provider && !provider) {
     throw new MockError(422, 'INPUT_VALIDATION_ERROR', 'Nhà cung cấp TTS không hợp lệ.')
   }
@@ -190,7 +343,7 @@ export const ttsHandlers = [
     const effective = mergedSettings(me.user_id)
     return {
       body: {
-        catalog: CATALOG.map((c) => ({ ...c, api_key_configured: c.mode === 'browser', voices: c.voices })),
+        catalog: effectiveCatalog().map((c) => ({ ...c, api_key_configured: isConfigured(c), voices: c.voices })),
         default: {
           ...(defaultScope ?? { ...DEFAULT_SETTINGS }),
           is_explicit: defaultScope !== null,
@@ -226,7 +379,7 @@ export const ttsHandlers = [
     const effective = mergedSettings(me.user_id)
     return {
       body: {
-        catalog: CATALOG.map((c) => ({ ...c, api_key_configured: c.mode === 'browser', voices: c.voices })),
+        catalog: effectiveCatalog().map((c) => ({ ...c, api_key_configured: isConfigured(c), voices: c.voices })),
         default: { ...(defaultScope ?? { ...DEFAULT_SETTINGS }), is_explicit: defaultScope !== null },
         user_override: userScopes[me.user_id] ?? null,
         effective,

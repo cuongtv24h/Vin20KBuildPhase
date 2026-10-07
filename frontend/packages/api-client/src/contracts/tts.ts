@@ -29,6 +29,16 @@ export interface TtsProviderInfo {
   note: string
   /** Đã có khoá API chưa (chỉ cờ boolean, không bao giờ là giá trị khoá). */
   api_key_configured: boolean
+  /** Khoá đang lấy từ đâu: 'db' (nhập trên giao diện) | 'env' | 'llm' | 'browser' | 'none'. */
+  key_source?: string
+  /** Base URL hiệu lực (rỗng với nhà cung cấp dựng sẵn chưa cấu hình). */
+  base_url?: string
+  /** Tên biến ENV chứa khoá (đường lui DB → ENV). */
+  env_key?: string
+  /** Nhà cung cấp do Admin tự thêm trong màn hình quản trị (ngoài danh mục dựng sẵn). */
+  custom?: boolean
+  /** `provider_id` của bản ghi DB, nếu có. */
+  provider_id?: string
   voices: TtsVoiceOption[]
 }
 
@@ -106,4 +116,52 @@ export interface TtsFeedbackResponse {
   total: number
   up: number
   down: number
+}
+
+/** Yêu cầu đọc một đoạn văn bản qua nhà cung cấp TTS (backend gọi nhà cung cấp, không phải trình duyệt). */
+export interface TtsSpeakRequest {
+  text: string
+  /** Bỏ trống = lấy thiết lập hiệu lực của người gọi. */
+  provider?: string
+  voice?: string
+  model?: string
+  speed?: number
+  conversation_id?: string | null
+  /** True = chỉ đọc phần đầu (chế độ rảnh tay). */
+  summary_only?: boolean
+}
+
+export interface TtsQuota {
+  /** 0 = không giới hạn. */
+  daily_budget: number
+  chars_today: number
+  /** -1 khi không giới hạn. */
+  remaining: number
+}
+
+export interface TtsSpeakAttempt {
+  provider: string
+  label: string
+  ok: boolean
+  status: string
+  detail: string
+  voice: string
+  model: string
+}
+
+export interface TtsSpeakResponse {
+  provider: string
+  voice: string
+  model: string
+  mime: string
+  audio_base64: string
+  chars: number
+  cached: boolean
+  cost: number
+  currency: string
+  latency_ms: number
+  quota: TtsQuota
+  /** True khi nhà cung cấp đã đọc KHÔNG phải nhà cung cấp ưu tiên (đã tự chuyển tiếp). */
+  fallback_used: boolean
+  attempts: TtsSpeakAttempt[]
 }

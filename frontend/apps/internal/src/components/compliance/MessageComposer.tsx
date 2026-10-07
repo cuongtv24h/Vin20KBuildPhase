@@ -122,7 +122,7 @@ export function MessageComposer({ quote }: { quote: Quote }) {
               ) : (
                 <ComplianceBadge status={result.overall_status} />
               )}
-              {result && <span className="font-mono text-[10px] text-muted-foreground">{result.message_hash.slice(0, 19)}…</span>}
+              {result && <span className="font-mono text-xs text-muted-foreground">{result.message_hash.slice(0, 19)}…</span>}
             </div>
             {result && <Highlighted text={text} claims={result.claims} active={active} onPick={setActive} />}
             {result && result.claims.some((c) => c.status !== 'SUPPORTED') && (

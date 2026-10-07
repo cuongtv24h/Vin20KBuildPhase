@@ -222,7 +222,10 @@ async def test_final_reply_carries_verification_flag_on_hallucination():
     final = next(d for k, d in events if k == "final")
     assert final["verified"] is False
     assert final["verification"]["unsupported_claims"]
-    assert "chưa đối chiếu được" in final["reply"]
+    # Chốt P2.4: nội dung trả lời giữ SẠCH để Sale copy gửi khách; cảnh báo nằm ở trường riêng.
+    assert "chưa đối chiếu được" not in final["reply"]
+    assert "chưa đối chiếu được" in final["internal_notes"]
+    assert "99%" in final["internal_notes"], "Nêu đích danh con số không có nguồn"
 
 
 def test_tools_module_exposes_retry_constants():

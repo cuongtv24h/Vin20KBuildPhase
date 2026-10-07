@@ -56,6 +56,16 @@ export interface CopilotChatRequest {
   project_id?: string | null
 }
 
+/** Một mỏ neo `[n]` trong câu trả lời → trỏ tới căn cứ thứ `citation_index` (chốt P2.1/P2.3). */
+export interface CopilotAnchor {
+  index: number
+  /** Chuỗi số như hiện trong câu trả lời, ví dụ `6,1 tỷ`. */
+  value: string
+  citation_index: number
+  /** Nhãn ngắn cho tooltip, ví dụ `CATALOG-UNITS · Căn ZEN-B-1502`. */
+  label: string
+}
+
 /** Payload cuối cùng (frame `final`) — tương thích ngược với ChatResponse cũ. */
 export interface CopilotFinalPayload {
   reply: string
@@ -63,6 +73,14 @@ export interface CopilotFinalPayload {
   action_data: Record<string, unknown> | null
   suggested_actions: string[]
   citations?: CopilotCitation[]
+  /** Mỏ neo máy tự chèn — UI biến `[n]` thành nút mở căn cứ. */
+  anchors?: CopilotAnchor[]
+  /** Số do Sale tự nêu đã được in đậm kèm nhãn (không gắn mỏ neo). */
+  labeled_inputs?: string[]
+  /** Ghi chú kiểm duyệt nội bộ — tách khỏi `reply` để copy gửi khách được nguyên văn (P2.4). */
+  internal_notes?: string
+  /** Mốc thời gian dữ liệu → hiển thị watermark, không nằm trong văn phong (P1.6). */
+  data_as_of?: string | null
   grounded?: boolean
   tools_used?: string[]
   iterations?: number
@@ -166,6 +184,10 @@ export interface CopilotConversationMessage {
   at?: string | null
   citations?: CopilotCitation[]
   action_type?: string | null
+  /** Ghi chú kiểm duyệt nội bộ của lượt (P2.4) — mở lại lịch sử vẫn thấy cảnh báo. */
+  internal_notes?: string
+  anchors?: CopilotAnchor[]
+  data_as_of?: string | null
 }
 
 export interface CopilotConversationSummary {
@@ -192,4 +214,7 @@ export interface CopilotAppendTurnRequest {
   assistant_message: string
   citations?: CopilotCitation[]
   action_type?: string | null
+  internal_notes?: string
+  anchors?: CopilotAnchor[]
+  data_as_of?: string | null
 }

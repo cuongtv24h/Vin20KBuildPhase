@@ -10,11 +10,13 @@ truy cập dữ liệu canonical (chính sách, giỏ hàng) dùng chung cho cá
 
 from __future__ import annotations
 
+import logging
 import unicodedata
 from datetime import date
 from typing import Any
 
 from src.api.endpoints.catalog import POLICIES_DATA, UNITS_DATA
+from src.contracts.units import BEDROOMS_BY_UNIT_TYPE, merge_units
 
 
 def normalize(text: str) -> str:
@@ -49,12 +51,11 @@ def resolve_active_policy(project_id: str | None, as_of: date | None = None) -> 
     active = [
         p
         for p in candidates
-        if str(p.get("status", "ACTIVE")) == "ACTIVE"
-        and str(p.get("effective_from", "0000-01-01")) <= tx_date <= str(p.get("effective_to", "9999-12-31"))
+        if str(p.get("effective_from", "0000-01-01")) <= tx_date <= str(p.get("effective_to", "9999-12-31"))
     ]
     if active:
         return active[0]
-    return candidates[0] if candidates else None
+    return None
 
 
 def policy_citations(policy: dict[str, Any], rules: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -104,15 +105,90 @@ def find_rules_by_keyword(keyword: str, project_id: str | None = None) -> list[t
     return hits
 
 
+logger = logging.getLogger(__name__)
+
+_cached_db_units: list[dict[str, Any]] | None = None
+_cached_db_project_names: dict[str, str] = {}
+
+def _fetch_db_units() -> list[dict[str, Any]]:
+    """Đọc giỏ hàng THẬT từ DB (bảng `units` nối `projects`) — chỉ lấy trường có thật.
+
+    Từ đợt 20 bảng `units` có thêm `area_m2` và `view`; căn nào chưa điền thì trả None (UI hiện "—"),
+    không suy diễn theo loại căn.
+    """
+    global _cached_db_units
+    if _cached_db_units is not None:
+        return _cached_db_units
+    try:
+        import psycopg
+
+        from src.config import get_settings
+
+        settings = get_settings()
+        db_url = settings.database_url.replace("+asyncpg", "")
+        if not db_url.startswith(("postgres://", "postgresql://")):
+            # SQLite (mặc định khi chạy local/test) không có bảng `units` thật ⇒ dùng fixture, không log lỗi.
+            return []
+        with psycopg.connect(db_url, connect_timeout=3) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT u.unit_code, u.project_id, p.project_name, u.floor_number,
+                           u.unit_type, u.listed_price_before_tax_vnd, u.status, u.area_m2, u.view
+                    FROM units u
+                    LEFT JOIN projects p ON p.project_id = u.project_id;
+                """)
+                rows = cur.fetchall()
+                units: list[dict[str, Any]] = []
+                for (
+                    unit_code,
+                    project_id,
+                    project_name,
+                    floor_number,
+                    unit_type,
+                    price,
+                    status,
+                    area_m2,
+                    view,
+                ) in rows:
+                    name = str(project_name or "").strip() or str(project_id or "")
+                    if project_id:
+                        _cached_db_project_names[str(project_id)] = name
+                    units.append(
+                        {
+                            "unit_code": unit_code,
+                            "project_id": project_id,
+                            "project_name": name,
+                            "floor": floor_number,
+                            "bedrooms": BEDROOMS_BY_UNIT_TYPE.get(str(unit_type or "").upper(), 0),
+                            # Hai trường có thật trong DB từ đợt 20; dữ liệu cũ chưa điền thì để None
+                            # (hiển thị "—") — tuyệt đối không suy diễn lại theo loại căn.
+                            "area_m2": float(area_m2) if area_m2 else None,
+                            "view": str(view or "").strip() or None,
+                            "listed_price_before_tax_vnd": price,
+                            "status": status,
+                        }
+                    )
+                _cached_db_units = units
+                return units
+    except Exception as exc:
+        logger.warning("Could not load units from DB: %s", exc)
+        return []
+
+
 def list_units() -> list[dict[str, Any]]:
-    return list(UNITS_DATA)
+    """Giỏ hàng đang dùng: **DB thật là nguồn chính**, fixture chỉ bù cho dự án DB chưa có.
+
+    Lỗi cũ: cộng thẳng DB (40 căn) với fixture (4 căn) ⇒ giỏ hàng báo 44 căn, và Sale đọc thấy căn demo
+    lẫn căn thật. Quy tắc gộp nằm ở `src.contracts.units.merge_units` để API cũng dùng đúng một luật.
+    """
+    return merge_units(_fetch_db_units(), UNITS_DATA)
 
 
 def find_unit(unit_code: str | None) -> dict[str, Any] | None:
     if not unit_code:
         return None
     wanted = normalize(unit_code).replace(" ", "")
-    for unit in UNITS_DATA:
+    for unit in list_units():
         if normalize(str(unit.get("unit_code"))).replace(" ", "") == wanted:
             return unit
     return None
@@ -125,7 +201,7 @@ def search_units(
     only_available: bool = True,
 ) -> list[dict[str, Any]]:
     results = []
-    for unit in UNITS_DATA:
+    for unit in list_units():
         if only_available and unit.get("status") != "AVAILABLE":
             continue
         if bedrooms and int(unit.get("bedrooms", 0)) != bedrooms:
@@ -140,8 +216,19 @@ def search_units(
 
 
 def project_name(project_id: str | None) -> str:
+    """Tên dự án: ưu tiên tên THẬT đọc từ DB, rồi tới nhãn fixture, cuối cùng trả chính mã dự án.
+
+    Không bịa tên dự án: dự án chỉ có trong DB sẽ hiện đúng tên trong bảng `projects`.
+    """
+    key = str(project_id or "")
+    if key in _cached_db_project_names:
+        return _cached_db_project_names[key]
     mapping = {
         "THE_ZEN_PARK": "The Zen Park",
         "VLANDFUTURE_SAPPHIRE": "VLandFuture Sapphire",
+        # Dự án VLF cũ chỉ còn trong catalog fixture (không có bảng `projects` tương ứng) — giữ để
+        # tài liệu/demo cũ không vỡ, nhưng hỏi DB trước nên tên thật luôn thắng.
+        "PROJECT-VLF-001": "VLand Future Riverside",
     }
-    return mapping.get(str(project_id), str(project_id or "VLandFuture"))
+    return mapping.get(key, key or "VLandFuture")
+

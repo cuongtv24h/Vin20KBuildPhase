@@ -130,6 +130,9 @@ def _public(conversation: dict[str, Any], *, with_messages: bool) -> dict[str, A
                 "at": m.get("at"),
                 "citations": m.get("citations") or [],
                 "action_type": m.get("action_type"),
+                "internal_notes": m.get("internal_notes") or "",
+                "anchors": m.get("anchors") or [],
+                "data_as_of": m.get("data_as_of"),
             }
             for m in conversation.get("messages") or []
             if m.get("role") in VALID_ROLES
@@ -188,6 +191,9 @@ def append_turn(
     assistant_message: str,
     citations: list[dict[str, Any]] | None = None,
     action_type: str | None = None,
+    internal_notes: str = "",
+    anchors: list[dict[str, Any]] | None = None,
+    data_as_of: str | None = None,
 ) -> dict[str, Any]:
     """Ghi một lượt hỏi–đáp vào hội thoại (tự tạo hội thoại nếu chưa có).
 
@@ -218,6 +224,12 @@ def append_turn(
                     "at": now,
                     "citations": citations or [],
                     "action_type": action_type,
+                    # Ghi chú kiểm duyệt nội bộ tách khỏi `content` (chốt P2.4): Sale copy nội dung
+                    # gửi khách không dính câu quy trình; mở lại lịch sử vẫn thấy cảnh báo.
+                    "internal_notes": (internal_notes or "").strip(),
+                    # Mỏ neo [n] + mốc thời gian dữ liệu để UI hiển thị lại y như lúc chat (P2.1/P1.6).
+                    "anchors": anchors or [],
+                    "data_as_of": data_as_of,
                 }
             )
         conversation["messages"] = conversation["messages"][-MAX_MESSAGES_PER_CONVERSATION:]

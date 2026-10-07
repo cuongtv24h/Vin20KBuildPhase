@@ -21,6 +21,7 @@ export const queryKeys = {
   llmProviders: ['admin', 'llm', 'providers'] as const,
   llmUsage: ['admin', 'llm', 'usage'] as const,
   ttsSettings: ['settings', 'tts'] as const,
+  ttsProviders: ['admin', 'tts', 'providers'] as const,
 }
 
 /**

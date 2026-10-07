@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     tts_enabled: bool = True
     tts_auto_speak: bool = False
     tts_max_chars_per_turn: int = 600
+    #: Hạn mức ký tự gửi đi đọc **mỗi ngày** cho đường trả phí (0 = không giới hạn).
+    #: Mặc định 300.000 ký tự/ngày ≈ 9.000 ký tự/ngày/nhân viên với ~30 người — đủ dùng thật, vẫn chặn
+    #: được trường hợp một phiên bị lặp đọc cả câu trả lời dài hàng nghìn lần.
+    tts_daily_char_budget: int = 300_000
+    #: Cache audio trên đĩa: TTL (ngày) và trần dung lượng (MB).
+    tts_cache_ttl_days: int = 7
+    tts_cache_max_mb: int = 200
     #: Khoá của các nhà cung cấp TTS không dùng chung OPENAI_API_KEY.
     google_application_credentials: str = ""
     azure_speech_key: str = ""

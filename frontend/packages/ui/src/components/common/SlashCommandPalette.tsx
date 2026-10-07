@@ -79,13 +79,13 @@ export function SlashCommandPalette({
             {Icon ? <Icon className="h-3.5 w-3.5 shrink-0 text-primary" /> : <span className="w-3.5" />}
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium text-foreground">{command.label}</span>
-              <span className="block truncate text-[11px] text-muted-foreground">
+              <span className="block truncate text-xs text-muted-foreground">
                 {command.cmd}
                 {command.hint ? ` · ${command.hint}` : ''}
               </span>
             </span>
             {isRecent && (
-              <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                 <Clock className="h-3 w-3" /> gần đây
               </span>
             )}

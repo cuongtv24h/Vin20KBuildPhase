@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../client'
-import type { TtsFeedbackPayload, TtsSettingsPayload } from '../contracts'
+import type { TtsFeedbackPayload, TtsSettingsPayload, TtsSpeakRequest } from '../contracts'
 import { queryKeys, useCommand } from './core'
 
 /** Thiết lập giọng đọc hiện hành (danh mục nhà cung cấp + mặc định + hồ sơ riêng). */
@@ -21,4 +21,13 @@ export const useUpdateTtsSettings = () =>
 export const useTtsVoiceFeedback = () =>
   useCommand((payload: TtsFeedbackPayload, key) => api.tts.feedback(payload, { idempotencyKey: key }), {
     invalidate: () => [queryKeys.ttsSettings],
+  })
+
+/**
+ * Đọc một đoạn văn bản qua nhà cung cấp TTS. Không invalidate danh sách nào (audio không đổi dữ liệu
+ * hiển thị), nhưng hạn mức ngày thì đổi ⇒ làm mới số liệu chi phí để tab “Chi phí & hiệu năng” đúng.
+ */
+export const useTtsSpeak = () =>
+  useCommand((payload: TtsSpeakRequest, key) => api.tts.speak(payload, { idempotencyKey: key }), {
+    invalidate: () => [queryKeys.llmUsage],
   })

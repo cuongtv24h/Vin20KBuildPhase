@@ -118,6 +118,17 @@ export const ENDPOINTS = {
   ttsSettings: def({ method: 'GET', path: '/settings/tts', source: 'PROPOSED', auth: 'staff' }),
   ttsSettingsUpdate: def({ method: 'PUT', path: '/settings/tts', source: 'PROPOSED', auth: 'staff' }),
   ttsFeedback: def({ method: 'POST', path: '/settings/tts/feedback', source: 'PROPOSED', auth: 'staff' }),
+
+  // Đọc thành tiếng qua nhà cung cấp TTS (backend gọi nhà cung cấp thật; trình duyệt vẫn là đường miễn phí)
+  ttsSpeak: def({ method: 'POST', path: '/tts/speak', source: 'PROPOSED', auth: 'staff' }),
+  ttsQuota: def({ method: 'GET', path: '/tts/quota', source: 'PROPOSED', auth: 'staff' }),
+
+  // Quản trị nhà cung cấp TTS & khoá API (ADMIN) — cùng cơ chế với nhà cung cấp LLM
+  ttsProviders: def({ method: 'GET', path: '/admin/tts/providers', source: 'PROPOSED', auth: ['ADMIN'] }),
+  ttsProviderCreate: def({ method: 'POST', path: '/admin/tts/providers', source: 'PROPOSED', auth: ['ADMIN'] }),
+  ttsProviderUpdate: def({ method: 'PUT', path: '/admin/tts/providers/{provider_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
+  ttsProviderDelete: def({ method: 'DELETE', path: '/admin/tts/providers/{provider_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
+  ttsProviderTest: def({ method: 'POST', path: '/admin/tts/providers/{provider_id}/test', source: 'PROPOSED', auth: ['ADMIN'] }),
 } as const
 
 export type EndpointName = keyof typeof ENDPOINTS

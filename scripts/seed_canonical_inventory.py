@@ -27,6 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from src.contracts.units import suggest_area_m2, suggest_view
 from src.db.models import PolicyEdgeModel, ProjectModel, UnitModel
 
 load_dotenv(ROOT_DIR / ".env")
@@ -72,22 +73,32 @@ async def seed_inventory():
         for u in units_data:
             # Determine handover date from project or default 2027-12-31
             handover = date(2027, 12, 31)
+            # Diện tích/view: dùng số trong dataset nếu có; chưa có thì sinh giá trị khởi tạo theo cùng
+            # bộ hàm với `scripts/migrate_units_area_view.py` (chốt đợt 20 — DB phải có 2 trường này).
+            unit_type = u.get("unit_type", "2BR")
+            floor_number = int(u.get("floor", 1))
+            area_m2 = float(u.get("area_m2") or suggest_area_m2(unit_type, floor_number, u["unit_code"]))
+            view = str(u.get("view") or suggest_view(u["unit_code"]))
             stmt = insert(UnitModel).values(
                 unit_code=u["unit_code"],
                 project_id=u["project_id"],
-                unit_type=u.get("unit_type", "2BR"),
-                floor_number=int(u.get("floor", 1)),
+                unit_type=unit_type,
+                floor_number=floor_number,
                 listed_price_before_tax_vnd=int(u.get("listed_price_before_tax_vnd", 0)),
                 handover_date=handover,
                 status=u.get("availability_status", "AVAILABLE"),
+                area_m2=area_m2,
+                view=view,
             ).on_conflict_do_update(
                 index_elements=["unit_code"],
                 set_={
                     "project_id": u["project_id"],
-                    "unit_type": u.get("unit_type", "2BR"),
-                    "floor_number": int(u.get("floor", 1)),
+                    "unit_type": unit_type,
+                    "floor_number": floor_number,
                     "listed_price_before_tax_vnd": int(u.get("listed_price_before_tax_vnd", 0)),
                     "status": u.get("availability_status", "AVAILABLE"),
+                    "area_m2": area_m2,
+                    "view": view,
                 },
             )
             await conn.execute(stmt)

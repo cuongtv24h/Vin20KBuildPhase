@@ -1,4 +1,4 @@
-"""Đo độ tiêu tốn & hiệu năng gọi LLM (token, chi phí theo đơn giá, độ trễ).
+"""Đo độ tiêu tốn & hiệu năng gọi LLM/TTS (token hoặc ký tự, chi phí theo đơn giá, độ trễ).
 
 Mỗi lượt gọi LLM ghi **một dòng JSONL**: nhà cung cấp, model, token vào/ra, độ trễ, thành công/lỗi,
 có phải lượt fallback không, và **chi phí quy từ đơn giá** Admin khai báo
@@ -59,10 +59,19 @@ def record_usage(
     currency: str = "USD",
     conversation_id: str | None = None,
     user_id: str | None = None,
+    kind: str = "llm",
+    chars: int = 0,
+    cost_override: float | None = None,
+    note: str | None = None,
 ) -> dict[str, Any]:
-    """Ghi một lượt gọi LLM và trả bản ghi vừa ghi."""
+    """Ghi một lượt gọi (LLM hoặc TTS) và trả bản ghi vừa ghi.
+
+    `kind = "tts"` dùng cho lượt đọc thành tiếng: token bằng 0, chi phí tính theo **ký tự**
+    (`chars × đơn giá/1M ký tự`, truyền qua `cost_override`) — không nhồi ký tự vào ô token.
+    """
     record = {
         "at": datetime.now(UTC).isoformat(),
+        "kind": kind,
         "provider": provider,
         "model_name": model_name,
         "input_tokens": int(max(0, input_tokens)),
@@ -71,13 +80,19 @@ def record_usage(
         "ok": bool(ok),
         "error": (error or None),
         "is_fallback": bool(is_fallback),
-        "cost": compute_cost_usd(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            input_price_per_1m=input_price_per_1m,
-            output_price_per_1m=output_price_per_1m,
+        "cost": (
+            round(float(cost_override), 6)
+            if cost_override is not None
+            else compute_cost_usd(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                input_price_per_1m=input_price_per_1m,
+                output_price_per_1m=output_price_per_1m,
+            )
         ),
         "currency": currency,
+        "chars": int(max(0, chars)),
+        "note": note,
         "conversation_id": conversation_id,
         "user_id": user_id,
     }
@@ -86,6 +101,11 @@ def record_usage(
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
     return record
+
+
+def today_key() -> str:
+    """Ngày hôm nay (UTC) dạng `YYYY-MM-DD` — dùng để đếm hạn mức theo ngày."""
+    return datetime.now(UTC).date().isoformat()
 
 
 def _read_records(days: int) -> list[dict[str, Any]]:
@@ -129,6 +149,9 @@ def summarize_usage(days: int = 14) -> dict[str, Any]:
     total_in = sum(int(r.get("input_tokens") or 0) for r in records)
     total_out = sum(int(r.get("output_tokens") or 0) for r in records)
     total_cost = round(sum(float(r.get("cost") or 0.0) for r in records), 6)
+    tts_records = [r for r in records if str(r.get("kind") or "llm") == "tts"]
+    tts_chars = sum(int(r.get("chars") or 0) for r in tts_records)
+    tts_cost = round(sum(float(r.get("cost") or 0.0) for r in tts_records), 6)
 
     by_provider: dict[tuple[str, str], dict[str, Any]] = {}
     for r in records:
@@ -143,6 +166,7 @@ def summarize_usage(days: int = 14) -> dict[str, Any]:
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "cost": 0.0,
+                "chars": 0,
                 "latencies": [],
             },
         )
@@ -152,6 +176,7 @@ def summarize_usage(days: int = 14) -> dict[str, Any]:
         bucket["input_tokens"] += int(r.get("input_tokens") or 0)
         bucket["output_tokens"] += int(r.get("output_tokens") or 0)
         bucket["cost"] = round(bucket["cost"] + float(r.get("cost") or 0.0), 6)
+        bucket["chars"] += int(r.get("chars") or 0)
         if r.get("ok"):
             bucket["latencies"].append(float(r.get("latency_ms") or 0.0))
 
@@ -182,6 +207,9 @@ def summarize_usage(days: int = 14) -> dict[str, Any]:
         "total_output_tokens": total_out,
         "total_tokens": total_in + total_out,
         "total_cost": total_cost,
+        "tts_calls": len(tts_records),
+        "tts_chars": tts_chars,
+        "tts_cost": tts_cost,
         "currency": next((str(r.get("currency") or "USD") for r in records), "USD"),
         "p50_latency_ms": _percentile(latencies, 0.50),
         "p95_latency_ms": _percentile(latencies, 0.95),

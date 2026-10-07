@@ -1,10 +1,29 @@
+import { Zap } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import { cn } from '@pricepolicy/ui/lib/utils'
+import {
+  alignRow,
+  isNumericCell,
+  isWideColumn,
+  splitGluedTables,
+  stripCellEmphasis,
+  stripColumnMark,
+} from '@pricepolicy/ui/lib/markdownTables'
+
+/** Một mỏ neo `[n]` trong câu trả lời (máy tự chèn — xem `src/agents/copilot/anchors.py`). */
+export interface AiAnchor {
+  index: number
+  /** Nhãn nguồn hiển thị ở tooltip, ví dụ `CATALOG-UNITS · Căn ZEN-B-1502`. */
+  label?: string
+}
 
 interface FormattedAiMessageProps {
   content: string
   className?: string
   onCommandClick?: (command: string) => void
+  /** Mỏ neo có trong câu trả lời — bấm `[n]` sẽ mở đúng căn cứ (chốt P2.1). */
+  anchors?: AiAnchor[]
+  onAnchorClick?: (anchor: AiAnchor) => void
 }
 
 /**
@@ -15,13 +34,21 @@ interface FormattedAiMessageProps {
  * - Danh sách số (1. 2. 3.) có huy hiệu số thứ tự tròn
  * - Trích dẫn/Căn cứ pháp lý (> Blockquote)
  * - Lệnh tắt (/tao-khach, /baogia...) hiển thị dạng nút bấm tương tác (clickable pill)
+ * - Mỏ neo [n] hiển thị dạng chip nhỏ bấm mở căn cứ (Trust Engine cho Sale)
  */
-export function FormattedAiMessage({ content, className, onCommandClick }: FormattedAiMessageProps) {
+export function FormattedAiMessage({
+  content,
+  className,
+  onCommandClick,
+  anchors,
+  onAnchorClick,
+}: FormattedAiMessageProps) {
   const blocks = useMemo(() => parseMarkdownBlocks(content), [content])
+  const render = (text: string) => renderInlineText(text, onCommandClick, anchors, onAnchorClick)
 
   return (
     <div className={cn('space-y-2 text-xs leading-relaxed text-foreground', className)}>
-      {blocks.map((block, idx) => renderBlock(block, idx, onCommandClick))}
+      {blocks.map((block, idx) => renderBlock(block, idx, render))}
     </div>
   )
 }
@@ -40,7 +67,8 @@ type Block =
 
 function parseMarkdownBlocks(rawText: string): Block[] {
   if (!rawText) return []
-  const lines = rawText.split(/\r?\n/)
+  // Bảng dính câu văn (model viết ẩu, hoặc dữ liệu cũ đã lưu) → tách về đúng dòng trước khi phân tích.
+  const lines = splitGluedTables(rawText).split(/\r?\n/)
   const blocks: Block[] = []
   let i = 0
 
@@ -97,7 +125,9 @@ function parseMarkdownBlocks(rawText: string): Block[] {
         const headers = parseRow(tableLines[0])
         // Bỏ qua hàng phân cách |--|--| nếu có
         const dataRows = tableLines.slice(1).filter((l) => !/^\|[\s\-:|]+\|$/.test(l))
-        const rows = dataRows.map(parseRow)
+        // Hàng thiếu/thừa ô (model viết ẩu hoặc dữ liệu cũ) vẫn phải khớp số cột tiêu đề, nếu không
+        // cả bảng bị đẩy lệch sang phải.
+        const rows = dataRows.map((line) => alignRow(parseRow(line), headers.length))
 
         blocks.push({
           type: 'table',
@@ -168,21 +198,23 @@ function parseMarkdownBlocks(rawText: string): Block[] {
 // Block Rendering
 // ---------------------------------------------------------------------------
 
-function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) => void): ReactNode {
+type InlineRenderer = (text: string) => ReactNode
+
+function renderBlock(block: Block, key: number, render: InlineRenderer): ReactNode {
   switch (block.type) {
     case 'header': {
       if (block.level === 1 || block.level === 2) {
         return (
           <div key={key} className="mt-3.5 mb-1.5 flex items-center gap-2 border-b border-border/60 pb-1">
             <span className="h-3.5 w-1 rounded-full bg-primary" />
-            <h4 className="font-semibold text-xs tracking-tight text-foreground uppercase">{renderInlineText(block.text, onCommandClick)}</h4>
+            <h4 className="font-semibold text-xs tracking-tight text-foreground uppercase">{render(block.text)}</h4>
           </div>
         )
       }
       return (
         <div key={key} className="mt-2.5 mb-1 flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
-          <h5 className="font-medium text-xs text-foreground">{renderInlineText(block.text, onCommandClick)}</h5>
+          <h5 className="font-medium text-xs text-foreground">{render(block.text)}</h5>
         </div>
       )
     }
@@ -190,12 +222,20 @@ function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) =
     case 'table': {
       return (
         <div key={key} className="my-2.5 overflow-x-auto rounded-lg border border-border bg-card/60 shadow-xs">
-          <table className="w-full border-collapse text-[11px]">
+          <table className="w-full border-collapse text-xs">
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left font-semibold text-muted-foreground">
                 {block.headers.map((h, hi) => (
-                  <th key={hi} className="px-2.5 py-1.5 whitespace-nowrap">
-                    {renderInlineText(h, onCommandClick)}
+                  <th
+                    key={hi}
+                    className={cn(
+                      'px-2.5 py-1.5 whitespace-nowrap',
+                      isNumericCell(stripColumnMark(h)) && 'text-right',
+                      // Cột mở rộng (Tầng, Hướng/view) chỉ hiện từ màn hình rộng trở lên.
+                      isWideColumn(h) && 'hidden xl:table-cell',
+                    )}
+                  >
+                    {render(stripColumnMark(h))}
                   </th>
                 ))}
               </tr>
@@ -204,8 +244,17 @@ function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) =
               {block.rows.map((row, ri) => (
                 <tr key={ri} className="transition-colors hover:bg-muted/20">
                   {row.map((cell, ci) => (
-                    <td key={ci} className="px-2.5 py-1.5">
-                      {renderInlineText(cell, onCommandClick)}
+                    <td
+                      key={ci}
+                      className={cn(
+                        'px-2.5 py-1.5',
+                        // Canh phải + chữ số đều nhau cho cột tiền/diện tích dễ so sánh theo cột.
+                        isNumericCell(cell) ? 'text-right whitespace-nowrap tabular-nums' : 'align-top',
+                        // Ẩn cùng cột với tiêu đề ở màn hình nhỏ.
+                        isWideColumn(block.headers[ci] ?? '') && 'hidden xl:table-cell',
+                      )}
+                    >
+                      {render(stripCellEmphasis(cell))}
                     </td>
                   ))}
                 </tr>
@@ -220,9 +269,9 @@ function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) =
       return (
         <blockquote
           key={key}
-          className="my-2 rounded-r-md border-l-2 border-primary bg-primary/[0.04] px-3 py-1.5 text-[11px] text-muted-foreground italic"
+          className="my-2 rounded-r-md border-l-2 border-primary bg-primary/[0.04] px-3 py-1.5 text-xs text-muted-foreground italic"
         >
-          {renderInlineText(block.text, onCommandClick)}
+          {render(block.text)}
         </blockquote>
       )
     }
@@ -233,7 +282,7 @@ function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) =
           {block.items.map((item, ii) => (
             <li key={ii} className="flex items-start gap-2 leading-relaxed">
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/70" />
-              <div className="flex-1">{renderInlineText(item, onCommandClick)}</div>
+              <div className="flex-1">{render(item)}</div>
             </li>
           ))}
         </ul>
@@ -245,10 +294,10 @@ function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) =
         <ol key={key} className="my-1.5 space-y-1.5 pl-0.5">
           {block.items.map((item, ii) => (
             <li key={ii} className="flex items-start gap-2 leading-relaxed">
-              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[9.5px] font-bold text-primary mt-0.5">
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary mt-0.5">
                 {item.num}
               </span>
-              <div className="flex-1">{renderInlineText(item.text, onCommandClick)}</div>
+              <div className="flex-1">{render(item.text)}</div>
             </li>
           ))}
         </ol>
@@ -258,7 +307,7 @@ function renderBlock(block: Block, key: number, onCommandClick?: (cmd: string) =
     case 'paragraph': {
       return (
         <p key={key} className="leading-relaxed whitespace-pre-line text-foreground/90">
-          {renderInlineText(block.text, onCommandClick)}
+          {render(block.text)}
         </p>
       )
     }
@@ -278,7 +327,12 @@ const KNOWN_SLASH_COMMANDS = new Set([
   '/soan-tin',
 ])
 
-function renderInlineText(text: string, onCommandClick?: (cmd: string) => void): ReactNode {
+function renderInlineText(
+  text: string,
+  onCommandClick?: (cmd: string) => void,
+  anchors?: AiAnchor[],
+  onAnchorClick?: (anchor: AiAnchor) => void,
+): ReactNode {
   if (!text) return null
 
   // Regex nhận diện các thành phần inline:
@@ -287,7 +341,8 @@ function renderInlineText(text: string, onCommandClick?: (cmd: string) => void):
   // 3. Inline code: `(.*?)`
   // 4. Lệnh tắt chính thức: chỉ bắt khi đứng độc lập (có khoảng trắng hoặc đầu dòng phía trước),
   //    TUYỆT ĐỐI không bắt các từ tiếng Việt chứa dấu gạch chéo thông thường như 'anh/chị', 'm2/tháng', 'và/hoặc'
-  const tokenRegex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|(?<=^|\s)\/(?:tao-khach|tim-khach|khach-hang|baogia|chinh-sach|tinh-lai|soan-tin)(?=\s|[.,;!?)]|$))/g
+  const tokenRegex =
+    /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[\d{1,2}\]|(?<=^|\s)\/(?:tao-khach|tim-khach|khach-hang|baogia|chinh-sach|tinh-lai|soan-tin)(?=\s|[.,;!?)]|$))/g
 
   const parts = text.split(tokenRegex)
 
@@ -318,9 +373,28 @@ function renderInlineText(text: string, onCommandClick?: (cmd: string) => void):
     if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
       const inner = part.slice(1, -1)
       return (
-        <code key={index} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-primary">
+        <code key={index} className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-primary">
           {inner}
         </code>
+      )
+    }
+
+    // Mỏ neo [n] → chip bấm mở căn cứ (P2.1)
+    const anchorMatch = /^\[(\d{1,2})\]$/.exec(part)
+    if (anchorMatch) {
+      const index = Number(anchorMatch[1])
+      const meta = anchors?.find((a) => a.index === index)
+      return (
+        <button
+          key={index}
+          type="button"
+          onClick={() => onAnchorClick?.({ index, label: meta?.label })}
+          title={meta?.label ? `Mở căn cứ: ${meta.label}` : `Mở căn cứ [${index}]`}
+          aria-label={meta?.label ? `Mở căn cứ: ${meta.label}` : `Mở căn cứ số ${index}`}
+          className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-1 align-super text-xs font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+        >
+          {index}
+        </button>
       )
     }
 
@@ -332,9 +406,9 @@ function renderInlineText(text: string, onCommandClick?: (cmd: string) => void):
           type="button"
           onClick={() => onCommandClick?.(part)}
           title={`Bấm để dùng lệnh ${part}`}
-          className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 font-mono text-[11px] font-semibold transition-colors cursor-pointer select-none"
+          className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 font-mono text-xs font-semibold transition-colors cursor-pointer select-none"
         >
-          <span>⚡</span>
+          <Zap className="h-3 w-3" aria-hidden="true" />
           <span>{part}</span>
         </button>
       )
