@@ -6,9 +6,41 @@ import { cn } from '@pricepolicy/ui/lib/utils'
 /** Phần tử tương tác trong dòng: bấm vào đây thì giữ hành vi riêng, không mở khung xem nhanh. */
 const INTERACTIVE = 'a, button, input, select, textarea, label, [role="button"], [role="checkbox"], [role="switch"], [role="combobox"], [data-no-preview]'
 
+/** Thẻ không bao giờ được đưa vào khung xem nhanh (chạy mã / nhúng nội dung ngoài / điều khiển tương tác). */
+const FORBIDDEN_TAGS = 'script, style, iframe, object, embed, link, meta, base, form, button, input, select, textarea'
+
+/**
+ * Làm sạch bản sao của một ô trước khi hiển thị lại: bỏ thẻ nguy hiểm, mọi thuộc tính `on*`, và URL
+ * `javascript:` / `data:` — nên dù ô được dựng từ HTML thô (dangerouslySetInnerHTML ở nơi khác) cũng không
+ * mang theo mã chạy được. Bản sao được gắn vào khung bằng DOM (appendChild), KHÔNG qua phân tích chuỗi HTML.
+ */
+export function sanitizeClone(root: HTMLElement) {
+  root.querySelectorAll(FORBIDDEN_TAGS).forEach((n) => n.remove())
+  const all = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))]
+  for (const el of all) {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase()
+      const value = attr.value.trim().toLowerCase()
+      const unsafeUrl = (name === 'href' || name === 'src' || name === 'xlink:href' || name === 'action') && /^(javascript|data|vbscript):/.test(value)
+      if (name.startsWith('on') || unsafeUrl) el.removeAttribute(attr.name)
+    }
+  }
+}
+
+/** Gắn nút DOM đã làm sạch vào ô giá trị (không dùng innerHTML). */
+function PreviewValue({ node }: { node: HTMLElement }) {
+  const ref = React.useRef<HTMLElement | null>(null)
+  React.useEffect(() => {
+    const host = ref.current
+    if (!host) return
+    host.replaceChildren(...Array.from(node.childNodes).map((c) => c.cloneNode(true)))
+  }, [node])
+  return <dd ref={ref} className="min-w-0 break-words" />
+}
+
 interface RowPreview {
   title: string
-  fields: { label: string; html: string }[]
+  fields: { label: string; node: HTMLElement }[]
   /** Dòng vốn có hành động riêng (chuyển trang): khung xem nhanh có thêm nút mở trang đầy đủ. */
   row: HTMLTableRowElement | null
 }
@@ -38,13 +70,13 @@ function RowPreviewHost({ disabled, children }: { disabled: boolean; children: R
     const fields = cells
       .map((cell, i) => {
         const clone = cell.cloneNode(true) as HTMLElement
-        clone.querySelectorAll('button, input, select, textarea').forEach((n) => n.remove())
+        sanitizeClone(clone)
         const hasVisual = clone.querySelector('svg, img') !== null
         if (!clone.textContent?.trim() && !hasVisual) return null
         const label = headRow?.cells[i]?.textContent?.trim() || `Cột ${i + 1}`
-        return { label, html: clone.innerHTML }
+        return { label, node: clone }
       })
-      .filter((f): f is { label: string; html: string } => f !== null)
+      .filter((f): f is { label: string; node: HTMLElement } => f !== null)
     if (fields.length === 0) return
 
     const first = (cells[0].firstElementChild ?? cells[0]).textContent?.trim() ?? ''
@@ -78,7 +110,7 @@ function RowPreviewHost({ disabled, children }: { disabled: boolean; children: R
             {preview?.fields.map((f, i) => (
               <div key={i} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 py-2.5 text-sm">
                 <dt className="pt-0.5 text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">{f.label}</dt>
-                <dd className="min-w-0 break-words" dangerouslySetInnerHTML={{ __html: f.html }} />
+                <PreviewValue node={f.node} />
               </div>
             ))}
           </dl>

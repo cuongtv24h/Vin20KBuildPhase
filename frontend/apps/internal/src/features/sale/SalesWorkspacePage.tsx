@@ -1582,11 +1582,15 @@ export function SalesWorkspacePage() {
     /** Thế hệ phiên lúc Sale bấm gửi — không phải lúc hàm này chạy (xử lý lệnh bị trễ 150ms). */
     epoch: number = sendEpochRef.current ?? copilotChatStore.epoch(),
   ): Promise<string | null> => {
-    const idReady: Promise<string | null> = conversationId
-      ? Promise.resolve(conversationId)
+    // Đọc id MỚI NHẤT từ store (cùng thế hệ phiên) thay vì biến `conversationId` của lần render cũ: gửi liên tiếp
+    // rất nhanh, lượt sau có thể chạy trước khi React render lại với id vừa được cấp → tạo nhầm cuộc thứ hai.
+    const knownId =
+      epoch === copilotChatStore.epoch() ? (copilotChatStore.getSnapshot().conversationId ?? conversationId) : conversationId
+    const idReady: Promise<string | null> = knownId
+      ? Promise.resolve(knownId)
       : (creatingSessionRef.current ?? Promise.resolve(null))
     const saved = idReady.then((id) => appendTurn(buildPayload(id)))
-    if (!conversationId && !creatingSessionRef.current) {
+    if (!knownId && !creatingSessionRef.current) {
       creatingSessionRef.current = saved.then((d) => d?.conversation_id ?? null)
     }
     void saved.then((detail) => {
@@ -1602,7 +1606,7 @@ export function SalesWorkspacePage() {
       }
       creatingSessionRef.current = null
     })
-    return saved.then((d) => d?.conversation_id ?? conversationId ?? null)
+    return saved.then((d) => d?.conversation_id ?? knownId ?? null)
   }
 
   /**
