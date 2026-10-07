@@ -41,6 +41,68 @@ _NAME_STRIP_PREFIX = re.compile(
 _NAME_STRIP_FILLER = re.compile(r"^(?:mới\s+tên|mới\s+là|tên\s+là|tên|mới|anh|chị|ông|bà|khách\s*hàng)\s*", re.IGNORECASE)
 _AMOUNT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(tỷ|ty|triệu|trieu|tr)\b", re.IGNORECASE)
 
+#: Đơn vị diện tích Sale gõ: `70m²`, `70 m2`, `70m2`, `70 mét vuông`, `70 mv`.
+#: Không dùng `\b` ở cuối vì `²` không phải ký tự chữ-số ⇒ `70m²` sẽ không khớp ranh giới từ.
+_AREA_UNIT = r"(?:m2|m²|m\^2|mét\s*vuông|met\s*vuong|mv)"
+#: Diện tích đơn: "70m²", "khoảng 70 m2", "tầm 70 mét vuông".
+_AREA_SINGLE_RE = re.compile(rf"(\d{{2,3}}(?:[.,]\d+)?)\s*{_AREA_UNIT}(?![a-z0-9])", re.IGNORECASE)
+#: Khoảng diện tích: "60-70m²", "từ 65 đến 75 m2" (mốc đầu có thể thiếu đơn vị).
+_AREA_RANGE_RE = re.compile(
+    rf"(\d{{2,3}}(?:[.,]\d+)?)\s*{_AREA_UNIT}?\s*(?:-|–|—|~|đến|tới)\s*(\d{{2,3}}(?:[.,]\d+)?)\s*{_AREA_UNIT}(?![a-z0-9])",
+    re.IGNORECASE,
+)
+#: Sai số cho phép khi Sale nêu MỘT con số diện tích ("70m²" nghĩa là quanh 70m², không phải đúng 70.0m²).
+_AREA_TOLERANCE = 0.10
+
+#: Câu nhờ tìm căn có từ đệm giữa động từ và "căn" — "tìm **giúp em** căn 70m²" là câu TÌM CĂN, không phải
+#: câu xã giao. Khớp theo mẫu (đã bỏ dấu) thay vì liệt kê mọi biến thể "tìm ... căn".
+_BROWSE_VERB_RE = re.compile(r"\b(?:tim|tra|kiem|xem|liet ke|loc|mo)\b(?P<gap>[^.!?]{0,24}?)\b(?:can|ro hang|gio hang)\b")
+
+
+def _area_value(raw: str) -> float:
+    return round(float(str(raw).replace(",", ".")), 2)
+
+
+def extract_area_range(text: str) -> tuple[float, float] | None:
+    """Diện tích Sale nêu → `(min, max)` tính bằng m².
+
+    Khoảng rõ ràng ("60-70m²") giữ nguyên; một con số ("70m²") nới ±10% (≈63–77m²) vì Sale nói
+    "căn 70m²" là nói theo khoảng, còn lọc cứng đúng 70.0m² thì gần như luôn ra rỗng.
+    Không nêu diện tích ⇒ `None` (không lọc).
+    """
+    match = _AREA_RANGE_RE.search(text)
+    if match:
+        low, high = _area_value(match.group(1)), _area_value(match.group(2))
+        if low > high:
+            low, high = high, low
+        return (low, high) if low != high else None
+    single = _AREA_SINGLE_RE.search(text)
+    if not single:
+        return None
+    value = _area_value(single.group(1))
+    if not 10 <= value <= 500:  # ngoài dải căn hộ ⇒ không phải diện tích
+        return None
+    return (round(value * (1 - _AREA_TOLERANCE), 2), round(value * (1 + _AREA_TOLERANCE), 2))
+
+
+def area_spec_m2(text: str) -> float | None:
+    """Con số diện tích Sale nêu (chưa nới sai số) — để câu trả lời nói rõ "khách nêu khoảng 70m²"."""
+    single = _AREA_SINGLE_RE.search(text)
+    return _area_value(single.group(1)) if single else None
+
+
+def wants_browse_units(normalized_text: str) -> str | None:
+    """Câu tìm căn (đã bỏ dấu) → đoạn khớp, `None` nếu không phải.
+
+    Từ chối câu có "khách" nằm giữa: "tìm khách Nguyễn Văn An quan tâm căn ZEN-A-1205" là TRA HỒ SƠ
+    KHÁCH, không phải tìm căn — nhầm nhánh này là trả lời sai hẳn nghiệp vụ.
+    """
+    for match in _BROWSE_VERB_RE.finditer(normalized_text):
+        if "khach" in match.group("gap"):
+            continue
+        return match.group(0)
+    return None
+
 #: Khoảng giá Sale nêu: "từ 3 tỷ đến 5 tỷ", "3-5 tỷ", "khoảng 2 đến 3 tỷ". Dấu gạch chỉ tính là khoảng khi
 #: mốc SAU nó là con số (tránh nhầm "3 tỷ - vốn tự có").
 _RANGE_SEP = r"(?:đến|tới|->|–|—|-|~)"
@@ -207,6 +269,8 @@ def detect_intent(text: str) -> IntentResult:
         "bedrooms": extract_bedrooms(text),
         "amount_vnd": extract_amount(single_amount_text),
         "amount_range_vnd": amount_range,
+        "area_range_m2": extract_area_range(text),
+        "area_spec_m2": area_spec_m2(text),
         "project_id": extract_project_id(text),
         "transaction_date": slots.get("transaction_date"),
     }
@@ -317,6 +381,12 @@ def detect_intent(text: str) -> IntentResult:
     if kw:
         return IntentResult(INTENT_BROWSE_UNITS, 0.8, entities, kw)
 
+    # Câu tìm căn có từ đệm ("tìm giúp em căn 70m² tầm 3 tỷ") trước đây rơi vào small_talk ⇒ không gọi
+    # tool nào và trả lời "chưa tra được dữ liệu" trong khi giỏ hàng có căn phù hợp (lỗi người dùng báo).
+    browse_hit = wants_browse_units(lower)
+    if browse_hit:
+        return IntentResult(INTENT_BROWSE_UNITS, 0.75, entities, [browse_hit.strip()])
+
     kw = _has(lower, "tìm khách", "tra cứu khách", "hồ sơ khách", "số điện thoại", "mã hồ sơ")
     if kw:
         return IntentResult(INTENT_LOOKUP_CUSTOMER, 0.75, entities, kw)
@@ -339,6 +409,12 @@ def detect_intent(text: str) -> IntentResult:
     kw = _has(lower, "chính sách", "chiết khấu", "quy định", "p09", "hiệu lực", "áp dụng")
     if kw:
         return IntentResult(INTENT_LOOKUP_POLICY, 0.7, entities, kw)
+
+    # Câu chỉ nêu TIÊU CHÍ CĂN (không có động từ tìm/lọc): "Căn 70m² giá 3 tỷ còn không em?" — vẫn là yêu cầu
+    # tra giỏ hàng. Đặt ở CUỐI nên không tranh chấp với các nhánh nghiệp vụ khác (soạn tin, tính phương án,
+    # vốn tự có, hồ sơ đề xuất… đều đã xét trước).
+    if entities.get("area_range_m2") and "can" in lower:
+        return IntentResult(INTENT_BROWSE_UNITS, 0.7, entities, ["căn theo diện tích"])
 
     return IntentResult(INTENT_SMALL_TALK, 0.3, entities, [])
 

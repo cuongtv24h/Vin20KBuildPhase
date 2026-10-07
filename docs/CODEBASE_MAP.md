@@ -35,9 +35,9 @@
 
 | Hạng mục | Số lượng |
 |---|---|
-| File được git track | 579 |
-| Python | 275 file · ~48.949 dòng |
-| TypeScript/TSX | 165 file · ~30.861 dòng |
+| File được git track | 582 |
+| Python | 276 file · ~49.439 dòng |
+| TypeScript/TSX | 167 file · ~31.134 dòng |
 | API routers (sub-router) | 15 (+ base router + pricing mock) |
 | Route operation (`@router.*`) | 92 (+2 base `/chat`,`/status` +1 pricing mock +1 `/health`) |
 | Bảng ORM (`__tablename__`) | 24 |
@@ -45,12 +45,12 @@
 | Tool của Copilot | 8 |
 | Node Pre-sales graph | 11 |
 | Node Official-quote graph | 23 |
-| Test files | 73 |
-| Hàm `def test_` | 735 |
+| Test files | 74 |
+| Hàm `def test_` | 745 |
 | Endpoint defs phía frontend (`endpoints.ts`) | 75 |
 
 > Lệch tài liệu: README ghi "498/498 pytest" và `docs/RASOAT_TONGTHE_2026-10-02.md` ghi 455 —
-> số thực tế đếm được là **735 hàm test / 73 file**. Xem §11.
+> số thực tế đếm được là **745 hàm test / 74 file**. Xem §11.
 
 ---
 
@@ -359,7 +359,7 @@ npm workspaces, Node 22, Vite + React + TS.
 |---|---|---|
 | `apps/customer` | 5173 | Trang public + `/tu-van` (chat tư vấn) |
 | `apps/internal` | 5174 | Login; `/sale/workspace|leads|quotes|messages|policies`; `/manager/approvals[/:id]`; `/admin/policies|benchmark|copilot-quality`; `/admin_cp`. Trang lớn nhất: `SalesWorkspacePage.tsx` (~4610 dòng). |
-| `packages/api-client` | — | `endpoints.ts` = **danh bạ 75 endpoint** (nguồn sự thật method+path, có `source: TD-4.4|PROPOSED` và `auth`); `client.ts`/`http.ts`; hooks theo domain (13 file); `sse.ts`, `copilotStream.ts` (fetch POST SSE kèm `Idempotency-Key`); `normalizeQuote.ts`, `errors.ts`, `devtools.ts`. |
+| `packages/api-client` | — | `endpoints.ts` = **danh bạ 75 endpoint** (nguồn sự thật method+path, có `source: TD-4.4|PROPOSED` và `auth`); `client.ts`/`http.ts`; hooks theo domain (13 file); `sse.ts`, `copilotStream.ts` (fetch POST SSE kèm `Idempotency-Key`), `copilotTurn.ts` (luật kết thúc một lượt chat: thiếu `final` ⇒ tự gọi bản gom); `normalizeQuote.ts`, `errors.ts`, `devtools.ts`. |
 | `packages/ui` | — | shadcn/ui + `MoneyText`, `Evidence`, `ReasoningTrace`, `markdownTables`, `speech`… |
 | `packages/mock-server` | 8787 | Node mock 11 nhóm handler + engine/fixtures; có test vitest. |
 
@@ -453,7 +453,7 @@ pytest tests/ -v                        # hoặc: make test
 | 7 | **Eval không chạy được ngoài máy tác giả** | `scripts/run_eval.py` hardcode `/Users/mac/AITC/PROJECT/report/...`; cần `EVAL_DATASET_PATH`/`EVAL_POLICIES_DIR`/`EVAL_CANONICAL_DIR`. |
 | 8 | **`init_db.py` không chạy được trên SQLite** | DDL pgvector/HNSW/FTS chỉ dành Postgres; nếu gọi trên dev SQLite sẽ lỗi. |
 | 9 | **Hardcode nghiệp vụ trong graph** | `official_quote/nodes/context.py` cố định 68.5 m² / 2BR / VAT 10% / KPBT 2%. |
-| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **735** hàm `def test_` (pytest gom **766** test, gồm cả tham số hoá). |
+| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **745** hàm `def test_` (pytest gom **778** test, gồm cả tham số hoá). |
 | 11 | **CI không phủ branch làm việc** | Workflow chỉ chạy `main`/`develop`; branch `arena/*` không có check. |
 | 12 | **Endpoint frontend đặt tên khác backend** | Nhiều mục `PROPOSED` trong `endpoints.ts` (auth login, admin users, `/messages/*`) — cần đối chiếu với router thật khi tích hợp. |
 

@@ -31,6 +31,7 @@ from src.agents.copilot import (
     feedback,
     grounding,
     intents,
+    inventory_funnel,
     memory,
     planner,
     reply_format,
@@ -530,6 +531,7 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
     if intent.intent == intents.INTENT_LOOKUP_POLICY:
         return [("tra_cuu_chinh_sach", {"cau_hoi": request.message, "ngay_hieu_luc": tx_date}, "Tra cứu chính sách hiệu lực")]
     if intent.intent == intents.INTENT_BROWSE_UNITS:
+        area = intent.entities.get("area_range_m2") or (None, None)
         return [
             (
                 "tra_cuu_gio_hang",
@@ -537,6 +539,8 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
                     "so_phong_ngu": intent.entities.get("bedrooms") or 0,
                     "gia_toi_da_vnd": intent.entities.get("amount_vnd") or 0,
                     "ma_can": intent.entities.get("unit_code") or "",
+                    "dien_tich_min_m2": area[0] or 0,
+                    "dien_tich_max_m2": area[1] or 0,
                 },
                 "Lọc giỏ hàng theo tiêu chí",
             )
@@ -591,7 +595,19 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
     if intent.intent == intents.INTENT_CHECK_F8:
         return [("kiem_tra_phat_ngon_f8", {"noi_dung": request.message}, "Kiểm tra phát ngôn F8")]
     if intent.intent == intents.INTENT_CREATE_CUSTOMER:
-        return [("tra_cuu_gio_hang", {"so_phong_ngu": intent.entities.get("bedrooms") or 0, "ma_can": ctx_unit}, "Xác minh căn phù hợp")]
+        customer_area = intent.entities.get("area_range_m2") or (None, None)
+        return [
+            (
+                "tra_cuu_gio_hang",
+                {
+                    "so_phong_ngu": intent.entities.get("bedrooms") or 0,
+                    "ma_can": ctx_unit,
+                    "dien_tich_min_m2": customer_area[0] or 0,
+                    "dien_tich_max_m2": customer_area[1] or 0,
+                },
+                "Xác minh căn phù hợp",
+            )
+        ]
     return []
 
 
@@ -672,14 +688,28 @@ def _own_funds_follow_up(
     if browse is None or int(browse.get("match_count") or 0) != 0:
         return None
     budget = int(intent.entities.get("amount_vnd") or 0)
-    bedrooms = int(intent.entities.get("bedrooms") or 0)
-    if not budget or not bedrooms:
+    # Số phòng ngủ KHÔNG bắt buộc: câu "tìm căn 70m² tầm 3 tỷ" chỉ có ngân sách + diện tích, trước đây
+    # thiếu số phòng ngủ nên hệ thống dừng ở một câu "không có" rồi hỏi lại (lỗi người dùng báo).
+    if not budget:
         return None
+    bedrooms = int(intent.entities.get("bedrooms") or 0)
+    ma_can = ""
+    if not bedrooms:
+        # Không có số phòng ngủ ⇒ mốc so sánh là căn GẦN khoảng diện tích khách nêu nhất (nếu có nêu
+        # diện tích). Không có cả hai thì thôi, tránh gọi tool rồi nhận lỗi thiếu điều kiện.
+        area = intent.entities.get("area_range_m2") or (None, None)
+        if not area[0] or not area[1]:
+            return None
+        nearest = inventory_funnel.nearest_area_unit(0, (float(area[0]) + float(area[1])) / 2)
+        ma_can = str((nearest or {}).get("unit_code") or "")
+        if not ma_can:
+            return None
     return (
         "danh_gia_von_tu_co",
         {
             "von_tu_co_vnd": budget,
             "so_phong_ngu": bedrooms,
+            "ma_can": ma_can,
             "ngay_giao_dich": str(intent.entities.get("transaction_date") or ""),
         },
         "Lọc rỗng → ước lượng tổng quan vốn tự có để có hướng đi tiếp",

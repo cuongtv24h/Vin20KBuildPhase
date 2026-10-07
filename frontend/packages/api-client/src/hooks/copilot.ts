@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../client'
+import { decideTurnStep, INITIAL_TURN_PROGRESS, type CopilotTurnSignal } from '../copilotTurn'
 import { newRequestId } from '../http'
 import type {
   CopilotAppendTurnRequest,
@@ -111,30 +112,44 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
         project_id: context.projectId ?? null,
       }
 
-      let sawStreamingFrame = false
-      cancelRef.current = api.copilot.stream(request, {
-        onEvent: (event: CopilotStreamEvent) => {
-          sawStreamingFrame = true
-          if (event.type === 'final') {
+      // Luật chuyển trạng thái nằm ở `copilotTurn.decideTurnStep` (có unit test): stream đóng mà thiếu
+      // `final` ⇒ BẮT BUỘC gọi bản gom, để không bao giờ còn lượt trả lời rỗng "Trợ lý chưa phản hồi".
+      let progress = INITIAL_TURN_PROGRESS
+      const handle = (signal: CopilotTurnSignal) => {
+        const step = decideTurnStep(progress, signal)
+        progress = step.progress
+        const event = signal.kind === 'frame' ? signal.event : null
+        switch (step.action) {
+          case 'append-step':
+            if (event) setState((s) => ({ ...s, steps: [...s.steps, event as CopilotReasoningStep] }))
+            return
+          case 'apply-final': {
+            const payload = (event ?? {}) as CopilotFinalPayload & { mode?: string }
+            setState((s) => ({ ...s, streaming: false, final: payload, degraded: payload.mode === 'offline_react' }))
+            return
+          }
+          case 'apply-error':
             setState((s) => ({
               ...s,
               streaming: false,
-              final: event,
-              degraded: (event as CopilotFinalPayload & { mode?: string }).mode === 'offline_react',
+              error: event
+                ? ((event as { message?: string }).message ?? 'Trợ lý gặp sự cố khi xử lý.')
+                : 'Kết nối bị ngắt giữa chừng.',
             }))
             return
-          }
-          if (event.type === 'error') {
-            setState((s) => ({ ...s, streaming: false, error: event.message }))
+          case 'fallback-json':
+            void fallbackToJson(text, context)
             return
-          }
-          setState((s) => ({ ...s, steps: [...s.steps, event as CopilotReasoningStep] }))
-        },
-        onError: () => {
-          // SSE không chạy được (proxy cắt stream, mạng chập) → dùng bản gom.
-          if (!sawStreamingFrame) void fallbackToJson(text, context)
-          else setState((s) => ({ ...s, streaming: false, error: 'Kết nối bị ngắt giữa chừng.' }))
-        },
+          default:
+            return
+        }
+      }
+
+      cancelRef.current = api.copilot.stream(request, {
+        onEvent: (event: CopilotStreamEvent) => handle({ kind: 'frame', event }),
+        onError: () => handle({ kind: 'stream-error' }),
+        // Đóng êm nhưng THIẾU `final` = lượt trả lời rỗng: gọi bản gom để Sale luôn nhận được câu trả lời.
+        onClose: () => handle({ kind: 'stream-close' }),
       })
     },
     [cancel, fallbackToJson, history],

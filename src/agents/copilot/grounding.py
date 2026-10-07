@@ -199,7 +199,15 @@ def search_units(
     max_price_vnd: int | None = None,
     project_id: str | None = None,
     only_available: bool = True,
+    min_area_m2: float | None = None,
+    max_area_m2: float | None = None,
 ) -> list[dict[str, Any]]:
+    """Lọc giỏ hàng theo phòng ngủ / giá / dự án / **khoảng diện tích**.
+
+    Căn chưa có dữ liệu diện tích (cột `area_m2` để trống) bị LOẠI khi đang lọc theo diện tích —
+    không suy diễn diện tích theo loại căn, và câu trả lời phải nói rõ đã loại bao nhiêu căn như vậy.
+    """
+    area_filter = bool(min_area_m2) or bool(max_area_m2)
     results = []
     for unit in list_units():
         if only_available and unit.get("status") != "AVAILABLE":
@@ -210,9 +218,36 @@ def search_units(
             continue
         if project_id and normalize(str(unit.get("project_id"))) != normalize(project_id):
             continue
+        if area_filter:
+            area = unit.get("area_m2")
+            if not area:  # chưa có dữ liệu diện tích ⇒ không đối chiếu được, không đoán
+                continue
+            if min_area_m2 and float(area) < float(min_area_m2):
+                continue
+            if max_area_m2 and float(area) > float(max_area_m2):
+                continue
         results.append(unit)
     results.sort(key=lambda u: int(u.get("listed_price_before_tax_vnd", 0)))
     return results
+
+
+def count_units_without_area(
+    bedrooms: int | None = None,
+    project_id: str | None = None,
+) -> int:
+    """Số căn đang mở bán **chưa có dữ liệu diện tích** trong phạm vi lọc — để câu trả lời nói rõ
+    vì sao chúng không xuất hiện khi Sale lọc theo m²."""
+    total = 0
+    for unit in list_units():
+        if unit.get("status") != "AVAILABLE":
+            continue
+        if bedrooms and int(unit.get("bedrooms", 0)) != bedrooms:
+            continue
+        if project_id and normalize(str(unit.get("project_id"))) != normalize(project_id):
+            continue
+        if not unit.get("area_m2"):
+            total += 1
+    return total
 
 
 def project_name(project_id: str | None) -> str:

@@ -191,6 +191,47 @@
       "notes": "Lỗi cấm từng gặp (P0/P3.1): KHÔNG được ghép '4 căn' của toàn giỏ thành '4 căn 3 ngủ'. Đúng phải là 1 căn 3 ngủ / 4 căn toàn giỏ."
     },
     {
+      "id": "GIO-11",
+      "group": "gio_hang",
+      "message": "Chị ơi tìm giúp em căn 70m² tầm 3 tỷ",
+      "any_tools": [
+        "tra_cuu_gio_hang"
+      ],
+      "expect_citation": true,
+      "expect_grounded": true,
+      "must_contain": [
+        "63–77m²",
+        "ZEN-A-1205",
+        "TOÀN GIỎ"
+      ],
+      "must_not_contain": [
+        "0PN",
+        "hệ thống lỗi",
+        "hệ thống đang lỗi",
+        "trả về dữ liệu"
+      ],
+      "notes": "Câu người dùng báo lỗi (đợt 25): từ đệm 'giúp em' từng làm cả câu rơi vào nhánh xã giao ⇒ Copilot không tra gì rồi tự nói 'hệ thống lỗi, chưa trả về dữ liệu'. Nay PHẢI gọi tool giỏ hàng, nêu rõ khoảng diện tích đã lọc ±10% và căn gần nhất; cấm mọi câu đổ lỗi hệ thống."
+    },
+    {
+      "id": "GIO-12",
+      "group": "gio_hang",
+      "message": "Giỏ hàng còn căn 70m² nào không em?",
+      "any_tools": [
+        "tra_cuu_gio_hang"
+      ],
+      "expect_table": true,
+      "expect_citation": true,
+      "expect_grounded": true,
+      "must_contain": [
+        "ZEN-A-1205",
+        "72.5m²"
+      ],
+      "must_not_contain": [
+        "0PN"
+      ],
+      "notes": "Lọc theo diện tích KHÔNG kèm ngân sách: phải trả đúng căn trong khoảng 63–77m² (72,5m²) dạng bảng; nhãn phân khúc '0PN' là lỗi (Sale không nêu số phòng ngủ)."
+    },
+    {
       "id": "RONG-01",
       "group": "loc_rong",
       "message": "Khách hàng có 2 tỷ, cần mua căn 3 ngủ",
@@ -635,11 +676,21 @@
       "id": "DX-01",
       "group": "de_xuat",
       "message": "Soạn hồ sơ đề xuất cho căn ZEN-A-1205, khách vốn tự có 1,5 tỷ, trình Quản lý giúp em",
-      "any_tools": ["soan_ho_so_de_xuat"],
+      "any_tools": [
+        "soan_ho_so_de_xuat"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["HỒ SƠ ĐỀ XUẤT", "ZEN-A-1205", "CSBH-ZEN-2026-V3.1", "Không còn thiếu thông tin"],
-      "must_not_contain": ["soan_ho_so_de_xuat", "ALLOW_SEND"],
+      "must_contain": [
+        "HỒ SƠ ĐỀ XUẤT",
+        "ZEN-A-1205",
+        "CSBH-ZEN-2026-V3.1",
+        "Không còn thiếu thông tin"
+      ],
+      "must_not_contain": [
+        "soan_ho_so_de_xuat",
+        "ALLOW_SEND"
+      ],
       "notes_contain": [
         "Kiểm duyệt F8"
       ],
@@ -649,23 +700,40 @@
       "id": "DX-02",
       "group": "de_xuat",
       "message": "Chuẩn bị hồ sơ đề xuất trình duyệt cho căn ZEN-A-0803",
-      "any_tools": ["soan_ho_so_de_xuat"],
+      "any_tools": [
+        "soan_ho_so_de_xuat"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["HỒ SƠ ĐỀ XUẤT", "VIỆC CẦN BỔ SUNG", "Vốn tự có"],
-      "must_not_contain": ["soan_ho_so_de_xuat"],
+      "must_contain": [
+        "HỒ SƠ ĐỀ XUẤT",
+        "VIỆC CẦN BỔ SUNG",
+        "Vốn tự có"
+      ],
+      "must_not_contain": [
+        "soan_ho_so_de_xuat"
+      ],
       "notes": "Ca thiếu dữ liệu: chưa có vốn tự có nên mục 4 phải nêu ĐÚNG việc cần bổ sung thay vì tự đoán; số liệu vẫn lấy từ engine + catalog như các câu khác."
     },
     {
       "id": "DX-03",
       "group": "de_xuat",
       "message": "Soạn hồ sơ đề xuất cho căn ZEN-A-1205, vốn tự có 1,5 tỷ",
-      "context": { "transaction_date": "2026-07-15" },
-      "any_tools": ["soan_ho_so_de_xuat"],
+      "context": {
+        "transaction_date": "2026-07-15"
+      },
+      "any_tools": [
+        "soan_ho_so_de_xuat"
+      ],
       "expect_citation": true,
       "expect_grounded": true,
-      "must_contain": ["HỒ SƠ ĐỀ XUẤT", "CSBH-ZEN-2026-V2.0"],
-      "must_not_contain": ["soan_ho_so_de_xuat"],
+      "must_contain": [
+        "HỒ SƠ ĐỀ XUẤT",
+        "CSBH-ZEN-2026-V2.0"
+      ],
+      "must_not_contain": [
+        "soan_ho_so_de_xuat"
+      ],
       "notes": "Time-travel trong hồ sơ: ngày 15/07/2026 phải viện dẫn V2.0 (ân hạn 18 tháng), không được lấy V3.1 đang hiệu lực hôm nay — trình Quản lý sai phiên bản chính sách là lỗi nghiệp vụ."
     },
     {

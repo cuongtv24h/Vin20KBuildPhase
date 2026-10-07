@@ -115,8 +115,12 @@ async def copilot_chat_stream(req: CopilotChatRequest) -> EventSourceResponse:
 
     async def event_generator() -> AsyncIterator[dict[str, str]]:
         service = CopilotService()
+        request = _to_request(req)
+        sent_final = False
         try:
-            async for event in service.stream(_to_request(req)):
+            async for event in service.stream(request):
+                if event.type == "final":
+                    sent_final = True
                 yield {"event": "copilot", "data": json.dumps({"type": event.type, **event.data}, ensure_ascii=False, default=str)}
         except Exception as exc:  # noqa: BLE001 — stream không được vỡ giữa chừng
             logger.error("Copilot stream lỗi: %s", exc, exc_info=True)
@@ -130,6 +134,14 @@ async def copilot_chat_stream(req: CopilotChatRequest) -> EventSourceResponse:
                     ensure_ascii=False,
                 ),
             }
+            return
+        # Lưới an toàn cho UI: stream PHẢI kết thúc bằng một `final`. Nếu vòng lặp kết thúc mà chưa phát
+        # final (lỗi bất ngờ ở nhánh nào đó), chạy lại bản gom để Sale luôn nhận được câu trả lời thay vì
+        # khung chat treo ở "Trợ lý đang suy luận…" rồi "chưa phản hồi" (lỗi đã gặp ở đợt 25).
+        if not sent_final:
+            logger.warning("Copilot stream kết thúc mà không có final — chạy bù bản gom.")
+            final = await service.run(request)
+            yield {"event": "copilot", "data": json.dumps({"type": "final", **final}, ensure_ascii=False, default=str)}
 
     return EventSourceResponse(event_generator(), ping=15)
 

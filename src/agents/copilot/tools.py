@@ -206,14 +206,24 @@ async def tra_cuu_chinh_sach(cau_hoi: str, ngay_hieu_luc: str = "", du_an: str =
 # Tool 2 — Tra cứu giỏ hàng
 # ---------------------------------------------------------------------------
 @tool
-def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str = "", du_an: str = "") -> str:
-    """Tra cứu giỏ hàng căn hộ đang mở bán (theo mã căn, số phòng ngủ, ngân sách, dự án).
+def tra_cuu_gio_hang(
+    so_phong_ngu: int = 0,
+    gia_toi_da_vnd: int = 0,
+    ma_can: str = "",
+    du_an: str = "",
+    dien_tich_min_m2: float = 0,
+    dien_tich_max_m2: float = 0,
+) -> str:
+    """Tra cứu giỏ hàng căn hộ đang mở bán (theo mã căn, số phòng ngủ, ngân sách, dự án, diện tích).
 
     Args:
         so_phong_ngu: Số phòng ngủ cần lọc (0 = bỏ qua).
         gia_toi_da_vnd: Giá niêm yết tối đa trước thuế (0 = bỏ qua).
         ma_can: Mã căn cụ thể cần xem chi tiết (để trống nếu tìm theo tiêu chí).
         du_an: Mã dự án cần lọc.
+        dien_tich_min_m2: Cận dưới diện tích (m²) — Sale nói "căn 70m²" thì truyền khoảng đã nới ±10%
+            (63 → 77), không truyền đúng 70 vì lọc cứng gần như luôn ra rỗng (0 = bỏ qua).
+        dien_tich_max_m2: Cận trên diện tích (m²) (0 = bỏ qua).
     """
     if ma_can.strip():
         unit = grounding.find_unit(ma_can.strip())
@@ -239,6 +249,8 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
             bedrooms=so_phong_ngu or None,
             max_price_vnd=gia_toi_da_vnd or None,
             project_id=du_an.strip() or None,
+            min_area_m2=dien_tich_min_m2 or None,
+            max_area_m2=dien_tich_max_m2 or None,
         )[:8]
 
     citations = [
@@ -263,10 +275,24 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
                 budget_vnd=int(gia_toi_da_vnd or 0) or None,
                 project_id=du_an.strip() or None,
                 ma_can=ma_can,
+                area_min_m2=dien_tich_min_m2 or None,
+                area_max_m2=dien_tich_max_m2 or None,
+                unknown_area_count=(
+                    grounding.count_units_without_area(
+                        bedrooms=so_phong_ngu or None, project_id=du_an.strip() or None
+                    )
+                    if (dien_tich_min_m2 or dien_tich_max_m2)
+                    else 0
+                ),
             )
         )
     else:
         scope_label = f"riêng phân khúc {int(so_phong_ngu)}PN" if so_phong_ngu else "toàn giỏ đang mở bán"
+        area_label = inventory_funnel.area_range_text(
+            dien_tich_min_m2 or None, dien_tich_max_m2 or None
+        )
+        if area_label:
+            scope_label += f" khớp diện tích {area_label}"
         header = f"{len(entries)} căn phù hợp tiêu chí trong {scope_label} (giá chưa gồm VAT):"
         summary = _clip("\n".join([header, inventory_funnel.render_matches(entries)]))
 
@@ -296,6 +322,8 @@ def tra_cuu_gio_hang(so_phong_ngu: int = 0, gia_toi_da_vnd: int = 0, ma_can: str
                 "bedrooms": int(so_phong_ngu or 0) or None,
                 "budget_vnd": int(gia_toi_da_vnd or 0) or None,
                 "project_id": du_an.strip() or None,
+                "area_min_m2": float(dien_tich_min_m2 or 0) or None,
+                "area_max_m2": float(dien_tich_max_m2 or 0) or None,
             },
         }
     )

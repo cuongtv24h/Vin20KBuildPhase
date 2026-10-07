@@ -116,7 +116,7 @@ def softest_unit_line(stats: SegmentStats) -> str:
     unit = stats.softest_unit
     line = (
         f"Căn {stats.bedrooms}PN giá mềm nhất hiện tại là căn {unit.get('unit_code')} "
-        f"({unit.get('area_m2')}m², {grounding.project_name(unit.get('project_id'))}) với giá "
+        f"({area_text(unit.get('area_m2'))}, {grounding.project_name(unit.get('project_id'))}) với giá "
         f"{grounding.format_vnd(unit.get('listed_price_before_tax_vnd'))}"
     )
     if stats.gap_vnd:
@@ -125,9 +125,18 @@ def softest_unit_line(stats: SegmentStats) -> str:
 
 
 def next_steps(bedrooms: int, budget_vnd: int | None = None) -> list[str]:
-    """Hai hướng đi tiếp khi lọc rỗng (chốt P1.1) — câu hỏi điều hướng, không tự đổi nhu cầu khách."""
+    """Hai hướng đi tiếp khi lọc rỗng (chốt P1.1) — câu hỏi điều hướng, không tự đổi nhu cầu khách.
+
+    Sale có thể không nêu số phòng ngủ (chỉ nêu diện tích/ngân sách) — khi đó KHÔNG được nói "giữ
+    nguyên 0PN" (vô nghĩa với người đọc, lỗi đã gặp ở đợt 25): dùng tiêu chí hiện tại làm mốc.
+    """
     lower = max(1, bedrooms - 1)
     budget_text = f"ngân sách {grounding.format_vnd(budget_vnd)}" if budget_vnd else "ngân sách hiện tại"
+    if not bedrooms:
+        return [
+            "Giữ nguyên tiêu chí hiện tại (diện tích/ngân sách) và xem phương án vốn tự có/vay cho căn gần nhất.",
+            f"Mở rộng khoảng diện tích hoặc nới {budget_text} nếu khách linh hoạt.",
+        ]
     return [
         f"Giữ nguyên {bedrooms}PN và xem phương án vốn tự có/vay cho căn mềm nhất.",
         f"Mở rộng sang {lower}PN+1 nếu khách linh hoạt về số phòng ngủ (giữ {budget_text}).",
@@ -191,12 +200,71 @@ def render_matches(units: list[dict[str, Any]]) -> str:
     return units_table(units)
 
 
+def area_range_text(min_m2: float | None, max_m2: float | None, spec_m2: float | None = None) -> str:
+    """Nhãn khoảng diện tích đang lọc: `63–77m² (quanh 70m² khách nêu)`.
+
+    Nói rõ khoảng ra để Sale biết vì sao căn 52m² không xuất hiện, thay vì tưởng hệ thống trả thiếu.
+    """
+    if not min_m2 and not max_m2:
+        return ""
+    if min_m2 and max_m2:
+        label = f"{round(float(min_m2)):g}–{round(float(max_m2)):g}m²"
+    elif min_m2:
+        label = f"từ {round(float(min_m2)):g}m²"
+    else:
+        label = f"đến {round(float(max_m2)):g}m²"
+    if spec_m2:
+        label += f" (quanh {round(float(spec_m2), 1):g}m² khách nêu)"
+    return label
+
+
+def nearest_area_unit(bedrooms: int, target_m2: float, project_id: str | None = None) -> dict[str, Any] | None:
+    """Căn có diện tích gần mốc Sale nêu nhất — dùng khi lọc theo diện tích ra rỗng."""
+    units = [
+        unit
+        for unit in grounding.search_units(bedrooms=bedrooms or None, project_id=project_id)
+        if unit.get("area_m2")
+    ]
+    if not units:
+        return None
+    return min(units, key=lambda u: abs(float(u["area_m2"]) - float(target_m2)))
+
+
+def nearest_area_line(bedrooms: int, target_m2: float, project_id: str | None = None) -> str:
+    """Câu "căn gần khoảng diện tích này nhất" — lọc rỗng vì diện tích vẫn phải có hướng đi tiếp."""
+    nearest = nearest_area_unit(bedrooms, target_m2, project_id)
+    if not nearest:
+        return ""
+    return (
+        f"Căn gần khoảng diện tích này nhất: căn {nearest.get('unit_code')} "
+        f"({area_text(nearest.get('area_m2'))}, {grounding.project_name(nearest.get('project_id'))}) — "
+        f"giá niêm yết {grounding.format_vnd(nearest.get('listed_price_before_tax_vnd'))}."
+    )
+
+
+def softest_overall_line() -> str:
+    """Căn giá mềm nhất của TOÀN giỏ — mốc so sánh khi Sale chưa nêu số phòng ngủ."""
+    stats = segment_stats(0)
+    if not stats.softest_unit:
+        return ""
+    unit = stats.softest_unit
+    return (
+        f"Căn giá mềm nhất toàn giỏ: căn {unit.get('unit_code')} "
+        f"({area_text(unit.get('area_m2'))}, {grounding.project_name(unit.get('project_id'))}) với giá "
+        f"{grounding.format_vnd(unit.get('listed_price_before_tax_vnd'))}."
+    )
+
+
 def render_empty_funnel(
     *,
     bedrooms: int,
     budget_vnd: int | None,
     project_id: str | None = None,
     ma_can: str = "",
+    area_min_m2: float | None = None,
+    area_max_m2: float | None = None,
+    area_spec_m2: float | None = None,
+    unknown_area_count: int = 0,
 ) -> str:
     """Observation đầy đủ khi lọc rỗng: thống kê phân khúc + căn mềm nhất + hai hướng đi tiếp."""
     stats = segment_stats(bedrooms, budget_vnd, project_id)
@@ -210,12 +278,29 @@ def render_empty_funnel(
         lines.append(f"Đã lọc theo dự án {grounding.project_name(project_id)}.")
     if budget_vnd:
         lines.append(f"Tiêu chí ngân sách: tối đa {grounding.format_vnd(budget_vnd)} (giá niêm yết trước thuế).")
+    area_label = area_range_text(area_min_m2, area_max_m2, area_spec_m2)
+    if area_label:
+        lines.append(f"Tiêu chí diện tích: {area_label}.")
+        if unknown_area_count:
+            lines.append(
+                f"{unknown_area_count} căn đang mở bán chưa có dữ liệu diện tích nên chưa đối chiếu được."
+            )
 
-    if stats.count:
+    if stats.count and bedrooms:
         lines.append(segment_summary_line(stats))
         lines.append(softest_unit_line(stats))
+    elif not bedrooms:
+        # Sale chỉ nêu diện tích/ngân sách, không nêu số phòng ngủ ⇒ KHÔNG có "phân khúc" nào để nói;
+        # mốc so sánh đúng là toàn giỏ (tránh câu vô nghĩa "phân khúc 0PN").
+        lines.append(softest_overall_line())
     else:
         lines.append(f"Phân khúc {bedrooms}PN hiện không còn căn nào đang mở bán.")
+
+    if area_label:
+        target = (float(area_min_m2 or 0) + float(area_max_m2 or 0)) / 2 or float(area_spec_m2 or 0)
+        nearest = nearest_area_line(bedrooms, target, project_id)
+        if nearest:
+            lines.append(nearest)
 
     spread = ", ".join(f"{bedrooms_}PN: {count} căn" for bedrooms_, count in histogram.items())
     lines.append(f"Toàn giỏ đang mở bán có {total} căn ({spread}) — đây là số liệu của TOÀN GIỎ.")
@@ -229,10 +314,14 @@ __all__ = [
     "TABLE_HEADERS_WIDE",
     "WIDE_COLUMN_MARK",
     "SegmentStats",
+    "area_range_text",
+    "area_text",
     "bedroom_histogram",
+    "nearest_area_line",
+    "nearest_area_unit",
     "next_steps",
     "render_empty_funnel",
-    "area_text",
+    "softest_overall_line",
     "render_matches",
     "table_row",
     "segment_stats",
