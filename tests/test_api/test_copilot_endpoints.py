@@ -276,3 +276,23 @@ async def test_feedback_summary_carries_trend_and_mode(client, tmp_path, monkeyp
     assert body["top_failing_tools"] == [["tra_cuu_gio_hang", 1]]
     assert len(body["recent_negative"]) == 1
     assert body["recent_negative"][0]["rating"] == -1
+
+
+@pytest.mark.asyncio
+async def test_copilot_health_reports_llm_and_data_source(client, monkeypatch) -> None:
+    """GET /copilot/health phải nói rõ: có LLM hay không, và dữ liệu đang lấy từ CSDL hay fixture."""
+    from src.services import data_source
+
+    monkeypatch.delenv(data_source.FIXTURE_ENV, raising=False)
+    resp = await client.get("/api/v1/copilot/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] in ("llm", "offline")
+    assert body["data_source"] == "DB"
+    assert body["fixture_allowed"] is False
+    assert "tra_cuu_gio_hang" in body["tools"]
+
+    monkeypatch.setenv(data_source.FIXTURE_ENV, "1")
+    body = (await client.get("/api/v1/copilot/health")).json()
+    assert body["data_source"] == "CANONICAL_FIXTURE"
+    assert body["fixture_allowed"] is True

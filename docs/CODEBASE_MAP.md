@@ -38,8 +38,8 @@
 | File được git track | 582 |
 | Python | 276 file · ~49.439 dòng |
 | TypeScript/TSX | 167 file · ~31.134 dòng |
-| API routers (sub-router) | 15 (+ base router + pricing mock) |
-| Route operation (`@router.*`) | 92 (+2 base `/chat`,`/status` +1 pricing mock +1 `/health`) |
+| API routers (sub-router) | 14 (+ base router) |
+| Route operation (`@router.*`) | 92 (+2 base `/chat`,`/status` +2 `/health` + `/copilot/health`) |
 | Bảng ORM (`__tablename__`) | 24 |
 | ErrorCode trong `src/contracts/errors.py` | 23 |
 | Tool của Copilot | 8 |
@@ -65,7 +65,7 @@
                                     ▼                          ▼
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │  FastAPI  src/main.py  (CorrelationIdMiddleware → CORS → DomainError handler)  │
-│  routers: src/api/routes.py (aggregator) + src/api/pricing_mock.py             │
+│  routers: src/api/routes.py (aggregator — 14 router con)                        │
 │           15 sub-router trong src/api/endpoints/*                              │
 └───────┬───────────────┬────────────────┬───────────────┬───────────────┬──────┘
         │               │                │               │               │
@@ -106,10 +106,9 @@ Vin20KBuildPhase/
 │   ├── main.py                 # FastAPI app, middleware, lifespan bootstrap (145 dòng)
 │   ├── config.py               # pydantic-settings Settings (114 dòng)
 │   ├── api/
-│   │   ├── routes.py           # Master aggregator mount 15 sub-router
+│   │   ├── routes.py           # Master aggregator mount 14 sub-router nghiệp vụ + base router
 │   │   ├── deps.py             # Principal, idempotency, OCC, SoD helpers
-│   │   ├── pricing_mock.py     # /api/v1/pricing mock (demo không cần sidecar)
-│   │   └── endpoints/          # 15 file router nghiệp vụ
+│   │   └── endpoints/          # 14 file router nghiệp vụ
 │   ├── agents/
 │   │   ├── copilot/            # ReAct agent + planner/verifier/critic/anchors/history…
 │   │   ├── pre_sales/          # graph 11 node (discovery/constraints/planning/handoff)
@@ -171,7 +170,7 @@ Vin20KBuildPhase/
 | CORS | `settings.cors_origins` (default `*`), expose `Idempotent-Replayed`, `X-Action`, `X-Correlation-ID`, `Content-Disposition`. |
 | `domain_error_exception_handler` | Bắt `DomainError` → JSON `{"detail": <envelope>}` với HTTP status từ lỗi. |
 | `lifespan` | ① dựng `CheckpointManager` + `AsyncPostgresSaver` nếu `USE_POSTGRES_CHECKPOINTER=true`, ngược lại `MemorySaver` (cảnh báo nếu `APP_ENV=production`); ② tạo `app.state.pre_sales_runner`; ③ `_bootstrap_database()` (`Base.metadata.create_all`, idempotent); ④ `refresh_provider_cache()` nạp LLM provider từ DB. |
-| Mount | `src.api.routes.router` + `src.api.pricing_mock.router` tại `/api/v1/pricing`. |
+| Mount | `src.api.routes.router` (14 router con). Endpoint stub `/api/v1/pricing` đã xoá (đợt 26). |
 | Health | `GET /health` và `GET /api/v1/health`. |
 
 ### 4.2 Cấu hình — `src/config.py`
@@ -207,7 +206,6 @@ Vin20KBuildPhase/
 | `settings.py` | `/settings` | 3 | runtime settings |
 | `tts_admin.py` | `/admin/tts` | 5 | provider + voice admin |
 | `tts_speak.py` | `/tts` | 2 | speak/stream |
-| `pricing_mock.py` | `/api/v1/pricing` | 1 | mock engine (VERIFIED-bundle gate) |
 
 **Helper quan trọng** — `src/api/deps.py`: `Principal` (từ token/header, map role), lưu idempotency
 in-memory (`_IDEMPOTENCY_STORE`) trả **409** khi payload mismatch + header `Idempotent-Replayed`,

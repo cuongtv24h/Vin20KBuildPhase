@@ -22,38 +22,6 @@ async def test_agent_status(client):
 
 
 @pytest.mark.asyncio
-async def test_pricing_mock_rejects_unverified_bundle(client):
-    """Test that Pricing Engine strictly rejects unverified bundle."""
-    payload = {
-        "evidence_bundle_ref": {
-            "bundle_id": "EB-001",
-            "bundle_hash": "sha256:abc",
-            "decision_status": "ABSTAINED",
-            "resolved_policy_snapshot_hash": "sha256:snap1",
-        }
-    }
-    response = await client.post("/api/v1/pricing/calculate", json=payload)
-    assert response.status_code == 400
-    assert "not VERIFIED" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_pricing_mock_accepts_verified_bundle(client):
-    """Test that Pricing Engine accepts VERIFIED evidence bundle."""
-    payload = {
-        "evidence_bundle_ref": {
-            "bundle_id": "EB-001",
-            "bundle_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            "decision_status": "VERIFIED",
-            "resolved_policy_snapshot_hash": "sha256:snap1",
-        }
-    }
-    response = await client.post("/api/v1/pricing/calculate", json=payload)
-    assert response.status_code == 200
-    assert response.json()["status"] == "success"
-
-
-@pytest.mark.asyncio
 async def test_correlation_id_propagation_and_generation(client):
     # 1. Given explicit X-Correlation-ID -> echoed in headers
     resp = await client.get("/health", headers={"X-Correlation-ID": "trace-custom-999"})
