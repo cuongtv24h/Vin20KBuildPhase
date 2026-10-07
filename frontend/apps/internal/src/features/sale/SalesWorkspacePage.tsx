@@ -52,6 +52,7 @@ import {
   useCopilotConversations,
   useCopilotConversation,
   useAppendCopilotTurnSync,
+  useCreateCopilotConversation,
   useDeleteCopilotConversation,
   useTtsSettings,
   useTtsSpeak,
@@ -1013,13 +1014,35 @@ export function SalesWorkspacePage() {
   // ── Lịch sử hội thoại Copilot (lỗi P1 "đổi trang là mất hội thoại") ──────────
   // Nguồn sự thật là server: mở lại trang thì nạp lại đúng cuộc đang dở thay vì bắt đầu trắng.
   const [conversationId, setConversationId] = useCopilotChatConversationId()
+  /**
+   * Bản "mới nhất" của id cuộc hội thoại cho các callback bất đồng bộ.
+   *
+   * Vì sao cần: effect chốt lượt (chạy khi `copilot.final`/`copilot.steps` đổi) đọc biến `conversationId`
+   * của lần render đã tạo ra nó — luôn trễ một nhịp. Nếu server vừa cấp id cho cuộc mới (hoặc Sale vừa
+   * bấm "Phiên chat mới") mà lượt ghi còn cầm id cũ thì lượt đó bị ghi nhầm cuộc ⇒ Lịch sử trống đúng
+   * như lỗi người dùng báo. Ref được cập nhật ngay tại chỗ gán id, không chờ render.
+   */
+  const conversationIdRef = useRef(conversationId)
+  useEffect(() => {
+    conversationIdRef.current = conversationId
+  }, [conversationId])
   // Mặc định ẨN khung lịch sử cho gọn màn hình chat; Sale bấm nút "Lịch sử" mới mở.
   const [historyOpen, setHistoryOpen] = useState(false)
   /** Chỉ nạp lại khung chat khi đổi cuộc — không đè lên lượt đang gõ. */
   const loadedConversationRef = useRef<string | null | undefined>(undefined)
   const conversations = useCopilotConversations()
   const conversation = useCopilotConversation(conversationId)
-  const appendTurn = useAppendCopilotTurnSync()
+  const historyWarnedRef = useRef(false)
+  const appendTurn = useAppendCopilotTurnSync({
+    onError: () => {
+      // Lịch sử là phụ trợ nên KHÔNG chặn hội thoại, nhưng cũng không được im lặng: bản trước
+      // nuốt lỗi nên Sale chỉ thấy Lịch sử trống mà không hiểu vì sao.
+      if (historyWarnedRef.current) return
+      historyWarnedRef.current = true
+      showToast('Chưa lưu được lượt này vào Lịch sử — anh/chị kiểm tra kết nối giúp em.')
+    },
+  })
+  const createConversation = useCreateCopilotConversation()
   const deleteConversation = useDeleteCopilotConversation()
   const pendingQuestionsRef = useRef<Record<string, string>>({})
 
@@ -1068,23 +1091,50 @@ export function SalesWorkspacePage() {
   }, [conversationId, conversation.error])
 
   /**
-   * Mở phiên chat mới: khung chat trống, cuộc cũ đã nằm trong lịch sử (ghi tự động sau mỗi lượt).
+   * Mở phiên chat mới: **tạo cuộc mới trên máy chủ** rồi chuyển sang cuộc đó.
+   *
+   * Vì sao phải gọi server: bản trước chỉ xoá khung chat cục bộ, không tạo gì cả ⇒ Sale bấm nút mà
+   * Lịch sử không thay đổi, và nếu lượt ghi đầu tiên lỗi thì cuộc mới không tồn tại ở đâu (lỗi người
+   * dùng báo: "nhấn cả 2 nút tạo hội thoại mới / phiên mới cũng không được"). Nay cuộc mới có ngay
+   * trong Lịch sử (số đếm cạnh nút Lịch sử tăng lên), lượt đầu tiên hỏi sẽ được ghi vào đúng cuộc đó.
+   *
    * Chặn khi trợ lý đang trả lời — đổi phiên giữa chừng sẽ làm mất lượt đang chạy.
    */
-  const startNewChatSession = () => {
+  const startNewChatSession = async () => {
     if (copilot.streaming) {
       showToast('Trợ lý đang trả lời — anh/chị đợi một chút rồi mở phiên mới.')
       return
     }
-    copilotChatStore.setConversationId(null)
-    rememberConversationId(null)
-    loadedConversationRef.current = null
     setFailedTurn(null)
+    // Đang ở một hội thoại mới TINH (chưa có lượt nào trên máy chủ) ⇒ không tạo thêm hội thoại rỗng,
+    // tránh Lịch sử đầy các cuộc "Cuộc trò chuyện mới" giống nhau khi Sale bấm nút vài lần.
+    if (conversationId && conversation.data && conversation.data.messages.length === 0) {
+      copilot.reset()
+      setInputVal('')
+      inputTextAreaRef.current?.focus()
+      showToast('Anh/chị đang ở hội thoại mới — cứ đặt câu hỏi đầu tiên nhé.')
+      return
+    }
     copilot.reset()
     setInputVal('')
-    setHistoryOpen(false)
+    try {
+      const created = await createConversation.mutateAsync({})
+      // Cuộc mới có trên server nhưng CHƯA có lượt nào ⇒ khung chat trống, không nạp lại từ máy chủ.
+      copilotChatStore.setConversationId(created.conversation_id, { items: [] })
+      conversationIdRef.current = created.conversation_id
+      rememberConversationId(created.conversation_id)
+      loadedConversationRef.current = `${created.conversation_id}#${reloadNonceRef.current}`
+      showToast('Đã tạo hội thoại mới — anh/chị xem trong Lịch sử; cuộc vừa rồi vẫn còn nguyên.')
+    } catch {
+      // Máy chủ không tạo được (mất mạng / hết phiên đăng nhập): vẫn mở phiên trống cục bộ như trước,
+      // nhưng NÓI RÕ để Sale biết vì sao Lịch sử chưa có cuộc mới.
+      copilotChatStore.setConversationId(null)
+      conversationIdRef.current = null
+      rememberConversationId(null)
+      loadedConversationRef.current = null
+      showToast('Chưa tạo được hội thoại mới trên máy chủ — em mở phiên trống; hội thoại sẽ được lưu khi anh/chị hỏi câu đầu tiên.')
+    }
     inputTextAreaRef.current?.focus()
-    showToast('Đã mở phiên chat mới. Cuộc vừa rồi vẫn nằm trong Lịch sử.')
   }
 
   /**
@@ -1521,17 +1571,25 @@ export function SalesWorkspacePage() {
     // lượt reasoning, nên câu trả lời luôn khớp đúng câu đã hỏi kể cả khi Sale bấm nhanh.
     const question = pendingQuestionsRef.current[msgId] ?? [...messages].reverse().find((m) => m.type === 'user')?.text
     delete pendingQuestionsRef.current[msgId]
+    // Đọc id cuộc qua ref (giá trị mới nhất), không qua biến của closure đã cũ.
+    const activeConversationId = conversationIdRef.current
     if (question) {
       // `turnToAppendPayload` là hàm thuần đã có test (packages/api-client/src/copilotHistory.ts):
       // lưu MỌI lượt, kể cả câu trả lời chế độ dự phòng — nếu không, lịch sử rỗng và đổi trang là mất hội thoại.
       appendTurn(
-        turnToAppendPayload({ conversationId, question, final }),
+        turnToAppendPayload({ conversationId: activeConversationId, question, final }),
       ).then((detail) => {
         if (!detail) return
         // Lượt đầu tiên của cuộc mới: server đặt tên cuộc → ghi nhớ id để lần sau ghi tiếp.
-        if (!conversationId && detail.conversation_id) {
+        if (!conversationIdRef.current && detail.conversation_id) {
+          conversationIdRef.current = detail.conversation_id
           rememberConversationId(detail.conversation_id)
-          setConversationId(detail.conversation_id)
+          // DÙNG `assignConversationId` (KHÔNG phải `setConversationId`): server vừa cấp id cho CHÍNH
+          // phiên đang mở nên nội dung đang hiển thị phải giữ nguyên và được cất vào cache theo id mới.
+          // Bản trước gọi `setConversationId` ⇒ store hiểu là "đổi sang cuộc khác", xoá trắng khung chat
+          // ngay sau lượt trả lời đầu tiên (lỗi người dùng báo: "đoạn hội thoại mới không được lưu
+          // vào lịch sử"), và cũng vì khung chat đã trống nên bấm nút phiên mới trông như không có gì xảy ra.
+          copilotChatStore.assignConversationId(detail.conversation_id)
           // Nội dung đã hiển thị chính là nội dung server vừa lưu → không cần nạp lại và không
           // được làm rơi mất các thẻ tương tác (confirm/stepper) chỉ có ở phía client.
           loadedConversationRef.current = `${detail.conversation_id}#${reloadNonceRef.current}`
@@ -2256,8 +2314,8 @@ export function SalesWorkspacePage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={startNewChatSession}
-            title="Mở phiên chat mới (hội thoại hiện tại đã được lưu vào lịch sử)"
+            onClick={() => void startNewChatSession()}
+            title="Tạo hội thoại mới (lưu ngay vào Lịch sử)"
             className="h-7 gap-1.5 text-xs"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -2301,7 +2359,13 @@ export function SalesWorkspacePage() {
           >
             <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hội thoại đã lưu</span>
-              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={() => openConversation(null)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5 text-[11px]"
+                onClick={() => void startNewChatSession()}
+                title="Tạo hội thoại mới (lưu ngay vào Lịch sử)"
+              >
                 <Plus className="mr-1 h-3 w-3" /> Mới
               </Button>
             </div>

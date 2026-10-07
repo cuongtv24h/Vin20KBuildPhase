@@ -259,7 +259,14 @@ def build_system_prompt(context: dict[str, Any] | None = None) -> str:
             "Hãy tự đọc câu hỏi trên rồi quyết định: gọi tool nào, truyền tham số gì (mã căn, dự án, số "
             "phòng ngủ, diện tích m², ngân sách, ngày giao dịch, khách hàng). Các dòng tiêu chí bên trên "
             "chỉ là **gợi ý** của bộ bóc tách tất định: nếu chúng sai hoặc thiếu so với câu hỏi nguyên "
-            "văn thì sửa lại theo câu hỏi. Chưa gọi tool thì chưa được kết luận về giá/căn/chính sách."
+            "văn thì sửa lại theo câu hỏi."
+        )
+        lines.append(
+            "**Không phải câu nào cũng phải gọi tool.** Câu cần SỐ LIỆU của hệ thống (giá, căn, giỏ hàng, "
+            "chính sách/chiết khấu, vốn tự có, hồ sơ khách, tính phương án, soạn tin/hồ sơ, kiểm F8) thì "
+            "BẮT BUỘC gọi tool trước khi kết luận — không được đoán số. Câu KHÔNG cần số liệu (chào hỏi, "
+            "cảm ơn, hỏi em làm được gì / dùng thế nào, hỏi định nghĩa hay quy trình chung, góp ý cách "
+            "trả lời) thì trả lời trực tiếp bằng kiến thức nghiệp vụ, **không gọi tool** cho hình thức."
         )
 
     if current_unit:

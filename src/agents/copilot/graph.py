@@ -405,7 +405,13 @@ def _finalize(
             + ")"
         )
     if not grounded and intent.intent not in (intents.INTENT_SMALL_TALK,):
-        notes.append("nội dung này chưa đối chiếu với dữ liệu chính sách/giỏ hàng")
+        # Câu hỏi KHÔNG cần số liệu (hỏi định nghĩa, quy trình, cách dùng trợ lý...) thì LLM được trả lời
+        # trực tiếp mà không gọi tool nào — đó là câu trả lời hợp lệ, không phải lượt thiếu dữ liệu, nên
+        # không gắn cảnh báo "chưa đối chiếu" (giữ đúng chốt của người dùng: không phải câu nào cũng phải
+        # gọi tool). Vẫn cảnh báo khi ĐÃ gọi tool mà không có nguồn, hoặc khi câu trả lời có số liệu không
+        # kiểm chứng được (verifier bắt) — đó mới là lúc Sale cần biết.
+        if observations or verifier.has_data_claims(text):
+            notes.append("nội dung này chưa đối chiếu với dữ liệu chính sách/giỏ hàng")
 
     # Mỏ neo `[n]` do MÁY chèn (chốt P2.3) — sau khi đã có nội dung, trước khi soi critic, để critic
     # chỉ còn nhắc khi con số thật sự không có nguồn nào để trỏ tới.

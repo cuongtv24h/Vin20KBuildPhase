@@ -17,3 +17,4 @@ export class MockError extends Error {
 export const notFound = (what: string) => new MockError(404, 'NOT_FOUND', `Không tìm thấy ${what}.`)
 export const invalid = (message: string) => new MockError(422, 'INPUT_VALIDATION_ERROR', message)
 export const transition = (message: string) => new MockError(409, 'INVALID_STATE_TRANSITION', message)
+export const forbidden = (message: string) => new MockError(403, 'UNAUTHORIZED_ACCESS', message)

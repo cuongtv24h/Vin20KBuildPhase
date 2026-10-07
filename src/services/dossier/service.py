@@ -190,6 +190,7 @@ class PreSalesDossierService:
         plan_id: str | None = None,
         lead_temperature: LeadTemperature = LeadTemperature.WARM,
         assigned_sales_id: str | None = None,
+        created_by: str | None = None,
     ) -> LeadDossierModel:
         """Tạo LeadDossier NEW với SLA 15 phút cho chuyên viên tiếp nhận."""
         session = await self.get_session(db, session_id)
@@ -201,6 +202,7 @@ class PreSalesDossierService:
             customer_name=customer_name,
             customer_phone_masked=mask_phone(customer_phone),
             assigned_sales_id=assigned_sales_id,
+            created_by=(created_by or "").strip() or None,
             sla_expires_at=utcnow() + timedelta(minutes=SLA_MINUTES),
             quote_id=None,
             created_at=utcnow(),
@@ -322,9 +324,46 @@ class PreSalesDossierService:
         return dossier
 
     async def delete_dossier(
-        self, db: AsyncSession, dossier_id: str
+        self,
+        db: AsyncSession,
+        dossier_id: str,
+        *,
+        actor_id: str | None = None,
+        allow_any: bool = False,
     ) -> bool:
+        """Xoá LeadDossier — **chỉ người tạo hồ sơ mới được xoá** (quản trị hệ thống được phép xoá hộ).
+
+        Vì sao chặn ở tầng service chứ không chỉ ở endpoint: đây là quy tắc nghiệp vụ (Sale chỉ xoá
+        khách hàng do mình tạo ra), nên mọi đường gọi — HTTP, script, job, tool của Copilot — đều phải
+        đi qua cùng một cửa. Trước đây hàm này xoá vô điều kiện nên bất kỳ ai cũng xoá được khách của
+        người khác, chỉ cần biết `dossier_id`.
+
+        Hồ sơ cũ (tạo trước khi có cột `created_by`, giá trị NULL) vẫn xoá được: dữ liệu di sản không
+        có chủ sở hữu để đối chiếu, chặn hết sẽ khoá luôn các hồ sơ Pre-Sales bàn giao.
+        """
         dossier = await self.get_dossier(db, dossier_id)
+        if not allow_any:
+            if not actor_id:
+                raise DomainError(
+                    ErrorCode.UNAUTHORIZED_ACCESS,
+                    "Cần đăng nhập để xoá hồ sơ khách hàng.",
+                    http_status=401,
+                )
+            owner = (dossier.created_by or "").strip()
+            if owner and owner != actor_id:
+                raise DomainError(
+                    ErrorCode.UNAUTHORIZED_ACCESS,
+                    (
+                        f"Hồ sơ {dossier_id} do {owner} tạo — chỉ {owner} mới được xoá. "
+                        "Anh/chị vui lòng báo quản trị viên nếu hồ sơ sai sót."
+                    ),
+                    http_status=403,
+                    details={
+                        "dossier_id": dossier_id,
+                        "created_by": owner,
+                        "requested_by": actor_id,
+                    },
+                )
         await db.delete(dossier)
         await db.flush()
         return True

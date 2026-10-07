@@ -337,6 +337,9 @@ class LeadDossierModel(Base):
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_phone_masked: Mapped[str] = mapped_column(String(32), nullable=False)
     assigned_sales_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Người TẠO hồ sơ (khác `assigned_sales_id`: hồ sơ Pre-Sales bàn giao có thể chưa gán Sale nào).
+    # Dùng cho quy tắc nghiệp vụ: Sale chỉ được xoá khách hàng do chính mình tạo ra.
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     sla_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     quote_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())

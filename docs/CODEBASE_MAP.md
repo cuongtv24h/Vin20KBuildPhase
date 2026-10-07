@@ -197,7 +197,7 @@ Vin20KBuildPhase/
 | `compliance.py` | `/api/v1` | 2 | kiểm tra compliance, gate F8 |
 | `copilot.py` | `/copilot` | 11 | chat, stream SSE, history, feedback, commands, quality |
 | `evaluation.py` | — | 6 | eval endpoints |
-| `leads.py` | `/api/v1/leads` | 11 | CRUD lead + dossier + `convert-to-quote` |
+| `leads.py` | `/api/v1/leads` | 11 | CRUD lead + dossier + `convert-to-quote`; `DELETE` **chỉ người tạo** (`created_by`) hoặc ADMIN — xem `PreSalesDossierService.delete_dossier` |
 | `llm_admin.py` | `/admin/llm` | 7 | provider CRUD, test/probe, usage |
 | `policies.py` | `/policies` | 3 | policy list/detail + F9 rule extraction |
 | `pre_sales.py` | `/api/v1/pre-sales` | 6 | session CRUD, resume HITL, handoff |
@@ -231,7 +231,7 @@ in-memory (`_IDEMPOTENCY_STORE`) trả **409** khi payload mismatch + header `Id
 |---|---|
 | Policy / RAG | `policies`, `policy_atoms`, `policy_edges`, `policy_documents`, `policy_chunks`, `policy_rules`, `evidence_bundles`, `abstention_certificates` |
 | Catalog | `projects`, `units` (có `area_m2`, `view`) |
-| Pre-sales | `pre_sales_sessions`, `customer_consents`, `pre_sales_plans`, `lead_dossiers` |
+| Pre-sales | `pre_sales_sessions`, `customer_consents`, `pre_sales_plans`, `lead_dossiers` (`created_by` = người tạo hồ sơ, cơ sở cho quyền xoá) |
 | Quote | `quotes`, `quote_snapshots`, `quote_audit_events`, `transactional_outbox` |
 | Compliance | `compliance_checks` |
 | Admin | `users` (role), `tts_settings`, `tts_feedback`, `tts_providers`, `llm_providers` |

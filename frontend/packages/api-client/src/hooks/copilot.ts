@@ -216,10 +216,10 @@ export const useAppendCopilotTurn = () =>
     invalidate: () => [queryKeys.copilotConversations],
   })
 
-/** Mở cuộc hội thoại mới (nút "Cuộc trò chuyện mới"). */
+/** Mở cuộc hội thoại mới (nút "Phiên chat mới" / "Mới" trong khung Lịch sử). */
 export const useCreateCopilotConversation = () =>
   useCommand(
-    (_: void, key) => api.copilot.conversationCreate({}, { idempotencyKey: key }),
+    (body: { title?: string } = {}, key) => api.copilot.conversationCreate(body, { idempotencyKey: key }),
     { invalidate: () => [queryKeys.copilotConversations] },
   )
 
@@ -237,20 +237,29 @@ export const useRenameCopilotConversation = () =>
  * mạng lỗi thì Sale vẫn thấy câu trả lời, chỉ mất bản ghi; không được để lỗi này nổi lên UI hay
  * chặn lượt chat kế tiếp. Hàng đợi giữ đúng thứ tự user → assistant khi bấm nhanh liên tiếp.
  */
-export const useAppendCopilotTurnSync = () => {
+export const useAppendCopilotTurnSync = (options: { onError?: (error: unknown) => void } = {}) => {
   const qc = useQueryClient()
   const queue = useRef<Promise<CopilotConversationDetail | null>>(Promise.resolve(null))
+  // Giữ callback trong ref: người gọi thường truyền arrow function inline, đưa vào deps sẽ làm `append`
+  // đổi danh tính mỗi lần render.
+  const onErrorRef = useRef(options.onError)
+  onErrorRef.current = options.onError
 
   const append = useCallback(
     (body: CopilotAppendTurnRequest) => {
+      const attempt = () => api.copilot.appendTurn(body, { idempotencyKey: newRequestId() })
       const next = queue.current
-        .then(() => api.copilot.appendTurn(body, { idempotencyKey: newRequestId() }))
+        .then(attempt)
+        // Một lần thử lại: lỗi mạng thoáng qua không được làm mất lượt khỏi lịch sử (lỗi người dùng
+        // báo "hội thoại mới không được lưu"). Vẫn KHÔNG chặn hội thoại đang mở.
+        .catch(() => attempt())
         .then((detail) => {
           void qc.invalidateQueries({ queryKey: queryKeys.copilotConversations })
           return detail
         })
-        .catch(() => {
-          /* Lịch sử là phụ trợ: lỗi ghi không được làm gián đoạn hội thoại đang mở. */
+        .catch((error: unknown) => {
+          /* Lịch sử là phụ trợ: lỗi ghi không được làm gián đoạn hội thoại — nhưng phải báo cho UI. */
+          onErrorRef.current?.(error)
           return null
         })
       queue.current = next

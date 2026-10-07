@@ -48,7 +48,22 @@ def test_system_prompt_carries_raw_question_and_extracted_criteria() -> None:
     # 3. Nói rõ model chịu trách nhiệm phân tích + được phép sửa tiêu chí gợi ý.
     assert "chịu trách nhiệm phân tích" in prompt
     assert "chỉ là **gợi ý**" in prompt
-    assert "Chưa gọi tool thì chưa được kết luận" in prompt
+
+
+def test_prompt_does_not_force_a_tool_for_every_question() -> None:
+    """Chốt của người dùng: KHÔNG phải câu nào của Sale cũng phải gọi tool.
+
+    Câu cần số liệu ⇒ bắt buộc gọi tool trước khi kết luận. Câu không cần số liệu (chào hỏi, hỏi cách
+    dùng, hỏi định nghĩa/quy trình, góp ý) ⇒ trả lời trực tiếp, không gọi tool cho hình thức.
+    """
+    prompt = prompts.build_system_prompt(_context_for(REPORTED_QUESTION))
+
+    assert "Không phải câu nào cũng phải gọi tool" in prompt
+    assert "BẮT BUỘC gọi tool trước khi kết luận" in prompt
+    assert "trả lời trực tiếp" in prompt and "không gọi tool" in prompt
+    # Cấm tuyệt đối của bản cũ ("chưa gọi tool thì chưa được kết luận" cho MỌI câu) phải không còn.
+    assert "Chưa gọi tool thì chưa được kết luận" not in prompt
+
 
 
 def test_system_prompt_carries_unit_and_date_criteria() -> None:
@@ -133,3 +148,43 @@ def test_criteria_reflect_the_reported_question_numbers() -> None:
     assert area == (63.0, 77.0)
     assert intent.entities["amount_vnd"] == 3_000_000_000
     assert grounding.format_vnd(intent.entities["amount_vnd"]) == "3.000.000.000 ₫"
+
+
+# ─── Không phải câu nào cũng phải gọi tool ────────────────────────────────────────────────────────
+from src.agents.copilot import graph as copilot_graph  # noqa: E402
+from src.agents.copilot import intents as copilot_intents  # noqa: E402
+
+
+class _DirectAnswerIntent:
+    """Ý định tối thiểu để gọi `_finalize` trong test."""
+
+    def __init__(self, intent: str) -> None:
+        self.intent = intent
+        self.entities: dict[str, str] = {}
+
+
+def test_direct_answer_without_tool_has_no_grounding_warning() -> None:
+    """LLM trả lời trực tiếp, KHÔNG gọi tool ⇒ câu trả lời hợp lệ, không gắn cảnh báo "chưa đối chiếu"."""
+    final = copilot_graph._finalize(
+        "Quy trình bàn giao hồ sơ gồm 3 bước: xác nhận nhu cầu, gửi hồ sơ cho Sale, hẹn lịch tư vấn.",
+        [],  # không có observation nào: model không gọi tool
+        None,
+        [],
+        _DirectAnswerIntent(copilot_intents.INTENT_LOOKUP_POLICY),
+        question="Quy trình bàn giao hồ sơ khách hàng gồm mấy bước?",
+    )
+    assert "chưa đối chiếu" not in final["internal_notes"]
+    assert final["reply"]
+
+
+def test_direct_answer_with_invented_number_is_still_flagged() -> None:
+    """Ngoại lệ giữ nguyên: tự bịa số mà không gọi tool thì vẫn bị cảnh báo."""
+    final = copilot_graph._finalize(
+        "Dự án đang chiết khấu 12% cho tất cả các căn.",
+        [],
+        None,
+        [],
+        _DirectAnswerIntent(copilot_intents.INTENT_LOOKUP_POLICY),
+        question="Chính sách chiết khấu thế nào?",
+    )
+    assert "chưa đối chiếu" in final["internal_notes"]

@@ -43,6 +43,7 @@ import {
   useProjectOverviews,
 } from '@pricepolicy/api-client/hooks'
 import { MoneyText } from '@pricepolicy/ui/components/common/MoneyText'
+import { useSessionStore } from '@/auth/sessionStore'
 import { EmptyState, PageHeader, QueryState } from '@pricepolicy/ui/components/common/PageStates'
 import { SlaCountdown } from '@pricepolicy/ui/components/common/SlaCountdown'
 import { TemperatureBadge } from '@pricepolicy/ui/components/common/StatusBadge'
@@ -635,6 +636,17 @@ function CustomerCrmEditor({
   const navigate = useNavigate()
   const updateMutation = useUpdateLead()
   const deleteMutation = useDeleteLead()
+  // Quy tắc: Sale chỉ xoá khách hàng DO MÌNH TẠO; ADMIN xoá hộ được. Máy chủ cũng chặn (403) — đây chỉ
+  // là lớp giao diện để không bày ra nút bấm chắc chắn bị từ chối. Hồ sơ cũ (`created_by` trống) coi
+  // như không có chủ: vẫn cho xoá, khớp với luật ở `PreSalesDossierService.delete_dossier`.
+  const sessionUser = useSessionStore((state) => state.session?.user)
+  const isAdmin = sessionUser?.role === 'ADMIN'
+  const createdBy = dossier.created_by || ''
+  const isOwner = !createdBy || createdBy === sessionUser?.user_id
+  const canDelete = Boolean(sessionUser) && (isAdmin || isOwner)
+  const deleteBlockedReason = createdBy
+    ? `Khách hàng do ${createdBy} tạo — chỉ người tạo hoặc quản trị viên mới xoá được.`
+    : 'Cần đăng nhập để xoá hồ sơ khách hàng.'
 
   const c = dossier.constraints || {}
 
@@ -699,13 +711,19 @@ function CustomerCrmEditor({
   }
 
   const handleDelete = async () => {
+    if (!canDelete) {
+      toast.error('Không thể xóa khách hàng', deleteBlockedReason)
+      return
+    }
     if (confirm(`Bạn có chắc chắn muốn xóa hồ sơ khách hàng "${customerName}" không?`)) {
       try {
         await deleteMutation.mutateAsync(dossier.dossier_id)
         toast.success('Đã xóa hồ sơ khách hàng thành công')
         onDeleted()
       } catch (err: any) {
-        toast.error('Không thể xóa khách hàng', err?.message)
+        // Máy chủ là nơi chốt quyền: 403 nghĩa là hồ sơ do người khác tạo (thông điệp của máy chủ đã
+        // nói rõ ai là người tạo).
+        toast.error('Không thể xóa khách hàng', err?.message || 'Hồ sơ này không thuộc quyền xoá của anh/chị')
       }
     }
   }
@@ -741,9 +759,9 @@ function CustomerCrmEditor({
               variant="ghost"
               size="sm"
               onClick={handleDelete}
-              disabled={deleteMutation.isPending}
+              disabled={deleteMutation.isPending || !canDelete}
               className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-              title="Xóa hồ sơ"
+              title={canDelete ? 'Xóa hồ sơ' : deleteBlockedReason}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
