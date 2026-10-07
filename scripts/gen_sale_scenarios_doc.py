@@ -31,6 +31,7 @@ GROUP_LABEL: dict[str, str] = {
     "phuong_an": "Phương án thanh toán & báo giá",
     "chinh_sach": "Chính sách (kèm hiệu lực theo ngày)",
     "soan_tin": "Soạn tin gửi khách",
+    "de_xuat": "Hồ sơ đề xuất trình Quản lý",
     "f8": "Kiểm phát ngôn F8",
     "ho_so": "Hồ sơ khách hàng",
     "nhieu_y": "Nhiều ý trong một lượt",

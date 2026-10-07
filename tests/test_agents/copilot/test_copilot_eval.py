@@ -132,7 +132,7 @@ def test_sale_scenarios_doc_is_in_sync_with_json():
 
 
 def test_sale_scenarios_cover_every_workflow_and_tool():
-    """Bộ kịch bản phải phủ đủ 12 nhóm việc Sale làm và cả 6 tool — thiếu là bộ test vô nghĩa."""
+    """Bộ kịch bản phải phủ đủ 13 nhóm việc Sale làm và cả 8 tool — thiếu là bộ test vô nghĩa."""
     questions = _bank()["questions"]
     assert len(questions) >= 50, "Bộ kịch bản Sale cần tối thiểu 50 câu"
 
@@ -144,6 +144,7 @@ def test_sale_scenarios_cover_every_workflow_and_tool():
         "phuong_an",
         "chinh_sach",
         "soan_tin",
+        "de_xuat",
         "f8",
         "ho_so",
         "nhieu_y",
@@ -163,6 +164,7 @@ def test_sale_scenarios_cover_every_workflow_and_tool():
         "kiem_tra_phat_ngon_f8",
         "tra_cuu_ho_so_khach_hang",
         "soan_tin_tu_van",
+        "soan_ho_so_de_xuat",
     } <= covered
 
     # Mỗi kịch bản phải nói rõ nó kiểm cái gì — không có câu "trần" không tiêu chí.

@@ -24,6 +24,9 @@ INTENT_BROWSE_UNITS = "smart_units_browse"
 #: (bảng dòng tiền chi tiết). Chỉ trả mốc tổng quan (P1.2).
 INTENT_ASSESS_FUNDS = "assess_own_funds"
 INTENT_COMPOSE_MESSAGE = "smart_compose_message"
+#: Soạn HỒ SƠ ĐỀ XUẤT trình Quản lý (hồ sơ + checklist còn thiếu) — dùng tool `soan_ho_so_de_xuat`.
+#: Khác INTENT_COMPOSE_MESSAGE (tin nhắn gửi khách): đây là bản đề xuất NỘI BỘ để trình duyệt.
+INTENT_COMPOSE_PROPOSAL = "compose_proposal"
 INTENT_LOOKUP_POLICY = "lookup_policy"
 INTENT_LOOKUP_CUSTOMER = "lookup_customer"
 INTENT_CHECK_F8 = "check_f8_compliance"
@@ -220,6 +223,20 @@ def detect_intent(text: str) -> IntentResult:
         entities["customer_phone"] = phone.group(0) if phone else ""
         return IntentResult(INTENT_CREATE_CUSTOMER, 0.9, entities, kw)
 
+    # Nhánh "hồ sơ đề xuất" phải đứng TRƯỚC nhánh "báo giá": câu "soạn hồ sơ đề xuất rồi lập báo giá
+    # trình Quản lý" vừa chứa từ "báo giá" vừa là yêu cầu soạn hồ sơ — nhánh đứng trước quyết định.
+    kw = _has(
+        lower,
+        "hồ sơ đề xuất",
+        "đề xuất trình",
+        "soạn đề xuất",
+        "lập đề xuất",
+        "hồ sơ trình duyệt",
+        "chuẩn bị hồ sơ",
+    )
+    if kw:
+        return IntentResult(INTENT_COMPOSE_PROPOSAL, 0.85, entities, kw)
+
     kw = _has(
         lower,
         "vốn tự có",
@@ -369,7 +386,23 @@ def build_action_card(text: str, result: IntentResult, context: dict[str, Any] |
         scenario = "PA-NHANH" if _has(grounding.normalize(text), "sớm", "nhanh", "chiết khấu") else (
             "PA-VAY" if _has(grounding.normalize(text), "vay", "lãi", "ngân hàng") else "PA-CHUDONG"
         )
-        return {"action_type": INTENT_CREATE_QUOTE, "action_data": {"unit_code": unit, "scenario": scenario}}
+        amount_range = result.entities.get("amount_range_vnd")
+        # Thẻ báo giá mang luôn ngữ cảnh tài chính đã bóc được: UI dựng payload POST /quotes không phải
+        # hỏi lại, và `missing` nói thẳng còn thiếu gì (chưa biết căn) để chặn TRƯỚC khi gọi server —
+        # cổng /submit-review phía backend cũng chặn đúng những trường hợp này.
+        missing_fields = [name for name, value in (("unit_code", unit),) if not value]
+        return {
+            "action_type": INTENT_CREATE_QUOTE,
+            "action_data": {
+                "unit_code": unit,
+                "scenario": scenario,
+                "own_funds_vnd": result.entities.get("amount_vnd"),
+                "budget_min_vnd": amount_range[0] if amount_range else None,
+                "budget_max_vnd": amount_range[1] if amount_range else None,
+                "bedrooms": result.entities.get("bedrooms"),
+                "missing": missing_fields,
+            },
+        }
     if result.intent == INTENT_COMPARE_SCENARIOS:
         return {"action_type": INTENT_COMPARE_SCENARIOS, "action_data": {"unit_code": unit}}
     if result.intent == INTENT_ASSESS_FUNDS:

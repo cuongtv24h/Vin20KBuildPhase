@@ -35,6 +35,9 @@ _WORKFLOW_ORDER = {
     intents.INTENT_BROWSE_UNITS: 20,
     intents.INTENT_ASSESS_FUNDS: 25,
     intents.INTENT_COMPARE_SCENARIOS: 30,
+    # Hồ sơ đề xuất đứng trước bước lập báo giá: câu "soạn hồ sơ đề xuất rồi lập báo giá" phải soạn hồ sơ
+    # trước, rồi mới chốt báo giá — đúng trình tự Sale làm việc với Quản lý.
+    intents.INTENT_COMPOSE_PROPOSAL: 33,
     intents.INTENT_CREATE_QUOTE: 35,
     intents.INTENT_COMPOSE_MESSAGE: 40,
     intents.INTENT_CREATE_CUSTOMER: 50,
@@ -74,6 +77,9 @@ def _tool_for(intent: str, args: dict) -> str | None:
         return "danh_gia_von_tu_co"
     if intent in (intents.INTENT_CREATE_QUOTE, intents.INTENT_COMPARE_SCENARIOS):
         return "tinh_phuong_an_thanh_toan"
+    if intent == intents.INTENT_COMPOSE_PROPOSAL:
+        # Hồ sơ đề xuất = bản nội bộ trình Quản lý (khác tin nhắn gửi khách ở INTENT_COMPOSE_MESSAGE).
+        return "soan_ho_so_de_xuat"
     if intent == intents.INTENT_COMPOSE_MESSAGE:
         return "soan_tin_tu_van"
     if intent == intents.INTENT_LOOKUP_CUSTOMER:
@@ -182,6 +188,16 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
             "muc_tieu": "MIN_INITIAL_CASH",
             "ngay_giao_dich": tx_date,
         }
+    if intent == intents.INTENT_COMPOSE_PROPOSAL:
+        return {
+            "ma_can": unit,
+            "ten_khach": entity.get("customer_name") or "",
+            "von_tu_co_vnd": entity.get("amount_vnd") or 0,
+            "so_phong_ngu": entity.get("bedrooms") or 0,
+            "gia_toi_da_vnd": _budget_ceiling(entity),
+            "muc_tieu": "MIN_INITIAL_CASH",
+            "ngay_giao_dich": tx_date,
+        }
     if intent == intents.INTENT_COMPOSE_MESSAGE:
         return {
             "ma_can": unit,
@@ -243,6 +259,7 @@ def plan_summary(steps: list[PlanStep]) -> str:
         intents.INTENT_ASSESS_FUNDS: "đánh giá vốn tự có",
         intents.INTENT_COMPARE_SCENARIOS: "tính & so sánh phương án",
         intents.INTENT_CREATE_QUOTE: "lập báo giá",
+        intents.INTENT_COMPOSE_PROPOSAL: "soạn hồ sơ đề xuất",
         intents.INTENT_COMPOSE_MESSAGE: "soạn tin & tự kiểm F8",
         intents.INTENT_LOOKUP_CUSTOMER: "tra hồ sơ khách",
         intents.INTENT_CHECK_F8: "kiểm tra phát ngôn F8",

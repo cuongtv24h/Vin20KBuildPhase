@@ -100,7 +100,9 @@ export async function parseError(res: Response): Promise<ApiError> {
     const inner = body.error ?? (typeof body.detail === 'object' ? body.detail : undefined) ?? body
     code = inner.code ?? code
     message = inner.message ?? (typeof body.detail === 'string' ? body.detail : '')
-    details = body.error?.details ?? body.details
+    // Envelope của backend đặt payload lỗi ngay trong `detail` (ví dụ checklist của QUOTE_NOT_READY)
+    // — giữ lại nguyên cụm để UI hiển thị đúng việc cần làm thay vì chỉ một dòng message.
+    details = body.error?.details ?? body.details ?? (typeof body.detail === 'object' ? body.detail : undefined)
   } catch {
     // body không phải JSON
   }

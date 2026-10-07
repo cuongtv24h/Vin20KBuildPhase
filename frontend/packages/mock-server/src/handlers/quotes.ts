@@ -35,6 +35,22 @@ export const quoteHandlers = [
     fixedDelayMs: 150,
   }),
 
+  /**
+   * POST /quotes/{id}/calculate — backend thật chạy engine tất định + phát hành bằng chứng ở bước này.
+   * Mock mô phỏng engine chạy nền khi tạo quote (`pending` → `settle`), nên ở đây đẩy kết quả về NGAY:
+   * đúng ngữ nghĩa "Sale yêu cầu tính phương án thì có phương án", và giữ cho luồng
+   * create → calculate → submit-review chạy được khi UI đang ở chế độ mock.
+   */
+  route('quoteCalculate', async ({ db, staff, params, now }) => {
+    const record = findRecord(db, params.quote_id)
+    assertVisible(record, staff())
+    if (record.pending) {
+      record.pending.ready_at = now
+      await settle(db, now)
+    }
+    return { body: view(record) }
+  }),
+
   route(
     'quoteNewVersion',
     async ({ db, staff, now, params, request, json }) => {

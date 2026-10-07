@@ -49,13 +49,17 @@ export const ENDPOINTS = {
   /** TD-4.1 §3.1 ghi `/stream`, CodeBaseIndex ghi `/events` — client ưu tiên `stream_url` server trả về. */
   quoteEvents: def({ method: 'GET', path: '/quotes/{quote_id}/events', source: 'TD-4.4', auth: 'staff' }),
   quoteEvidence: def({ method: 'GET', path: '/quotes/{quote_id}/evidence', source: 'TD-4.4', auth: 'staff' }),
-  quoteAudit: def({ method: 'GET', path: '/quotes/{quote_id}/audit', source: 'TD-4.4', auth: 'staff' }),
+  /** Tên trên backend là `/audit-trail` (giữ khoá `quoteAudit` cho hook hiện có). */
+  quoteAudit: def({ method: 'GET', path: '/quotes/{quote_id}/audit-trail', source: 'TD-4.4', auth: 'staff' }),
   quotePdf: def({ method: 'GET', path: '/quotes/{quote_id}/pdf', source: 'TD-4.4', auth: 'staff' }),
+  /** Chạy engine định giá cho bản nháp — BẮT BUỘC trước khi trình duyệt (sinh 3 phương án + bằng chứng). */
+  quoteCalculate: def({ method: 'POST', path: '/quotes/{quote_id}/calculate', source: 'TD-4.4', auth: ['SALE'] }),
   quoteApprove: def({ method: 'POST', path: '/quotes/{quote_id}/approve', source: 'TD-4.4', auth: ['MANAGER'] }),
   quoteReject: def({ method: 'POST', path: '/quotes/{quote_id}/reject', source: 'TD-4.4', auth: ['MANAGER'] }),
-  quoteRevision: def({ method: 'POST', path: '/quotes/{quote_id}/revision', source: 'TD-4.4', auth: ['MANAGER'] }),
+  /** Tên trên backend là `/request-revision`; giữ khoá `quoteRevision` cho các hook hiện có. */
+  quoteRevision: def({ method: 'POST', path: '/quotes/{quote_id}/request-revision', source: 'TD-4.4', auth: ['MANAGER'] }),
   quotePdfRetry: def({ method: 'POST', path: '/quotes/{quote_id}/pdf-retry', source: 'TD-4.4', auth: ['MANAGER'] }),
-  quoteSubmit: def({ method: 'POST', path: '/quotes/{quote_id}/submit', source: 'PROPOSED', auth: ['SALE'] }),
+  quoteSubmit: def({ method: 'POST', path: '/quotes/{quote_id}/submit-review', source: 'TD-4.4', auth: ['SALE'] }),
   quoteNewVersion: def({ method: 'POST', path: '/quotes/{quote_id}/versions', source: 'PROPOSED', auth: ['SALE'] }),
 
   // Lead Dossier — C-10

@@ -140,6 +140,16 @@ export const api = {
      */
     create: (body: QuoteCreatePayload | QuoteCreateRequest, o: CommandOptions = {}) =>
       call<QuoteCreateOutcome>('quoteCreate', {}, { json: body, ...o }),
+    /**
+     * POST /quotes/{id}/calculate — chạy engine tất định cho bản nháp.
+     * `transactionDate` quyết định cả kết quả tính lẫn chính sách hiệu lực (time-travel).
+     */
+    calculate: (quoteId: string, o: VersionedCommandOptions & { transactionDate?: string } = { expectedVersion: 0 }) =>
+      call<Record<string, unknown>>('quoteCalculate', { quote_id: quoteId }, {
+        idempotencyKey: o.idempotencyKey,
+        ifMatchVersion: o.expectedVersion,
+        query: o.transactionDate ? { transaction_date: o.transactionDate } : undefined,
+      }),
     newVersion: (quoteId: string, body: QuoteCreateRequest, o: VersionedCommandOptions) =>
       call<QuoteAccepted>('quoteNewVersion', { quote_id: quoteId }, { json: body, idempotencyKey: o.idempotencyKey, ifMatchVersion: o.expectedVersion }),
     submit: (quoteId: string, o: VersionedCommandOptions) =>

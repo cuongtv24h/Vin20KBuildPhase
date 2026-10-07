@@ -6,7 +6,7 @@ import { selectPolicyForDate } from '../engine/conflicts'
 import { rankScenarios } from '../engine/recommend'
 import { PAYMENT_PLANS_FIXTURE } from '../fixtures/plans'
 import { POLICIES_FIXTURE } from '../fixtures/policies'
-import { UNITS_FIXTURE } from '../fixtures/units'
+import { PROJECTS_FIXTURE, UNITS_FIXTURE } from '../fixtures/units'
 import { recordMockLlmCall } from './llmAdmin'
 import { route, toMswPath } from './route'
 
@@ -21,7 +21,7 @@ import { route, toMswPath } from './route'
 const DEFAULT_DATE = '2026-09-26'
 
 interface Intent {
-  kind: 'policy' | 'units' | 'scenarios' | 'compose' | 'customer' | 'smalltalk'
+  kind: 'policy' | 'units' | 'scenarios' | 'compose' | 'customer' | 'proposal' | 'smalltalk'
   unitCode: string | null
   bedrooms: number | null
   customerName: string
@@ -80,6 +80,23 @@ function parseIntent(rawMessage: string): Intent {
   // So khớp trên chuỗi đã bỏ dấu (t) — từ khoá ở dạng không dấu để tránh bẫy như backend `_has()`.
   if (t.includes('tao khach') || t.includes('them khach') || t.includes('khach moi') || t.includes('tao lead')) {
     return { kind: 'customer', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: null, customerName: name }
+  }
+  // Nhánh "hồ sơ đề xuất" đứng TRƯỚC nhánh "báo giá" — đồng bộ với thứ tự nhánh trong
+  // `src/agents/copilot/intents.py::detect_intent` phía backend.
+  if (
+    t.includes('ho so de xuat') ||
+    t.includes('de xuat trinh') ||
+    t.includes('soan de xuat') ||
+    t.includes('lap de xuat') ||
+    t.includes('ho so trinh duyet') ||
+    t.includes('chuan bi ho so')
+  ) {
+    return {
+      kind: 'proposal',
+      unitCode: unitMatch?.[1]?.toUpperCase() ?? null,
+      bedrooms: bedrooms ? Number(bedrooms[1]) : null,
+      customerName: '',
+    }
   }
   if (t.includes('bao gia') || t.includes('so sanh') || t.includes('phuong an') || t.includes('dong tien')) {
     return { kind: 'scenarios', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: null, customerName: '' }
@@ -204,9 +221,81 @@ function answerCompose(intent: Intent, citations: CopilotCitation[]) {
   return `Em đã soạn nháp và tự kiểm F8 (không có phát ngôn bị chặn):\n\n“${draft}”`
 }
 
+/** Bản sao mock của tool `soan_ho_so_de_xuat` phía backend — hồ sơ NỘI BỘ trình Quản lý, không gửi khách. */
+async function answerProposal(
+  intent: Intent,
+  unitCode: string | null,
+  policy: PolicyDocument | null,
+  citations: CopilotCitation[],
+): Promise<string> {
+  let unit = findUnit(unitCode)
+  let autoPicked = false
+  if (!unit && unitCode) {
+    return `Em chưa tìm thấy mã căn ${unitCode} trong giỏ hàng đang mở bán ạ. Anh/chị kiểm tra lại mã căn giúp em nhé.`
+  }
+  if (!unit && intent.bedrooms) {
+    unit =
+      [...UNITS_FIXTURE]
+        .filter((u) => u.status === 'AVAILABLE' && u.bedrooms === intent.bedrooms)
+        .sort((a, b) => a.listed_price_before_tax_vnd - b.listed_price_before_tax_vnd)[0] ?? null
+    autoPicked = Boolean(unit)
+  }
+  if (!unit) {
+    return 'Em chưa xác định được căn để soạn hồ sơ đề xuất ạ. Anh/chị cho em mã căn cụ thể (ví dụ ZEN-A-1205) nhé.'
+  }
+  if (!policy) {
+    return `Em chưa tra được chính sách hiệu lực cho căn ${unit.unit_code} tại thời điểm giao dịch nên chưa soạn được hồ sơ đề xuất ạ.`
+  }
+
+  const project = PROJECTS_FIXTURE.find((p) => p.project_id === unit.project_id)?.name ?? unit.project_id
+  const scenarios = await computeScenarios({
+    unit,
+    policy,
+    plans: PAYMENT_PLANS_FIXTURE,
+    selected_rule_codes: ['EARLY_PAY_DISCOUNT', 'BANK_LOAN_HTLS'],
+    customer_segment: 'NEW_CUSTOMER',
+    units_quantity: 1,
+  })
+  const rec = rankScenarios(scenarios, 'MIN_NET_PRICE')
+  const lines = [
+    `HỒ SƠ ĐỀ XUẤT TRÌNH QUẢN LÝ — căn ${unit.unit_code} · ${project}`,
+    ...(autoPicked ? [`[Lưu ý: căn được chọn tự động theo ${intent.bedrooms} phòng ngủ — Sale kiểm tra lại nhé]`] : []),
+    '',
+    `1. CĂN HỘ: ${unit.bedrooms}PN · ${unit.area_m2}m² · giá niêm yết ${vnd(unit.listed_price_before_tax_vnd)} · ${unit.status}`,
+    '2. PHƯƠNG ÁN ĐỀ XUẤT (ưu tiên giá Net):',
+  ]
+  for (const s of scenarios) {
+    lines.push(
+      `• ${s.scenario_code} (${s.label}): giá Net ${vnd(s.net_price_before_tax_vnd)}, tổng HĐMB ${vnd(s.total_contract_price_vnd)}, ` +
+        `đợt đầu ${vnd(s.initial_payment_vnd)}, tổng tự chi đến nhận nhà ${vnd(s.total_cash_outflow_vnd)}.`,
+    )
+  }
+  lines.push(`Đề xuất tối ưu theo mục tiêu giá Net: ${rec?.recommended_scenario ?? '—'}.`)
+  lines.push(`3. CHÍNH SÁCH ÁP DỤNG: ${policy.policy_id} (${policy.policy_version}) — hiệu lực ${policy.effective_from} → ${policy.effective_to}.`)
+  for (const code of ['EARLY_PAY_DISCOUNT', 'BANK_LOAN_HTLS']) {
+    const citation = policyCitation(policy, code)
+    if (citation) {
+      citations.push(citation)
+      lines.push(`• ${citation.section} — ${citation.quote ?? ''}`)
+    }
+  }
+  lines.push('4. VIỆC CẦN BỔ SUNG TRƯỚC KHI TRÌNH:')
+  lines.push('• Vốn tự có của khách (để chốt phương án tối ưu theo dòng tiền).')
+  citations.push({
+    policy_id: 'FCS-v2.6',
+    section: `Deterministic Math Engine · ${unit.unit_code}`,
+    quote: `Hồ sơ đề xuất dựng từ ${scenarios.length} phương án chuẩn tắc; khuyến nghị ${rec?.recommended_scenario ?? '—'}`,
+    source: 'DETERMINISTIC_ENGINE',
+    document_hash: scenarios[0]?.calculation_hash,
+  })
+  lines.push('Số liệu do Deterministic Math Engine tính, không phải LLM tự tính [FCS v2.6].')
+  return lines.join('\n')
+}
+
 async function buildTurn(message: string): Promise<CopilotFinalPayload & { reasoning: CopilotStreamEvent[] }> {
   const intent = parseIntent(message)
-  const policy = intent.kind === 'scenarios' || intent.kind === 'policy' ? activePolicy() : null
+  const policy =
+    intent.kind === 'scenarios' || intent.kind === 'policy' || intent.kind === 'proposal' ? activePolicy() : null
   const citations: CopilotCitation[] = []
   const reasoning: CopilotStreamEvent[] = [
     { type: 'thought', text: `Em phân loại yêu cầu: ${intent.kind}.` },
@@ -235,6 +324,14 @@ async function buildTurn(message: string): Promise<CopilotFinalPayload & { reaso
       reply = answerCompose(intent, citations)
       actionType = 'smart_compose_message'
       actionData = { unit_code: intent.unitCode ?? 'ZEN-A-1205' }
+      break
+    case 'proposal':
+      reasoning.push({
+        type: 'action',
+        tool: 'soan_ho_so_de_xuat',
+        args: { ma_can: intent.unitCode, so_phong_ngu: intent.bedrooms },
+      })
+      reply = await answerProposal(intent, intent.unitCode, policy, citations)
       break
     case 'customer':
       reasoning.push({ type: 'action', tool: 'tra_cuu_gio_hang', args: { ma_can: intent.unitCode } })

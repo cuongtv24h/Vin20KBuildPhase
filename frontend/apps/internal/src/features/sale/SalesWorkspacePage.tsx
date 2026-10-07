@@ -1788,7 +1788,15 @@ export function SalesWorkspacePage() {
         type: 'stepper',
         time,
         data: {
-          steps: ['Đọc ràng buộc hồ sơ khách', `Tra giá niêm yết căn ${unitCode}`, 'Gọi engine định giá (tất định)', 'Nhận kết quả và mở bảng phương án'],
+          // 5 bước = đúng 5 lời gọi server của luồng hoàn chỉnh: tạo nháp → engine + bằng chứng →
+          // trình Quản lý. Trước đây chỉ có 1 lời gọi rồi báo "đã gửi" nên báo giá chết ở DRAFT.
+          steps: [
+            'Đọc ràng buộc hồ sơ khách',
+            `Tra giá niêm yết căn ${unitCode}`,
+            'Tạo bản nháp báo giá',
+            'Chạy engine định giá + phát hành bằng chứng',
+            'Trình Quản lý duyệt (chờ thẩm định)',
+          ],
           current: 0,
           failed: false,
         },
@@ -1808,36 +1816,60 @@ export function SalesWorkspacePage() {
       if (!unit) throw new Error(`Không tìm thấy căn ${unitCode} trong giỏ hàng`)
 
       advance(2)
-      const created = await api.quotes.create({
-        project_id: unit.project_id,
-        unit_code: unit.unit_code,
-        listed_price_before_tax_vnd: unit.listed_price_before_tax_vnd,
-        own_funds_vnd: selectedLead?.constraints?.own_funds_vnd ?? undefined,
-        monthly_capacity_vnd: selectedLead?.constraints?.monthly_capacity_vnd ?? undefined,
-        objective: 'MIN_INITIAL_CASH',
+      const created = await api.quotes.create(
+        {
+          project_id: unit.project_id,
+          unit_code: unit.unit_code,
+          listed_price_before_tax_vnd: unit.listed_price_before_tax_vnd,
+          own_funds_vnd: selectedLead?.constraints?.own_funds_vnd ?? undefined,
+          monthly_capacity_vnd: selectedLead?.constraints?.monthly_capacity_vnd ?? undefined,
+          objective: 'MIN_INITIAL_CASH',
+        },
+        { idempotencyKey: crypto.randomUUID() },
+      )
+      const quoteId = (created as { quote_id: string }).quote_id
+      const quoteVersion = 'quote_version' in created ? Number(created.quote_version) : 1
+
+      // Bước 3 (BẮT BUỘC): chạy engine tất định + phát hành bộ chứng cứ C-04 cho phiên bản này.
+      // Thiếu bước này thì cổng /submit-review của backend chặn (409) và Manager không thấy hồ sơ.
+      advance(3)
+      await api.quotes.calculate(quoteId, {
+        idempotencyKey: crypto.randomUUID(),
+        expectedVersion: quoteVersion,
       })
 
-      advance(3)
-      const quoteCode =
-        'quote_version' in created ? `${created.quote_id} V${created.quote_version}` : String((created as { quote_id: string }).quote_id)
-      const status = 'status' in created ? String(created.status) : 'CREATED'
+      // Bước 4: trình Quản lý duyệt — chỉ qua khi hồ sơ đã đủ (đã tính + có bằng chứng + qua F8).
+      advance(4)
+      const submitted = await api.quotes.submit(quoteId, {
+        idempotencyKey: crypto.randomUUID(),
+        expectedVersion: quoteVersion,
+      })
+
+      advance(5)
+      const quoteCode = `${submitted.quote_id ?? quoteId} V${submitted.quote_version ?? quoteVersion}`
       setMessages((prev) => [
         ...prev,
         {
           id: `done-${Date.now()}`,
           type: 'agent',
           time: new Date().toTimeString().slice(0, 5),
-          text: `Hệ thống đã nhận yêu cầu lập báo giá **${quoteCode}** cho căn **${unit.unit_code}** — trạng thái hiện tại: **${status}**. Anh/chị xem chi tiết ở tab Báo giá.`,
+          text:
+            `✓ Bản báo giá **${quoteCode}** cho căn **${unit.unit_code}** đã hoàn chỉnh và **đang chờ Quản lý thẩm định**. ` +
+            'Hồ sơ gồm 3 phương án tài chính, bộ chứng cứ đối chiếu điều khoản và dấu vết kiểm toán. ' +
+            'Anh/chị xem chi tiết ở tab Báo giá.',
         },
       ])
       setActiveTab('baogia')
       setPanelView('quote_comparison')
       setIsMobilePanelOpen(true)
-      showToast('→ Đã gửi yêu cầu lập báo giá tới hệ thống')
+      showToast('→ Đã trình Quản lý duyệt báo giá')
       void queryClient.invalidateQueries({ queryKey: ['quotes'] })
       scrollChatToEnd()
     } catch (err) {
-      advance(4, true)
+      advance(5, true)
+      // 409 QUOTE_NOT_READY: backend trả checklist — nói thẳng còn thiếu gì thay vì "thử lại".
+      const checklist = (err as { details?: { checklist?: { label: string; ok: boolean }[] } })?.details?.checklist
+      const missing = (checklist ?? []).filter((item) => !item.ok).map((item) => `• ${item.label}`)
       const message = err instanceof Error ? err.message : 'Không gọi được API lập báo giá'
       setMessages((prev) => [
         ...prev,
@@ -1845,10 +1877,12 @@ export function SalesWorkspacePage() {
           id: `quote-error-${Date.now()}`,
           type: 'agent',
           time: new Date().toTimeString().slice(0, 5),
-          text: `Chưa lập được báo giá: ${message}. Anh/chị kiểm tra lại kết nối rồi thử lại giúp em.`,
+          text: missing.length
+            ? `⚠️ **Chưa trình được Quản lý** — hồ sơ còn thiếu:\n${missing.join('\n')}\n\n${message}`
+            : `⚠️ Chưa lập được báo giá: ${message}. Anh/chị kiểm tra lại kết nối rồi thử lại giúp em.`,
         },
       ])
-      showToast('Lập báo giá thất bại — xem chi tiết trong khung chat')
+      showToast(missing.length ? 'Hồ sơ chưa đủ điều kiện trình duyệt' : 'Lập báo giá thất bại — xem chi tiết trong khung chat')
       scrollChatToEnd()
     }
   }
@@ -1927,16 +1961,22 @@ export function SalesWorkspacePage() {
       showToast(`Đã trình duyệt ${submitted.quote_id} V${submitted.quote_version}`)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Không gửi được yêu cầu trình duyệt'
+      // Cổng /submit-review trả 409 kèm checklist khi hồ sơ khuyết (chưa tính / chưa có bằng chứng /
+      // chưa qua F8) — hiển thị đúng từng mục còn thiếu để Sale biết đường xử lý.
+      const checklist = (err as { details?: { checklist?: { label: string; ok: boolean }[] } })?.details?.checklist
+      const missing = (checklist ?? []).filter((item) => !item.ok).map((item) => `• ${item.label}`)
       setMessages((prev) => [
         ...prev,
         {
           id: `submit-error-${Date.now()}`,
           type: 'agent',
           time,
-          text: `Trình duyệt thất bại: ${message}. Anh/chị thử lại giúp em.`,
+          text: missing.length
+            ? `⚠️ **Chưa trình được Quản lý** — hồ sơ còn thiếu:\n${missing.join('\n')}\n\n${message}`
+            : `⚠️ Trình duyệt thất bại: ${message}. Anh/chị thử lại giúp em.`,
         },
       ])
-      showToast('Trình duyệt thất bại — xem chi tiết trong khung chat')
+      showToast(missing.length ? 'Hồ sơ chưa đủ điều kiện trình duyệt' : 'Trình duyệt thất bại — xem chi tiết trong khung chat')
     }
     scrollChatToEnd()
   }

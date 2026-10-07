@@ -214,34 +214,38 @@ async def test_sod_violation_enforcement(client: AsyncClient):
 async def test_official_quote_lifecycle_e2e(client: AsyncClient):
     """
     Full End-to-End Lifecycle of Official Quote:
-    1. Create Draft Quote
-    2. Calculate Pricing via Sidecar Bridge
-    3. Submit for Review
+    1. Create Draft Quote (dự án có chính sách hiệu lực — cổng submit yêu cầu bằng chứng thật)
+    2. Calculate Pricing via Sidecar Bridge (+ phát hành bộ chứng cứ C-04)
+    3. Submit for Review (chỉ qua khi đã tính + có bằng chứng + qua cổng F8)
     4. Manager Approval -> KMS Attestation -> Atomic Outbox Enqueue
     5. Audit Trail & Verification
     6. Verify Signature
     7. PDF Info
     """
-    # 1. Create
+    # 1. Create — dùng đúng dự án/căn có trong canonical fixture để có chính sách hiệu lực.
     c_resp = await client.post(
         "/api/v1/quotes/",
         json={
-            "project_id": "PRJ-E2E",
-            "unit_code": "U-E2E-01",
-            "listed_price_before_tax_vnd": 3_500_000_000,
+            "project_id": "THE_ZEN_PARK",
+            "unit_code": "ZEN-A-1205",
+            "listed_price_before_tax_vnd": 4_200_000_000,
+            "own_funds_vnd": 1_500_000_000,
+            "monthly_capacity_vnd": 40_000_000,
         },
         headers={"X-User-Id": "SALES-001"},
     )
     assert c_resp.status_code == 201
     quote_id = c_resp.json()["quote_id"]
 
-    # 2. Calculate
+    # 2. Calculate (ngày giao dịch nằm trong hiệu lực CSBH-ZEN-2026-V3.1)
     calc_resp = await client.post(
         f"/api/v1/quotes/{quote_id}/calculate",
+        params={"transaction_date": "2026-09-15"},
         headers={"If-Match": 'W/"1"', "X-User-Id": "SALES-001"},
     )
     assert calc_resp.status_code == 200
     assert calc_resp.json()["status"] == QuoteWorkflowStatus.CALCULATING.value
+    assert calc_resp.json()["evidence"]["applied_rule_count"] >= 1
 
     # 3. Submit Review
     sub_resp = await client.post(
@@ -249,8 +253,9 @@ async def test_official_quote_lifecycle_e2e(client: AsyncClient):
         json={"comment": "Ready for approval"},
         headers={"If-Match": 'W/"1"', "X-User-Id": "SALES-001"},
     )
-    assert sub_resp.status_code == 200
+    assert sub_resp.status_code == 200, sub_resp.text
     assert sub_resp.json()["status"] == QuoteWorkflowStatus.READY_FOR_REVIEW.value
+    assert all(item["ok"] for item in sub_resp.json()["checklist"])
 
     # 4. Manager Approve
     app_resp = await client.post(

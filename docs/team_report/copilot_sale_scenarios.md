@@ -8,7 +8,7 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 
 | | |
 |---|---|
-| File máy chạy được | `eval/copilot/sale_scenarios.json` (58 kịch bản, 12 nhóm) |
+| File máy chạy được | `eval/copilot/sale_scenarios.json` (61 kịch bản, 13 nhóm) |
 | Bộ chấm | `scripts/run_copilot_eval.py` — chấm thêm: `must_not_contain`, `expect_table`, `max_questions`, `notes_contain`, vệ sinh hình thức |
 | Báo cáo | `eval/results/sale_scenarios_report.json` |
 | Bàn giao việc #3 (time-travel chính sách) | `docs/team_report/handoff_policy_timetravel.md` |
@@ -20,7 +20,7 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
   `group`, `message`, `context`/`history` (nếu có) và các kỳ vọng máy kiểm (`any_tools`, `required_tools`,
   `must_contain`, `must_not_contain`, `expect_table`, `max_questions`, `notes_contain`, `known_gap`,
   `offline: "skip"`). Sửa bộ câu hỏi là sửa file này.
-- **Bản người đọc:** mục 2 của chính tài liệu này (bảng 12 nhóm, kèm "kiểm điều gì").
+- **Bản người đọc:** mục 2 của chính tài liệu này (bảng 13 nhóm, kèm "kiểm điều gì").
 - **Bộ vàng (khác, nhỏ hơn):** `eval/copilot/golden_questions.json` — 34 câu đo "gọi đúng tool" cho CI.
 - **Báo cáo kết quả:** `eval/results/sale_scenarios_report.json`.
 
@@ -110,6 +110,14 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 | TIN-02 | Viết tin nhắn Zalo gửi khách về chiết khấu thanh toán sớm | một trong: `soan_tin_tu_van` · phải có: `thanh toán sớm` · CẤM: `ALLOW_SEND`, `SUPPORTED`, `Bản nháp`, `F8:` · banner nội bộ có: `Kiểm duyệt F8` | Như TIN-01, cộng thêm: chủ đề 'chiết khấu thanh toán sớm' phải được bóc từ câu mệnh lệnh để bản nháp nói đúng việc Sale yêu cầu thay vì một tin chung chung. |
 | TIN-03 · chỉ LLM | Soạn tin cho khách về căn này nhé | một trong: `soan_tin_tu_van` · phải có: `ZEN-B-1502` · sạch ghi chú nội bộ | **(chỉ chạy ở chế độ LLM)** Ngữ cảnh đang mở căn ZEN-B-1502: 'căn này' phải được hiểu là căn đó (slot memory) — không được hỏi lại mã căn. |
 | TIN-04 | Soạn tin nhắn mời khách đi xem nhà mẫu The Zen Park | một trong: `soan_tin_tu_van` · CẤM: `ALLOW_SEND`, `SUPPORTED`, `Bản nháp`, `F8:` · banner nội bộ có: `Kiểm duyệt F8` | Tin mời xem nhà: không cần số liệu giá; quan trọng là giọng văn gửi được cho khách, không chữ nội bộ, và bản nháp vẫn có kết luận kiểm duyệt ở banner riêng. |
+
+### Hồ sơ đề xuất trình Quản lý
+
+| Mã | Sale hỏi | Kỳ vọng máy kiểm | Kiểm điều gì |
+|---|---|---|---|
+| DX-01 | Soạn hồ sơ đề xuất cho căn ZEN-A-1205, khách vốn tự có 1,5 tỷ, trình Quản lý giúp em | một trong: `soan_ho_so_de_xuat` · phải có: `HỒ SƠ ĐỀ XUẤT`, `ZEN-A-1205`, `CSBH-ZEN-2026-V3.1`, `Không còn thiếu thông tin` · CẤM: `soan_ho_so_de_xuat`, `ALLOW_SEND` · banner nội bộ có: `Kiểm duyệt F8` | Ca đủ dữ liệu: hồ sơ nội bộ phải có đủ 4 mục (căn hộ · phương án đề xuất theo mục tiêu · chính sách đang hiệu lực kèm điều khoản · việc cần bổ sung) và chốt phương án; kết luận kiểm duyệt nằm ở banner nội bộ, không lẫn vào thân hồ sơ. |
+| DX-02 | Chuẩn bị hồ sơ đề xuất trình duyệt cho căn ZEN-A-0803 | một trong: `soan_ho_so_de_xuat` · phải có: `HỒ SƠ ĐỀ XUẤT`, `VIỆC CẦN BỔ SUNG`, `Vốn tự có` · CẤM: `soan_ho_so_de_xuat` | Ca thiếu dữ liệu: chưa có vốn tự có nên mục 4 phải nêu ĐÚNG việc cần bổ sung thay vì tự đoán; số liệu vẫn lấy từ engine + catalog như các câu khác. |
+| DX-03 | Soạn hồ sơ đề xuất cho căn ZEN-A-1205, vốn tự có 1,5 tỷ | một trong: `soan_ho_so_de_xuat` · phải có: `HỒ SƠ ĐỀ XUẤT`, `CSBH-ZEN-2026-V2.0` · CẤM: `soan_ho_so_de_xuat` | Time-travel trong hồ sơ: ngày 15/07/2026 phải viện dẫn V2.0 (ân hạn 18 tháng), không được lấy V3.1 đang hiệu lực hôm nay — trình Quản lý sai phiên bản chính sách là lỗi nghiệp vụ. |
 
 ### Kiểm phát ngôn F8
 

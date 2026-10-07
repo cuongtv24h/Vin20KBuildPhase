@@ -496,6 +496,14 @@ def _default_suggestions(
             chips.append(f"Tạo báo giá căn {unit}")
         chips.append("Soạn tin nhắn gửi khách")
         return chips
+    if intent == intents.INTENT_COMPOSE_PROPOSAL:
+        chips = ["Lập báo giá trình Quản lý"]
+        if unit:
+            chips.append(f"Xem bảng tính vay chi tiết căn {unit}")
+        else:
+            chips.append("Lọc giỏ hàng theo ngân sách khách")
+        chips.append("Soạn tin nhắn gửi khách")
+        return chips
     if intent == intents.INTENT_COMPOSE_MESSAGE:
         return ["Kiểm tra lại tuân thủ F8", "Lập báo giá đính kèm", "Đổi văn phong thân mật hơn"]
     if intent == intents.INTENT_BROWSE_UNITS:
@@ -559,6 +567,22 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
                 "Tính 3 phương án bằng engine tất định",
             ),
             ("tra_cuu_chinh_sach", {"cau_hoi": "chiết khấu ưu đãi", "ngay_hieu_luc": tx_date}, "Đối chiếu chính sách"),
+        ]
+    if intent.intent == intents.INTENT_COMPOSE_PROPOSAL:
+        return [
+            (
+                "soan_ho_so_de_xuat",
+                {
+                    "ma_can": ctx_unit,
+                    "ten_khach": str(intent.entities.get("customer_name") or ""),
+                    "von_tu_co_vnd": intent.entities.get("amount_vnd") or 0,
+                    "so_phong_ngu": intent.entities.get("bedrooms") or 0,
+                    "gia_toi_da_vnd": intent.entities.get("amount_vnd") or 0,
+                    "muc_tieu": "MIN_INITIAL_CASH",
+                    "ngay_giao_dich": tx_date,
+                },
+                "Soạn hồ sơ đề xuất trình Quản lý",
+            )
         ]
     if intent.intent == intents.INTENT_COMPOSE_MESSAGE:
         return [("soan_tin_tu_van", {"ma_can": ctx_unit, "ten_khach": "", "noi_dung_chinh": ""}, "Soạn nháp & tự kiểm F8")]
