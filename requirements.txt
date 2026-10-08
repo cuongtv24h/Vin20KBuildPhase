@@ -6,7 +6,11 @@
 # CHÍNH SÁCH PHIÊN BẢN: mỗi gói có chặn trên (<major kế tiếp) để `pip install` không âm thầm nhảy
 # sang bản đổi API — đã trả giá một lần: FastAPI 0.142 giữ router con dạng lazy nên không đếm route
 # bằng `len(app.routes)` được nữa, còn LangGraph 0.2 -> 1.x đổi API.
-# Bản chốt để deploy nằm ở `requirements.lock.txt` (sinh từ môi trường đã chạy 810 test + ruff sạch).
+# Bản chốt để deploy nằm ở `requirements.lock.txt` (sinh từ môi trường đã chạy 823 test + ruff sạch).
+# ĐÃ ĐỐI CHIẾU 2026-10-08: resolve khô của file GỐC (chưa chặn trên) hôm nay trùng khít lock ⇒ các chặn
+# dưới đây KHÔNG hạ cấp máy đang chạy file gốc. Hai chặn "thấp hơn PyPI mới nhất" là ràng buộc bắc cầu
+# bắt buộc: llama-index-vector-stores-postgres 0.9.0 đòi sqlalchemy<2.1; arq 0.28.0 đòi redis<6.
+# Kiểm tra máy thật có đúng bản chốt không: `python scripts/check_env_drift.py [--strict|--json]`.
 # Nâng cấp có chủ đích: sửa khoảng ở đây -> cài lại -> chạy pytest + ruff -> sinh lại lock.
 # ============================================================
 

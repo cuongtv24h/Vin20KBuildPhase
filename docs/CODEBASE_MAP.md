@@ -150,7 +150,8 @@ Vin20KBuildPhase/
 │   ├── apps/customer/          # :5173 — public + /tu-van
 │   ├── apps/internal/          # :5174 — login, /sale/*, /manager/*, /admin/*, /admin_cp
 │   └── packages/{api-client,ui,mock-server}/
-├── scripts/                    # seed_data, seed_canonical_inventory, run_eval, run_copilot_eval, verify_schema…
+├── scripts/                    # seed_data, seed_canonical_inventory, run_eval, run_copilot_eval, verify_schema,
+│                               # migrate_lead_dossiers_created_by, check_env_drift (đối chiếu env với lock)…
 ├── deploy/                     # nginx conf, pm2 ecosystem, deploy/rollback/install-git-up
 ├── docs/                       # guide 10 chương, team_report, RASOAT, arch diagram, UI mockup
 ├── dataset/fixtures/golden_scenarios.json
@@ -407,6 +408,8 @@ prod → `/api/v1`; timeout 10s, SSE idle 20s.
 python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
 # Deploy thì cài đúng bộ đã kiểm chứng (tránh mỗi máy một bản FastAPI/LangGraph):
 #   pip install -r requirements.lock.txt
+# Sau khi cài, kiểm tra máy này có chạy ĐÚNG bản chốt không (in vài dòng, dán được vào chat):
+#   python scripts/check_env_drift.py            # thêm --strict để exit 1 khi lệch (dùng trong deploy)
 cp .env.example .env
 python -m src.db.init_db
 uvicorn src.main:app --port 8000        # hoặc: make run
@@ -416,6 +419,15 @@ pytest tests/ -v                        # hoặc: make test
 ---
 
 ## 9. Infra, CI/CD
+
+**Phiên bản thư viện (chốt 2026-10-08):** `requirements.txt` = khoảng phiên bản **có chặn major**,
+`requirements.lock.txt` = 128 pin đúng bộ đã chạy 823 test + `ruff check .` sạch. Đã đối chiếu bằng
+`pip install --dry-run --ignore-installed -r requirements.txt` (bản GỐC chưa có chặn trên): kết quả resolve
+hôm nay **trùng khít** toàn bộ phiên bản trong lock ⇒ các chặn trên hiện tại **không hạ cấp** máy nào cài
+từ file gốc. Hai chặn dưới mức mới nhất PyPI là bắt buộc do ràng buộc bắc cầu, không phải do ta chọn:
+`llama-index-vector-stores-postgres 0.9.0` đòi `sqlalchemy<2.1`, `arq 0.28.0` đòi `redis<6` — cài
+`sqlalchemy 2.1.4` hay `redis 8.1.0` vào là pip báo conflict ngay. Kiểm tra drift trên máy thật:
+`python scripts/check_env_drift.py [--strict|--json]`.
 
 - `Dockerfile` + `docker-compose.yml`: pgvector/pg16, redis:7, minio, backend.
 - `.github/workflows/ci.yml` (3 job):
