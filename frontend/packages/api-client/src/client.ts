@@ -64,6 +64,13 @@ import type {
   TtsSettingsResponse,
   TtsQuota,
   TtsSpeakRequest,
+  SttHealth,
+  SttProviderListResponse,
+  SttProviderTestResult,
+  SttProviderUpsert,
+  SttProviderView,
+  SttQuota,
+  SttTranscription,
   TtsSpeakResponse,
   UnitSnapshot,
   UpdateUserPayload,
@@ -321,5 +328,37 @@ export const api = {
     /** Nhận cả `provider_id` lẫn mã nhà cung cấp dựng sẵn (ví dụ `openai`). */
     testProvider: (providerRef: string, o: CommandOptions = {}) =>
       call<TtsProviderTestResult>('ttsProviderTest', { provider_id: providerRef }, { json: {}, ...o }),
+  },
+
+  /**
+   * Nghe-nói (STT): gửi audio micro lên backend, nhận CHỮ để dán vào ô hỏi Copilot.
+   * Backend không lưu audio; hết hạn mức/chưa cấu hình thì báo lỗi rõ để UI rơi về Web Speech API.
+   */
+  stt: {
+    transcribe: (
+      blob: Blob,
+      o: { language?: string; hint?: string; filename?: string } & CommandOptions = {},
+    ) => {
+      const form = new FormData()
+      form.append('file', blob, o.filename ?? `clip-${Date.now()}.webm`)
+      if (o.language) form.append('language', o.language)
+      if (o.hint) form.append('hint', o.hint)
+      const { language: _language, hint: _hint, filename: _filename, ...init } = o
+      return call<SttTranscription>('sttTranscribe', {}, { form, timeoutMs: 60_000, ...init })
+    },
+    /** Chuỗi nhà cung cấp + hạn mức + trần dung lượng — UI dựa vào đó quyết định dùng Whisper hay Web Speech. */
+    health: (signal?: AbortSignal) => call<SttHealth>('sttHealth', {}, { signal }),
+    quota: (signal?: AbortSignal) => call<SttQuota>('sttQuota', {}, { signal }),
+  },
+
+  /** Quản trị nhà cung cấp STT (ADMIN): dán khoá Groq (lưu mã hoá, DB đè .env), test, gỡ bản ghi đè. */
+  sttAdmin: {
+    providers: (signal?: AbortSignal) => call<SttProviderListResponse>('sttProviders', {}, { signal }),
+    updateProvider: (provider: string, body: SttProviderUpsert, o: CommandOptions = {}) =>
+      call<SttProviderView>('sttProviderUpdate', { provider }, { json: body, ...o }),
+    deleteProvider: (provider: string, o: CommandOptions = {}) =>
+      call<{ status: string; provider: string }>('sttProviderDelete', { provider }, o),
+    testProvider: (provider: string, o: CommandOptions = {}) =>
+      call<SttProviderTestResult>('sttProviderTest', { provider }, { json: {}, ...o }),
   },
 }

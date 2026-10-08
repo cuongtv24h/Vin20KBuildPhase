@@ -8,6 +8,7 @@ import { llmAdminHandlers } from './llmAdmin'
 import { ttsHandlers } from './tts'
 import { ttsAdminHandlers, ttsSpeakHandlers } from './ttsAdmin'
 import { quoteHandlers } from './quotes'
+import { sttAdminHandlers, sttHandlers } from './stt'
 import { adminHandlers, complianceHandlers, devtoolHandlers, leadHandlers, preSalesHandlers } from './workflows'
 
 registerSeeder(() => buildSeedState())
@@ -25,6 +26,8 @@ export const handlers = [
   ...ttsHandlers,
   ...ttsAdminHandlers,
   ...ttsSpeakHandlers,
+  ...sttHandlers,
+  ...sttAdminHandlers,
   ...adminCpHandlers,
   ...devtoolHandlers,
 ]

@@ -23,7 +23,9 @@ import {
   useTtsSpeak,
   useUpdateTtsSettings,
   useTtsVoiceFeedback,
+  useSttHealth,
 } from '@pricepolicy/api-client/hooks'
+import { errorMessage } from '@pricepolicy/api-client/errors'
 import { turnToAppendPayload } from '@pricepolicy/api-client/copilotHistory'
 import type {
   LeadDossier,
@@ -70,6 +72,13 @@ import {
   isSpeechToTextSupported,
   type SpeechToTextController,
 } from '@pricepolicy/ui/lib/speech'
+import {
+  VOICE_RECORDER_UNSUPPORTED_MESSAGE,
+  createVoiceRecorder,
+  isVoiceRecorderSupported,
+  type RecordedClip,
+  type VoiceRecorderController,
+} from '@pricepolicy/ui/lib/voiceRecorder'
 import { filterCommands, type SlashCommand } from '@pricepolicy/ui/lib/slashCommands'
 import { CopilotContextChips, TransactionDateField } from '@pricepolicy/ui/components/common/CopilotContextChips'
 import { formatNote, formatVnd, maskPhone } from '@pricepolicy/ui/lib/format'
@@ -1364,12 +1373,21 @@ export function SalesWorkspacePage() {
   }
 
 
-  // ── Nhập câu hỏi bằng giọng nói ("rảnh tay", Web Speech API) ─────────────────
-  // Chrome/Edge/Cốc Cốc có sẵn, 0 đồng. Bật là nghe liên tục: nói xong một câu, trình duyệt tự
-  // nghe lại cho tới khi Sale bấm dừng — Sale không phải chạm máy giữa các câu.
-  const sttSupported = useMemo(() => isSpeechToTextSupported(), [])
+  // ── Nhập câu hỏi bằng giọng nói ────────────────────────────────────────────────
+  // Hai đường, ưu tiên đường CHẤT LƯỢNG:
+  //  1) Whisper qua backend (`POST /api/v1/stt/transcribe`): mọi trình duyệt, có bias mã căn/thuật ngữ,
+  //     ghi sổ được chi phí. Bật khi `/stt/health` báo có nhà cung cấp API đã cấu hình.
+  //  2) Web Speech API của trình duyệt (0 đồng, Chrome/Edge/Cốc Cốc, nghe liên tục rảnh tay) — lưới an
+  //     toàn khi backend chưa dán khoá Groq, hết hạn mức, hoặc đang offline.
+  const sttHealthQuery = useSttHealth()
+  const serverSttReady = Boolean(sttHealthQuery.data?.enabled && (sttHealthQuery.data?.active_chain?.length ?? 0) > 0)
+  const maxClipSeconds = sttHealthQuery.data?.limits?.max_duration_seconds ?? 120
+  const sttSupported = useMemo(() => isVoiceRecorderSupported() || isSpeechToTextSupported(), [])
   const [sttListening, setSttListening] = useState(false)
+  /** `true` khi audio đã ghi xong và đang chờ backend trả chữ. */
+  const [sttBusy, setSttBusy] = useState(false)
   const sttRef = useRef<SpeechToTextController | null>(null)
+  const recorderRef = useRef<VoiceRecorderController | null>(null)
   /** Phần văn bản đã chốt trước khi bật micro — chữ đang nói được ghép vào sau phần này. */
   const sttBaseRef = useRef('')
   const showToastRef = useRef<(message: string) => void>(() => undefined)
@@ -1400,7 +1418,8 @@ export function SalesWorkspacePage() {
   inputValRef.current = inputVal
 
   useEffect(() => {
-    if (!sttSupported) return
+    // Có Whisper phía server thì không dựng bộ nhận dạng của trình duyệt (tránh hai đường cùng chạy).
+    if (serverSttReady || !isSpeechToTextSupported()) return
     const controller = createSpeechToText({
       lang: 'vi-VN',
       continuous: true,
@@ -1418,10 +1437,77 @@ export function SalesWorkspacePage() {
       controller.stop()
       sttRef.current = null
     }
-  }, [sttSupported])
+  }, [serverSttReady])
 
-  /** Bật/tắt micro. Trình duyệt không hỗ trợ (Safari/Firefox) thì nói rõ thay vì im lặng. */
+  // Rời trang thì tắt micro: không được để trình duyệt ghi âm tiếp khi Sale đã sang màn hình khác.
+  useEffect(
+    () => () => {
+      recorderRef.current?.cancel()
+      recorderRef.current = null
+    },
+    [],
+  )
+
+  /** Gửi clip vừa ghi lên backend nghe bằng Whisper, rồi dán CHỮ vào ô hỏi (Sale vẫn tự bấm gửi). */
+  const uploadVoiceClip = async (clip: RecordedClip) => {
+    setSttBusy(true)
+    try {
+      const result = await api.stt.transcribe(clip.blob, { filename: `clip-${Date.now()}.webm` })
+      const spoken = (result.normalized_text || result.text || '').trim()
+      if (!spoken) {
+        showToast(result.warnings[0] ?? 'Em chưa nghe rõ. Anh/chị nói lại gần micro giúp em.')
+        return
+      }
+      sttBaseRef.current = `${sttBaseRef.current}${spoken} `.replace(/\s+/g, ' ')
+      setInputVal(sttBaseRef.current.trimStart())
+      if (result.fallback_used) showToast(`Nhà cung cấp chính lỗi, em đã nghe qua ${result.provider}.`)
+      else if (result.warnings[0]) showToast(result.warnings[0])
+      inputTextAreaRef.current?.focus()
+    } catch (error) {
+      // Hết hạn mức / chưa cấu hình / mất mạng: nói rõ lý do và chỉ đường gõ tay, không im lặng.
+      showToast(`${errorMessage(error)} Anh/chị gõ câu hỏi giúp em, hoặc thử lại sau ít phút.`)
+    } finally {
+      setSttBusy(false)
+    }
+  }
+
+  /** Đường 1: ghi âm bằng MediaRecorder rồi gửi backend (Whisper). */
+  const toggleRecorderInput = () => {
+    if (!isVoiceRecorderSupported()) {
+      showToast(VOICE_RECORDER_UNSUPPORTED_MESSAGE)
+      return
+    }
+    const active = recorderRef.current
+    if (active?.isRecording()) {
+      // Dừng = chốt câu: clip được gửi đi, chữ sẽ hiện trong ô nhập.
+      active.stop()
+      showToast('Đã dừng ghi. Em đang chuyển âm thanh thành chữ…')
+      return
+    }
+    sttBaseRef.current = inputValRef.current ? `${inputValRef.current.trim()} ` : ''
+    const controller = createVoiceRecorder({
+      maxSeconds: maxClipSeconds,
+      onStop: (clip) => {
+        void uploadVoiceClip(clip)
+      },
+      onError: (message) => showToast(message),
+      onStateChange: setSttListening,
+    })
+    recorderRef.current = controller
+    void controller.start().then(() => {
+      if (controller.isRecording()) {
+        showToast(`Đang nghe (tối đa ${maxClipSeconds} giây)… bấm micro lần nữa để dừng và chuyển thành chữ.`)
+      }
+    })
+  }
+
+  /** Bật/tắt micro. Trình duyệt không hỗ trợ (Safari/Firefox cũ) thì nói rõ thay vì im lặng. */
   const toggleVoiceInput = () => {
+    if (sttBusy) return
+    if (serverSttReady) {
+      toggleRecorderInput()
+      return
+    }
     const controller = sttRef.current
     if (!controller?.supported) {
       showToast(SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE)
@@ -3510,23 +3596,30 @@ export function SalesWorkspacePage() {
                 placeholder="Ra lệnh cho Copilot…"
                 className="max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-base leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none sm:text-sm"
               />
-              {/* Nhập bằng giọng nói: bật là nghe liên tục (rảnh tay) cho tới khi bấm dừng. */}
+              {/* Nhập bằng giọng nói: Whisper qua backend khi đã cấu hình, còn lại Web Speech API (rảnh tay). */}
               <Button
                 type="button"
                 size="sm"
-                variant={sttListening ? 'default' : 'ghost'}
+                variant={sttListening || sttBusy ? 'default' : 'ghost'}
                 onClick={toggleVoiceInput}
-                disabled={copilot.streaming}
-                className={cn('h-11 w-11 shrink-0 rounded-xl p-0 text-muted-foreground hover:text-foreground md:h-10 md:w-10', sttListening && 'animate-pulse text-primary-foreground hover:text-primary-foreground')}
+                disabled={copilot.streaming || sttBusy}
+                className={cn('h-11 w-11 shrink-0 rounded-xl p-0 text-muted-foreground hover:text-foreground md:h-10 md:w-10', (sttListening || sttBusy) && 'animate-pulse text-primary-foreground hover:text-primary-foreground')}
                 title={
-                  !sttSupported
-                    ? SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE
-                    : sttListening
-                      ? 'Đang nghe — bấm để dừng'
-                      : 'Nói để nhập câu hỏi (rảnh tay)'
+                  sttBusy
+                    ? 'Đang chuyển âm thanh thành chữ…'
+                    : !sttSupported
+                      ? SPEECH_TO_TEXT_UNSUPPORTED_MESSAGE
+                      : sttListening
+                        ? serverSttReady
+                          ? 'Đang ghi âm — bấm để dừng và chuyển thành chữ'
+                          : 'Đang nghe — bấm để dừng'
+                        : serverSttReady
+                          ? 'Nói để nhập câu hỏi (Whisper, tối đa ' + maxClipSeconds + ' giây)'
+                          : 'Nói để nhập câu hỏi (rảnh tay)'
                 }
                 aria-label={sttListening ? 'Dừng nhập bằng giọng nói' : 'Nhập bằng giọng nói'}
                 aria-pressed={sttListening}
+                aria-busy={sttBusy}
               >
                 {sttListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
               </Button>

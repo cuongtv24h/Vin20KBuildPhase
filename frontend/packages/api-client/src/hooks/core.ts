@@ -22,6 +22,9 @@ export const queryKeys = {
   llmUsage: ['admin', 'llm', 'usage'] as const,
   ttsSettings: ['settings', 'tts'] as const,
   ttsProviders: ['admin', 'tts', 'providers'] as const,
+  sttHealth: ['stt', 'health'] as const,
+  sttQuota: ['stt', 'quota'] as const,
+  sttProviders: ['admin', 'stt', 'providers'] as const,
 }
 
 /**

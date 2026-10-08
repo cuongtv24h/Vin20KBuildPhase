@@ -64,6 +64,36 @@ class Settings(BaseSettings):
     vbee_token: str = ""
     fpt_tts_api_key: str = ""
 
+    # ---- Speech-to-Text (Sale NÓI -> chữ cho Copilot) — DB đè ENV, cùng cơ chế với TTS ----
+    #: `groq` (Whisper trên LPU, có gói free không cần thẻ) | `openai` (whisper-1) | `browser` (Web Speech API).
+    stt_provider: str = "groq"
+    stt_enabled: bool = True
+    #: Khoá Groq RIÊNG cho nghe-nói — tách khỏi `OPENAI_API_KEY` đang chạy LLM: hết hạn mức STT thì
+    #: Copilot vẫn sống, và ngược lại (người dùng chốt 2026-10-08: "khai báo riêng 1 key Groq").
+    stt_groq_api_key: str = ""
+    stt_groq_base_url: str = "https://api.groq.com/openai/v1"
+    #: `whisper-large-v3-turbo` (nhanh, 0,04 USD/giờ) hoặc `whisper-large-v3` (tiếng Việt chính xác hơn, 0,111 USD/giờ).
+    stt_model: str = "whisper-large-v3-turbo"
+    #: Nhà cung cấp `openai` dùng lại khoá LLM sẵn có, chỉ model khai báo riêng.
+    stt_openai_model: str = "whisper-1"
+    stt_language: str = "vi"
+    #: Từ vựng MỒI cho Whisper (không phải lệnh hệ thống, không chứa dữ liệu khách): tên dự án, mã căn,
+    #: thuật ngữ chính sách — thiếu nó thì "ZEN-A-1205" hay ra "ZEN A 1205" và Copilot tra sai căn.
+    stt_prompt: str = (
+        "The Zen Park, VLand Future Riverside, VLand Future Sapphire, ZEN-A-1205, ZEN-A-0803, "
+        "KPBT, VAT, GPMB, ân hạn, chiết khấu, vốn tự có, báo giá, hồ sơ đề xuất, quản lý kinh doanh"
+    )
+    #: Hạn mức số PHÚT audio/ngày cho đường trả phí (0 = không giới hạn). Groq free: 2.000 request/ngày,
+    #: 8 giờ audio/ngày — đặt thấp hơn trần để không ăn 429 giữa demo.
+    stt_daily_minutes_budget: int = 60
+    #: Trần phía frontend (máy chủ không giải mã audio nên chặn theo dung lượng là chính).
+    stt_max_duration_seconds: int = 120
+    stt_max_bytes: int = 10_000_000
+    stt_request_timeout_seconds: float = 30.0
+    #: CAM KẾT VẬN HÀNH, không phải công tắc kỹ thuật: Groq không có tham số ZDR theo request — ADMIN bật
+    #: Zero Data Retention trong Groq Console -> Data Controls rồi khai báo lại ở đây để `/stt/health` hết cảnh báo.
+    stt_zero_data_retention: bool = False
+
     # Fallback LLM 1
     fallback_openai_api_key: str | None = Field(
         default=None,

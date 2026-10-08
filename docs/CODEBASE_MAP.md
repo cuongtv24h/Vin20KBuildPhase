@@ -38,19 +38,19 @@
 | File được git track | 582 |
 | Python | 276 file · ~49.439 dòng |
 | TypeScript/TSX | 167 file · ~31.134 dòng |
-| API routers (sub-router) | 14 (+ base router) |
-| Route operation (`@router.*`) | 97 operation / 77 path — đo bằng `app.openapi()['paths']`. FastAPI ≥ 0.142 giữ router con dạng lazy (`_IncludedRouter`) nên `len(app.routes)` KHÔNG đếm được endpoint nữa |
-| Bảng ORM (`__tablename__`) | 24 |
+| API routers (sub-router) | 15 (+ base router) |
+| Route operation (`@router.*`) | 104 operation / 83 path — đo bằng `app.openapi()['paths']`. FastAPI ≥ 0.142 giữ router con dạng lazy (`_IncludedRouter`) nên `len(app.routes)` KHÔNG đếm được endpoint nữa |
+| Bảng ORM (`__tablename__`) | 25 |
 | ErrorCode trong `src/contracts/errors.py` | 23 |
 | Tool của Copilot | 8 |
 | Node Pre-sales graph | 11 |
 | Node Official-quote graph | 23 |
-| Test files | 74 |
-| Hàm `def test_` | 745 |
-| Endpoint defs phía frontend (`endpoints.ts`) | 75 |
+| Test files | 81 |
+| Hàm `def test_` | 816 |
+| Endpoint defs phía frontend (`endpoints.ts`) | 84 |
 
 > Lệch tài liệu: README ghi "498/498 pytest" và `docs/RASOAT_TONGTHE_2026-10-02.md` ghi 455 —
-> số thực tế đếm được là **745 hàm test / 74 file**. Xem §11.
+> số thực tế đếm được là **816 hàm test / 81 file** (pytest gom **850** test, gồm tham số hoá — 2026-10-08). Xem §11.
 
 ---
 
@@ -106,9 +106,9 @@ Vin20KBuildPhase/
 │   ├── main.py                 # FastAPI app, middleware, lifespan bootstrap (145 dòng)
 │   ├── config.py               # pydantic-settings Settings (114 dòng)
 │   ├── api/
-│   │   ├── routes.py           # Master aggregator mount 14 sub-router nghiệp vụ + base router
+│   │   ├── routes.py           # Master aggregator mount 15 sub-router nghiệp vụ + base router
 │   │   ├── deps.py             # Principal, idempotency, OCC, SoD helpers
-│   │   └── endpoints/          # 14 file router nghiệp vụ
+│   │   └── endpoints/          # 15 file router nghiệp vụ (… , settings.py, stt.py — nghe-nói, tts_admin.py, tts_speak.py)
 │   ├── agents/
 │   │   ├── copilot/            # ReAct agent + planner/verifier/critic/anchors/history…
 │   │   ├── pre_sales/          # graph 11 node (discovery/constraints/planning/handoff)
@@ -151,7 +151,8 @@ Vin20KBuildPhase/
 │   ├── apps/internal/          # :5174 — login, /sale/*, /manager/*, /admin/*, /admin_cp
 │   └── packages/{api-client,ui,mock-server}/
 ├── scripts/                    # seed_data, seed_canonical_inventory, run_eval, run_copilot_eval, verify_schema,
-│                               # migrate_lead_dossiers_created_by, check_env_drift (đối chiếu env với lock)…
+│                               # migrate_lead_dossiers_created_by, check_env_drift (đối chiếu env với lock),
+│                               # check_stt_groq (soi khoá/độ trễ Whisper trên VM)…
 ├── deploy/                     # nginx conf, pm2 ecosystem, deploy/rollback/install-git-up
 ├── docs/                       # guide 10 chương, team_report, RASOAT, arch diagram, UI mockup
 ├── dataset/fixtures/golden_scenarios.json
@@ -185,13 +186,17 @@ Vin20KBuildPhase/
 - **LLM**: `llm_secret_key` (alias `LLM_SECRET_KEY`/`SECRET_KEY`), `llm_http_headers` (`app`|`browser`),
   `primary_llm_*`, `fallback1_*`, `fallback2_*` (provider/model/base_url/api_key/temperature).
 - **RAG local**: `embedding_model = sentence-transformers/all-MiniLM-L6-v2` (**384 dim**), cross-encoder reranker.
+- **STT (nghe-nói)**: `stt_enabled`, `stt_provider` (`groq`), `stt_groq_api_key`/`stt_groq_base_url`,
+  `stt_model` (`whisper-large-v3-turbo`), `stt_language` (`vi`), `stt_prompt` (từ vựng mồi),
+  `stt_daily_minutes_budget` (60), `stt_max_bytes` (10 MB), `stt_max_duration_seconds` (120),
+  `stt_zero_data_retention` (cam kết vận hành — xem §4.3).
 - **Pricing**: `pricing_sidecar_socket` (`./data/pricing.sock`), `pricing_sidecar_host/port` (`28001`),
   `pricing_use_mock`, `pricing_fallback_to_direct` (**default true** → demo chạy engine in-process).
 
 ### 4.3 API layer
 
-`src/api/routes.py` mount 14 sub-router nghiệp vụ + base router (15 lần `include_router`); 6 router được thêm prefix `/api/v1` tại aggregator
-(`llm_admin`, `tts_admin`, `tts_speak`, `settings`, `copilot`, `policies`).
+`src/api/routes.py` mount 15 sub-router nghiệp vụ + base router (16 lần `include_router`); 7 router được thêm prefix `/api/v1` tại aggregator
+(`llm_admin`, `tts_admin`, `tts_speak`, `stt`, `settings`, `copilot`, `policies`).
 
 | Router | Prefix | #op | Nội dung chính |
 |---|---|---:|---|
@@ -207,8 +212,32 @@ Vin20KBuildPhase/
 | `quote_events.py` | `/api/v1/quotes` | 1 | SSE stream sự kiện quote |
 | `quotes.py` | `/api/v1/quotes` | 14 | create/list/get/calculate/submit-review/approve/reject/revision/exception/audit-trail/pdf/… |
 | `settings.py` | `/settings` | 3 | runtime settings |
+| `stt.py` | `/api/v1/stt` | 7 | **Nghe-nói**: `POST /transcribe` (audio micro → CHỮ, multipart, bắt buộc phiên nhân viên, trần `STT_MAX_BYTES`, hạn mức phút/ngày → 429), `GET /health` (chuỗi nhà cung cấp + cảnh báo), `GET /quota`, và 4 endpoint ADMIN `GET/PUT/DELETE /providers/{provider}` + `POST /providers/{provider}/test` (khoá lưu **mã hoá Fernet**, DB đè `.env`) |
 | `tts_admin.py` | `/admin/tts` | 5 | provider + voice admin |
 | `tts_speak.py` | `/tts` | 2 | speak/stream |
+
+**Nghe-nói (STT) — Sale NÓI, Copilot đọc CHỮ** (thêm 2026-10-08, engine Whisper qua Groq):
+
+- Ranh giới kiến trúc: ASR **chỉ là "bàn phím bằng giọng nói"**. `POST /api/v1/stt/transcribe` trả về chữ;
+  chữ đó đi vào đúng `POST /api/v1/copilot/chat` như khi Sale gõ ⇒ grounding/verifier/compliance/lịch sử
+  hội thoại không đổi một dòng. Không đưa audio vào graph.
+- `src/services/stt_providers.py` nhân bản khuôn `tts_providers.py`: danh mục `groq` → `openai` → `browser`,
+  **khoá DB ưu tiên, `.env` dự phòng** (bảng `stt_providers`, khoá mã hoá Fernet, API chỉ trả dạng che),
+  chuỗi fallback theo `priority` (`transcribe_chain`), ghi sổ chi phí vào `llm_usage.jsonl` với `kind = "stt"`.
+- `browser` (Web Speech API, `frontend/packages/ui/src/lib/speech.ts`) KHÔNG nằm trong chuỗi backend — nó là
+  lưới an toàn phía giao diện: `/stt/health` báo `active_chain` rỗng thì `SalesWorkspacePage` tự dùng
+  `createSpeechToText`; có nhà cung cấp API thì dùng `createVoiceRecorder` (`lib/voiceRecorder.ts`) → upload.
+- **Không lưu audio ở bất kỳ đâu** (không ghi đĩa, không nhét DB); chỉ ghi transcript + nhà cung cấp + độ trễ.
+  Với Groq, Zero Data Retention là **cờ cấp tài khoản** bật ở Console → Data Controls, KHÔNG có tham số theo
+  request ⇒ trong code nó là cam kết vận hành (`STT_ZERO_DATA_RETENTION` / cột `zero_data_retention`) và
+  `/stt/health` cảnh báo khi chưa khai báo.
+- Trần/hạn mức: `STT_MAX_BYTES` (10 MB, đọc theo khúc 64 KB), `STT_MAX_DURATION_SECONDS` (120 — frontend tự
+  dừng ở mức này), `STT_DAILY_MINUTES_BUDGET` (60 phút audio/ngày ⇒ vượt là 429). nginx phải có
+  `client_max_body_size 12m;` (mặc định 1 MB sẽ 413 trước khi tới backend).
+- Từ vựng mồi `STT_PROMPT` + `normalize_transcript()` sửa tất định mã căn ("ZEN A 1205" → "ZEN-A-1205"),
+  KPBT/VAT, "3 phẩy 864 tỷ" → "3,864 tỷ" — sai một ký tự là Copilot tra sai căn.
+- Kiểm tra trên VM: `scripts/check_stt_groq.py` (gọi thẳng Groq bằng 1 giây im lặng hoặc `--file` audio thật,
+  hoặc `--api-base` để soi cả nginx + quyền + endpoint).
 
 **Helper quan trọng** — `src/api/deps.py`: `Principal` (từ token/header, map role), lưu idempotency
 in-memory (`_IDEMPOTENCY_STORE`) trả **409** khi payload mismatch + header `Idempotent-Replayed`,
@@ -421,7 +450,7 @@ pytest tests/ -v                        # hoặc: make test
 ## 9. Infra, CI/CD
 
 **Phiên bản thư viện (chốt 2026-10-08):** `requirements.txt` = khoảng phiên bản **có chặn major**,
-`requirements.lock.txt` = 128 pin đúng bộ đã chạy 823 test + `ruff check .` sạch. Đã đối chiếu bằng
+`requirements.lock.txt` = 129 pin đúng bộ đã chạy 850 test + `ruff check .` sạch. Đã đối chiếu bằng
 `pip install --dry-run --ignore-installed -r requirements.txt` (bản GỐC chưa có chặn trên): kết quả resolve
 hôm nay **trùng khít** toàn bộ phiên bản trong lock ⇒ các chặn trên hiện tại **không hạ cấp** máy nào cài
 từ file gốc. Hai chặn dưới mức mới nhất PyPI là bắt buộc do ràng buộc bắc cầu, không phải do ta chọn:
@@ -458,6 +487,8 @@ từ file gốc. Hai chặn dưới mức mới nhất PyPI là bắt buộc do 
 | Thêm endpoint | `src/api/endpoints/<domain>.py` + `src/api/routes.py` + `frontend/packages/api-client/src/endpoints.ts` (+ mock-server) |
 | Thêm bảng | `src/db/models.py` + `init_db.py` + repository tương ứng |
 | Provider LLM/TTS | `src/services/llm_providers.py`, `tts_providers.py`, `src/api/endpoints/{llm_admin,tts_admin}.ts…` |
+| Nhà cung cấp nghe-nói (STT), từ vựng mồi, hạn mức | `src/services/stt_providers.py` (danh mục + chuỗi fallback + `normalize_transcript`) · `src/api/endpoints/stt.py` · `src/config.py` (`stt_*`) · bảng `stt_providers` · `.env` (`STT_*`) · kiểm tra nhanh `scripts/check_stt_groq.py` |
+| Nút micro / ghi âm phía giao diện | `frontend/packages/ui/src/lib/voiceRecorder.ts` (Whisper qua backend) · `lib/speech.ts` (Web Speech API — lưới an toàn) · `SalesWorkspacePage.tsx` (`toggleVoiceInput`, `uploadVoiceClip`) · `api-client` (`contracts/stt.ts`, `hooks/stt.ts`, nhóm `api.stt`/`api.sttAdmin`) · mock `packages/mock-server/src/handlers/stt.ts` |
 | UI Sales workspace | `frontend/apps/internal/src/features/sale/*` |
 | Quyền vào trang theo vai trò + menu sidebar | `frontend/apps/internal/src/auth/roles.ts` (`AREA_ROLES`, `canOpenPath` — nguồn sự thật duy nhất) · `auth/nav.ts` (`NAV_BY_ROLE`) · `auth/RequireRole.tsx` · `App.tsx` (khai báo route) · bất biến được chốt bởi `auth/nav.test.ts`. Trang Khách hàng `/sale/leads` tách thành route riêng mở cho **SALE + ADMIN** (ADMIN vào để gán Sale phụ trách / xoá hộ hồ sơ vô chủ); phần còn lại của khu `/sale` vẫn chỉ SALE. Khi ADMIN vào, LeadInboxPage ẩn 4 thao tác của Sale (thêm khách, 2 nút hỏi Copilot, lập báo giá) |
 | Trang quản trị | `frontend/apps/internal/src/features/admin/*`, `admin_cp` API |
@@ -477,7 +508,7 @@ từ file gốc. Hai chặn dưới mức mới nhất PyPI là bắt buộc do 
 | 7 | **Eval không chạy được ngoài máy tác giả** | `scripts/run_eval.py` hardcode `/Users/mac/AITC/PROJECT/report/...`; cần `EVAL_DATASET_PATH`/`EVAL_POLICIES_DIR`/`EVAL_CANONICAL_DIR`. |
 | 8 | **`init_db.py` không chạy được trên SQLite** | DDL pgvector/HNSW/FTS chỉ dành Postgres; nếu gọi trên dev SQLite sẽ lỗi. |
 | 9 | **Hardcode nghiệp vụ trong graph** | `official_quote/nodes/context.py` cố định 68.5 m² / 2BR / VAT 10% / KPBT 2%. |
-| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **789** hàm `def test_` (pytest gom **823** test, gồm cả tham số hoá — 2026-10-08). |
+| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **816** hàm `def test_` (pytest gom **850** test, gồm cả tham số hoá — 2026-10-08). |
 | 11 | ~~CI không phủ branch làm việc~~ **ĐÃ FIX 2026-10-08** | Workflow giờ chạy trên `main`/`develop`/`dev`/`master`/`arena/**` và PR vào `main`/`dev`; bước ruff quét **cả repo** (`ruff check .`, thêm `eval/`, `scripts/`) thay vì chỉ `src/ tests/`. |
 | 12 | **Endpoint frontend đặt tên khác backend** | Nhiều mục `PROPOSED` trong `endpoints.ts` (auth login, admin users, `/messages/*`) — cần đối chiếu với router thật khi tích hợp. |
 | 13 | **Danh tính suy ra từ header client — MẠO DANH ĐƯỢC** (hoãn tới sau demo, quyết ngày 2026-10-08) | `get_current_principal` (`src/api/deps.py:149`) tin `X-User-Id`/`X-User-Role` **trước** token, còn `create_access_token` chỉ là base64 JSON **không chữ ký, không `exp`**. Đã đo trên test: gửi `X-User-Role: ADMIN` → `POST /leads/{id}/assign-sale` trả **200**; token `tk_` tự nặn `{"u":"X","r":"ADMIN"}` cũng 200; mạo danh `X-User-Id` của chủ hồ sơ → **xoá được**. Mọi cổng ADMIN (`admin_cp`, `policies`, `llm_admin`, `tts_admin`) hở cùng kiểu. Fix: ký token (HMAC/JWT + `exp`, secret trong `.env`) và chỉ suy danh tính từ token đã xác thực. |

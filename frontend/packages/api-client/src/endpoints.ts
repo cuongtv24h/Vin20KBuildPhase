@@ -137,6 +137,16 @@ export const ENDPOINTS = {
   ttsProviderUpdate: def({ method: 'PUT', path: '/admin/tts/providers/{provider_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
   ttsProviderDelete: def({ method: 'DELETE', path: '/admin/tts/providers/{provider_id}', source: 'PROPOSED', auth: ['ADMIN'] }),
   ttsProviderTest: def({ method: 'POST', path: '/admin/tts/providers/{provider_id}/test', source: 'PROPOSED', auth: ['ADMIN'] }),
+
+  // ---- STT: Sale NÓI -> chữ cho Copilot (Whisper qua Groq/OpenAI; Groq có gói free không cần thẻ) ----
+  // Backend KHÔNG lưu audio; chỉ trả transcript. Chữ này đi vào /copilot/chat như Sale gõ.
+  sttTranscribe: def({ method: 'POST', path: '/stt/transcribe', source: 'PROPOSED', auth: 'staff' }),
+  sttHealth: def({ method: 'GET', path: '/stt/health', source: 'PROPOSED', auth: 'staff' }),
+  sttQuota: def({ method: 'GET', path: '/stt/quota', source: 'PROPOSED', auth: 'staff' }),
+  sttProviders: def({ method: 'GET', path: '/stt/providers', source: 'PROPOSED', auth: ['ADMIN'] }),
+  sttProviderUpdate: def({ method: 'PUT', path: '/stt/providers/{provider}', source: 'PROPOSED', auth: ['ADMIN'] }),
+  sttProviderDelete: def({ method: 'DELETE', path: '/stt/providers/{provider}', source: 'PROPOSED', auth: ['ADMIN'] }),
+  sttProviderTest: def({ method: 'POST', path: '/stt/providers/{provider}/test', source: 'PROPOSED', auth: ['ADMIN'] }),
 } as const
 
 export type EndpointName = keyof typeof ENDPOINTS

@@ -591,6 +591,52 @@ class TTSProviderModel(Base):
     )
 
 
+class STTProviderModel(Base):
+    """Nhà cung cấp Speech-to-Text (Whisper) do ADMIN khai báo trong DB — **DB ưu tiên, `.env` dự phòng**.
+
+    Cùng cơ chế với `TTSProviderModel`/`LLMProviderModel` (người dùng chốt "dùng sẵn cơ chế cũ đã có"):
+    khoá API lưu **mã hoá Fernet** (`src/services/llm_secrets.py`), API chỉ trả dạng che `sk-…abcd`;
+    bản ghi có mã trùng danh mục thì ĐÈ lên nhà cung cấp dựng sẵn, mã lạ thì thành nhà cung cấp MỚI
+    (self-host, gateway nội bộ, ASR Việt Nam…).
+
+    `zero_data_retention` là **cam kết vận hành** chứ không phải tham số gửi đi: Groq bật ZDR ở cấp tài
+    khoản trong Console → Data Controls, không có cờ theo request. Hệ thống chỉ dùng nó để cảnh báo.
+    """
+
+    __tablename__ = "stt_providers"
+
+    provider_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True, default=lambda: f"STT-{uuid.uuid4().hex[:10]}"
+    )
+    #: Mã nhà cung cấp (slug): `groq`, `openai`, `browser`… trùng danh mục = bản ghi ĐÈ.
+    provider: Mapped[str] = mapped_column(String(48), nullable=False, unique=True)
+    label: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    #: `api` = backend gọi lên nhà cung cấp; `browser` = frontend tự nhận dạng (Web Speech API).
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="api")
+    base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    default_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    #: Tên biến ENV giữ khoá, dùng khi DB chưa có khoá cho nhà cung cấp này.
+    env_key: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    language: Mapped[str] = mapped_column(String(16), nullable=False, default="vi")
+    #: Giá theo MỘT GIỜ audio (đơn vị ở `currency`) — để ước lượng chi phí.
+    price_per_hour_audio: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
+    #: Từ vựng mồi riêng (rỗng thì dùng `settings.stt_prompt`).
+    prompt_bias: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    zero_data_retention: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_test_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_test_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class LLMProviderModel(Base):
     """Nhà cung cấp LLM do Admin khai báo trong giao diện (không phải sửa .env).
 

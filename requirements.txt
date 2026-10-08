@@ -22,6 +22,7 @@ pydantic-settings>=2.7.0,<3
 python-dotenv>=1.0.0,<2
 httpx>=0.28.0,<0.29
 sse-starlette>=2.1.0,<4  # C-01/C-09: SSE stream (quotes/pre-sales events, Last-Event-ID)
+python-multipart>=0.0.20,<0.1  # STT: FastAPI cần thư viện này để nhận multipart/form-data (upload audio micro)
 
 # ---- AI / LangChain (orchestrator C-01, pre-sales C-09, LLM adapter) ----
 langchain>=0.3.0,<2
