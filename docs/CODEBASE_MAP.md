@@ -434,7 +434,8 @@ từ file gốc. Hai chặn dưới mức mới nhất PyPI là bắt buộc do 
   1. **lint-and-test** — Python 3.11, `ruff check src/ tests/`, `pytest tests/ -v` (env `APP_ENV=test`, `OPENAI_API_KEY=test-key`).
   2. **deploy-scripts** — `bash -n deploy/*.sh` + `shellcheck -S warning`.
   3. **frontend** — `npm ci`, `tsc` cho packages + apps, `oxlint`, `npm test`.
-  > Trigger chỉ `main`/`develop` → **branch hiện tại không được CI chạy**.
+  > Trigger đã mở rộng (2026-10-08): push lên `main`/`develop`/`dev`/`master`/`arena/**`, PR vào `main`/`dev`;
+  > bước ruff quét cả repo (`ruff check .`).
 - `deploy/`: `p096.nginx.conf`, `ecosystem.config.cjs` (pm2 `p096-backend`, uvicorn ×2 worker trên `127.0.0.1:8000`),
   `deploy.sh`/`rollback.sh`/`install-git-up.sh`.
 
@@ -458,6 +459,7 @@ từ file gốc. Hai chặn dưới mức mới nhất PyPI là bắt buộc do 
 | Thêm bảng | `src/db/models.py` + `init_db.py` + repository tương ứng |
 | Provider LLM/TTS | `src/services/llm_providers.py`, `tts_providers.py`, `src/api/endpoints/{llm_admin,tts_admin}.ts…` |
 | UI Sales workspace | `frontend/apps/internal/src/features/sale/*` |
+| Quyền vào trang theo vai trò + menu sidebar | `frontend/apps/internal/src/auth/roles.ts` (`AREA_ROLES`, `canOpenPath` — nguồn sự thật duy nhất) · `auth/nav.ts` (`NAV_BY_ROLE`) · `auth/RequireRole.tsx` · `App.tsx` (khai báo route) · bất biến được chốt bởi `auth/nav.test.ts`. Trang Khách hàng `/sale/leads` tách thành route riêng mở cho **SALE + ADMIN** (ADMIN vào để gán Sale phụ trách / xoá hộ hồ sơ vô chủ); phần còn lại của khu `/sale` vẫn chỉ SALE. Khi ADMIN vào, LeadInboxPage ẩn 4 thao tác của Sale (thêm khách, 2 nút hỏi Copilot, lập báo giá) |
 | Trang quản trị | `frontend/apps/internal/src/features/admin/*`, `admin_cp` API |
 
 ---

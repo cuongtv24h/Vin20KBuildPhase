@@ -66,6 +66,11 @@ export function LeadInboxPage() {
   const projectsQuery = useProjectOverviews()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
+  // ADMIN cũng mở được trang này (route riêng `sale/leads` trong App.tsx) để gán Sale phụ trách và dọn
+  // hồ sơ vô chủ, nhưng không có nghiệp vụ Sale: thêm khách / hỏi Copilot / lập báo giá là endpoint chỉ
+  // nhận SALE nên ẨN nút thay vì bày ra để nhận 403 hoặc bị đá về /admin_cp.
+  const sessionUser = useSessionStore((state) => state.session?.user)
+  const isSale = sessionUser?.role === 'SALE'
 
   // Selection & Search State
   const selectedId = params.get('id')
@@ -182,16 +187,20 @@ export function LeadInboxPage() {
             </Badge>
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-            Theo dõi, phân loại và cập nhật hồ sơ khách hàng tiềm năng cho chuyên viên kinh doanh
+            {isSale
+              ? 'Theo dõi, phân loại và cập nhật hồ sơ khách hàng tiềm năng cho chuyên viên kinh doanh'
+              : 'Chế độ quản trị: gán Sale phụ trách cho hồ sơ chưa có chủ, sửa hoặc xoá hộ hồ sơ khách hàng'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
-          <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 text-xs border-warning/40 text-warning hover:bg-warning/10">
-            <Link to="/sale/workspace">
-              <Sparkles className="h-3.5 w-3.5 text-warning" />
-              Mở Trợ lý Copilot
-            </Link>
-          </Button>
+          {isSale ? (
+            <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 text-xs border-warning/40 text-warning hover:bg-warning/10">
+              <Link to="/sale/workspace">
+                <Sparkles className="h-3.5 w-3.5 text-warning" />
+                Mở Trợ lý Copilot
+              </Link>
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="outline"
@@ -201,14 +210,16 @@ export function LeadInboxPage() {
             <RefreshCw className={cn('h-3.5 w-3.5', leadsQuery.isFetching && 'animate-spin')} />
             Làm mới
           </Button>
-          <Button
-            size="sm"
-            onClick={() => setIsCreateOpen(true)}
-            className="h-8 text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-          >
-            <UserPlus className="h-3.5 w-3.5" />
-            + Thêm khách hàng
-          </Button>
+          {isSale ? (
+            <Button
+              size="sm"
+              onClick={() => setIsCreateOpen(true)}
+              className="h-8 text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              + Thêm khách hàng
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -395,18 +406,20 @@ export function LeadInboxPage() {
                       <p className="text-xs text-muted-foreground line-clamp-1 italic max-w-[240px]">
                         {formatNote(d.needs_summary)}
                       </p>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          navigate(`/sale/workspace?id=${d.dossier_id}`)
-                        }}
-                        className="h-6 px-2 text-xs font-semibold text-warning hover:text-warning hover:bg-warning/10 gap-1 rounded-md"
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        Hỏi Copilot
-                      </Button>
+                      {isSale ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`/sale/workspace?id=${d.dossier_id}`)
+                          }}
+                          className="h-6 px-2 text-xs font-semibold text-warning hover:text-warning hover:bg-warning/10 gap-1 rounded-md"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          Hỏi Copilot
+                        </Button>
+                      ) : null}
                     </div>
                   </CardContent>
                 </Card>
@@ -420,7 +433,7 @@ export function LeadInboxPage() {
           {selectedLead ? (
             <CustomerCrmEditor
               dossier={selectedLead}
-              onAskCopilot={() => navigate(`/sale/workspace?id=${selectedLead.dossier_id}`)}
+              onAskCopilot={isSale ? () => navigate(`/sale/workspace?id=${selectedLead.dossier_id}`) : undefined}
               onDeleted={() => {
                 setParams({})
               }}
@@ -612,7 +625,8 @@ function CustomerCrmEditor({
   onDeleted,
 }: {
   dossier: LeadDossier
-  onAskCopilot: () => void
+  /** Bỏ trống khi người xem không phải Sale (ADMIN không có trang Trợ lý Copilot để nhảy sang). */
+  onAskCopilot?: () => void
   onDeleted: () => void
 }) {
   const navigate = useNavigate()
@@ -625,6 +639,8 @@ function CustomerCrmEditor({
   // toàn bộ khách hàng bị bỏ ngỏ. ADMIN gán Sale phụ trách để cấp chủ sở hữu (nút "Gán Sale" bên dưới).
   const sessionUser = useSessionStore((state) => state.session?.user)
   const isAdmin = sessionUser?.role === 'ADMIN'
+  // Lập báo giá là nghiệp vụ Sale (và trang /sale/quotes/new không mở cho ADMIN) ⇒ ẩn nút với ADMIN.
+  const isSale = sessionUser?.role === 'SALE'
   const createdBy = dossier.created_by || ''
   const assignedSaleId = dossier.assigned_sale?.user_id || dossier.assigned_sales_id || ''
   const isOwner = Boolean(createdBy) && createdBy === sessionUser?.user_id
@@ -783,16 +799,18 @@ function CustomerCrmEditor({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onAskCopilot}
-              className="h-8 text-xs border-warning/40 text-warning hover:bg-warning/10 gap-1.5"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-warning" />
-              Hỏi Copilot cho khách này
-            </Button>
+            {onAskCopilot ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onAskCopilot}
+                className="h-8 text-xs border-warning/40 text-warning hover:bg-warning/10 gap-1.5"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-warning" />
+                Hỏi Copilot cho khách này
+              </Button>
+            ) : null}
             {isAdmin ? (
               <Button
                 type="button"
@@ -984,16 +1002,18 @@ function CustomerCrmEditor({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-border">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => navigate(`/sale/quotes/new?dossier=${dossier.dossier_id}`)}
-              className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
-            >
-              <FilePlus2 className="h-3.5 w-3.5" />
-              Lập báo giá căn này
-            </Button>
+            {isSale ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`/sale/quotes/new?dossier=${dossier.dossier_id}`)}
+                className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+              >
+                <FilePlus2 className="h-3.5 w-3.5" />
+                Lập báo giá căn này
+              </Button>
+            ) : null}
 
             <Button
               type="submit"

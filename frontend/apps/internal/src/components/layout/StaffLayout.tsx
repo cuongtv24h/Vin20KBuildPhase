@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Gauge, Inbox, LogOut, Menu, MessageSquare, ScrollText, ShieldCheck, Sparkles, PanelLeftClose, PanelLeftOpen, Users, type LucideIcon } from 'lucide-react'
+import { FilePlus2, LogOut, Menu, ShieldCheck, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '@pricepolicy/api-client/client'
 import { ACTIVE_CONVERSATION_STORAGE_KEY, copilotChatStore } from '@pricepolicy/api-client/copilotChatState'
 import type { UserRole } from '@pricepolicy/api-client/contracts'
 import { useLeads, useQuotes } from '@pricepolicy/api-client/hooks'
+import { NAV_BY_ROLE, type NavItem } from '@/auth/nav'
 import { useSessionStore } from '@/auth/sessionStore'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { Button } from '@pricepolicy/ui/components/ui/button'
@@ -13,38 +14,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ROLE_LABEL } from '@pricepolicy/ui/lib/labels'
 import { MANAGER_QUEUE } from '@pricepolicy/ui/lib/quoteRules'
 import { cn } from '@pricepolicy/ui/lib/utils'
-
-interface NavItem {
-  to: string
-  label: string
-  icon: LucideIcon
-  end?: boolean
-  badgeKey?: 'openLeads' | 'managerQueue'
-  /** Nhóm hiển thị (nhãn nhỏ phía trên cụm mục — bố cục Square/Cloudflare). */
-  group?: string
-}
-
-const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
-  ADMIN: [
-    { to: '/admin_cp', label: 'Quản trị Users', icon: ShieldCheck, group: 'Quản trị' },
-    { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText, group: 'Chính sách và chất lượng' },
-    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical, group: 'Chính sách và chất lượng' },
-    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge, group: 'Chính sách và chất lượng' },
-  ],
-  SALE: [
-    { to: '/sale/workspace', label: 'Trợ lý Copilot', icon: Sparkles, group: 'Làm việc' },
-    { to: '/sale/leads', label: 'Khách hàng', icon: Users, badgeKey: 'openLeads', group: 'Làm việc' },
-    { to: '/sale/quotes', label: 'Báo giá', icon: FileStack, group: 'Làm việc' },
-    { to: '/sale/messages', label: 'Tin nhắn', icon: MessageSquare, group: 'Làm việc' },
-    { to: '/sale/policies', label: 'Chính sách', icon: ScrollText, group: 'Tra cứu' },
-  ],
-  MANAGER: [{ to: '/manager/approvals', label: 'Phê duyệt báo giá', icon: ClipboardCheck, badgeKey: 'managerQueue', group: 'Phê duyệt' }],
-  POLICY_ADMIN: [
-    { to: '/admin/policies', label: 'Chính sách bán hàng', icon: ScrollText, group: 'Chính sách và chất lượng' },
-    { to: '/admin/benchmark', label: 'Kiểm thử công thức', icon: FlaskConical, group: 'Chính sách và chất lượng' },
-    { to: '/admin/copilot-quality', label: 'Chất lượng Copilot', icon: Gauge, group: 'Chính sách và chất lượng' },
-  ],
-}
 
 function SaleBadges() {
   const leads = useLeads()

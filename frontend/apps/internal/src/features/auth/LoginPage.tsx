@@ -3,7 +3,8 @@ import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { errorMessage } from '@pricepolicy/api-client/errors'
 import { useAdminSetupStatus, useLogin } from '@pricepolicy/api-client/hooks'
-import { ROLE_AREA, ROLE_HOME, getAccessToken, useSessionStore } from '@/auth/sessionStore'
+import { canOpenPath } from '@/auth/roles'
+import { ROLE_HOME, getAccessToken, useSessionStore } from '@/auth/sessionStore'
 import { Button } from '@pricepolicy/ui/components/ui/button'
 import { Input } from '@pricepolicy/ui/components/ui/input'
 import { Label } from '@pricepolicy/ui/components/ui/label'
@@ -46,7 +47,9 @@ export function LoginPage() {
     setSession(result)
     const redirect = params.get('redirect')
     const role = result.user.role
-    navigate(redirect && redirect.startsWith(ROLE_AREA[role]) ? redirect : ROLE_HOME[role], { replace: true })
+    // Chỉ giữ đường dẫn cũ nếu vai trò mới thực sự mở được nó (AREA_ROLES) — ADMIN đăng nhập lại khi
+    // đang ở /sale/leads thì về đúng /sale/leads thay vì bị ROLE_AREA đẩy về /admin_cp.
+    navigate(redirect && canOpenPath(role, redirect) ? redirect : ROLE_HOME[role], { replace: true })
   }
 
   return (

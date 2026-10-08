@@ -4,6 +4,7 @@ import { IS_DEV_TOOLS_ENABLED } from '@pricepolicy/api-client/config'
 import type { UserRole } from '@pricepolicy/api-client/contracts'
 import { useAdminSetupStatus } from '@pricepolicy/api-client/hooks'
 import { RequireRole } from '@/auth/RequireRole'
+import { AREA_ROLES } from '@/auth/roles'
 import { LoadingState } from '@pricepolicy/ui/components/common/PageStates'
 import { StaffLayout } from '@/components/layout/StaffLayout'
 import { Toaster } from '@pricepolicy/ui/components/layout/Toaster'
@@ -31,7 +32,7 @@ const AdminCpPage = page(() => import('@/features/admin/AdminCpPage'), 'AdminCpP
 const CopilotQualityPage = page(() => import('@/features/admin/CopilotQualityPage'), 'CopilotQualityPage')
 const DevPanel = IS_DEV_TOOLS_ENABLED ? page(() => import('@/components/dev/DevPanel'), 'DevPanel') : null
 
-function StaffArea({ role }: { role: UserRole | UserRole[] }) {
+function StaffArea({ role }: { role: UserRole | readonly UserRole[] }) {
   return (
     <RequireRole role={role}>
       <StaffLayout />
@@ -53,7 +54,7 @@ function AdminCpRoute() {
 
   // Đã khởi tạo -> bắt buộc đăng nhập với quyền ADMIN và render trong StaffLayout
   return (
-    <RequireRole role="ADMIN">
+    <RequireRole role={AREA_ROLES.admin_cp}>
       <StaffLayout />
     </RequireRole>
   )
@@ -75,10 +76,12 @@ function NotFoundPage() {
  * Cổng nội bộ (Sale, Quản lý, Quản trị chính sách, Quản trị viên hệ thống).
  * Màn hình đăng nhập quy về root ('/'), tùy vai trò sẽ chuyển hướng đến giao diện tương ứng:
  *   Sale (Kinh doanh)             /sale/leads  /sale/quotes  /sale/quotes/new  /sale/quotes/:id
+ *   Quản trị viên + trang Khách   /sale/leads (gán Sale phụ trách, xoá/dọn hồ sơ vô chủ)
  *   Quản lý kinh doanh (Manager)  /manager/approvals  /manager/approvals/:id
  *   Quản trị chính sách           /admin/policies  /admin/policies/:id  /admin/benchmark
  *   Chất lượng Copilot            /admin/copilot-quality (ADMIN + POLICY_ADMIN)
  *   Quản trị viên hệ thống        /admin_cp
+ * Quyền theo khu route khai báo tập trung ở `@/auth/roles` (AREA_ROLES) — nav và test đối chiếu theo đó.
  */
 function App() {
   return (
@@ -94,11 +97,17 @@ function App() {
             <Route index element={<AdminCpPage />} />
           </Route>
 
+          {/* Trang Khách hàng — Sale làm việc, còn ADMIN vào để GÁN SALE PHỤ TRÁCH (cấp chủ sở hữu cho
+              hồ sơ vô chủ) và dọn hồ sơ. Tách riêng khỏi khu `sale` bên dưới: khu đó chỉ nhận SALE nên
+              ADMIN gõ /sale/leads từng bị đá về /admin_cp, khiến nút "Gán Sale" không ai mở được. */}
+          <Route path="sale/leads" element={<StaffArea role={AREA_ROLES.lead_inbox} />}>
+            <Route index element={<LeadInboxPage />} />
+          </Route>
+
           {/* Nhân viên kinh doanh */}
-          <Route path="sale" element={<StaffArea role="SALE" />}>
+          <Route path="sale" element={<StaffArea role={AREA_ROLES.sale} />}>
             <Route index element={<Navigate to="workspace" replace />} />
             <Route path="workspace" element={<SalesWorkspacePage />} />
-            <Route path="leads" element={<LeadInboxPage />} />
             <Route path="quotes" element={<SaleQuotesPage />} />
             <Route path="quotes/new" element={<QuoteFormPage />} />
             <Route path="quotes/:quoteId" element={<SaleQuoteDetailPage />} />
@@ -108,14 +117,14 @@ function App() {
           </Route>
 
           {/* Quản lý kinh doanh duyệt báo giá */}
-          <Route path="manager" element={<StaffArea role="MANAGER" />}>
+          <Route path="manager" element={<StaffArea role={AREA_ROLES.manager} />}>
             <Route index element={<Navigate to="approvals" replace />} />
             <Route path="approvals" element={<ApprovalQueuePage />} />
             <Route path="approvals/:quoteId" element={<ApprovalWorkspacePage />} />
           </Route>
 
           {/* Quản trị chính sách (Cho phép cả POLICY_ADMIN và ADMIN) */}
-          <Route path="admin" element={<StaffArea role={['POLICY_ADMIN', 'ADMIN']} />}>
+          <Route path="admin" element={<StaffArea role={AREA_ROLES.admin} />}>
             <Route index element={<Navigate to="policies" replace />} />
             <Route path="policies" element={<PolicyListPage />} />
             <Route path="policies/:policyId" element={<PolicyDetailPage />} />

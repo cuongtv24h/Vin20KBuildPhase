@@ -37,11 +37,6 @@ export const ROLE_HOME: Record<UserRole, string> = {
   POLICY_ADMIN: '/admin/policies',
 }
 
-/** Tiền tố route của từng vai trò — dùng để giữ lại đường dẫn sau khi đăng nhập lại. */
-export const ROLE_AREA: Record<UserRole, string> = {
-  ADMIN: '/admin_cp',
-  SALE: '/sale',
-  MANAGER: '/manager',
-  POLICY_ADMIN: '/admin',
-}
+// `ROLE_AREA` (tiền tố route theo vai trò) đã bỏ: quyền vào từng khu route khai báo ở `@/auth/roles`
+// (AREA_ROLES) và việc "đăng nhập lại thì về trang cũ" xét bằng `canOpenPath` cho chính xác.
 
