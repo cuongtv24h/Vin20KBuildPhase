@@ -154,7 +154,8 @@ Vin20KBuildPhase/
 │                               # migrate_lead_dossiers_created_by, check_env_drift (đối chiếu env với lock),
 │                               # check_stt_groq (soi khoá/độ trễ Whisper trên VM)…
 ├── deploy/                     # nginx conf, pm2 ecosystem, deploy/rollback/install-git-up
-├── docs/                       # guide 10 chương, team_report, RASOAT, arch diagram, UI mockup
+├── docs/                       # guide 10 chương, team_report, RASOAT, arch diagram, UI mockup,
+│                               # upgrade.md = HÀNG ĐỢI nâng cấp đã phân tích nhưng hoãn (U-01…U-04)
 ├── dataset/fixtures/golden_scenarios.json
 ├── upgrade/                    # PLAN.md, CHANGELOG.md
 ├── requirements.txt (khoảng phiên bản + chặn trên) · requirements.lock.txt (bản chốt deploy)
@@ -512,6 +513,7 @@ từ file gốc. Hai chặn dưới mức mới nhất PyPI là bắt buộc do 
 | 11 | ~~CI không phủ branch làm việc~~ **ĐÃ FIX 2026-10-08** | Workflow giờ chạy trên `main`/`develop`/`dev`/`master`/`arena/**` và PR vào `main`/`dev`; bước ruff quét **cả repo** (`ruff check .`, thêm `eval/`, `scripts/`) thay vì chỉ `src/ tests/`. |
 | 12 | **Endpoint frontend đặt tên khác backend** | Nhiều mục `PROPOSED` trong `endpoints.ts` (auth login, admin users, `/messages/*`) — cần đối chiếu với router thật khi tích hợp. |
 | 13 | **Danh tính suy ra từ header client — MẠO DANH ĐƯỢC** (hoãn tới sau demo, quyết ngày 2026-10-08) | `get_current_principal` (`src/api/deps.py:149`) tin `X-User-Id`/`X-User-Role` **trước** token, còn `create_access_token` chỉ là base64 JSON **không chữ ký, không `exp`**. Đã đo trên test: gửi `X-User-Role: ADMIN` → `POST /leads/{id}/assign-sale` trả **200**; token `tk_` tự nặn `{"u":"X","r":"ADMIN"}` cũng 200; mạo danh `X-User-Id` của chủ hồ sơ → **xoá được**. Mọi cổng ADMIN (`admin_cp`, `policies`, `llm_admin`, `tts_admin`) hở cùng kiểu. Fix: ký token (HMAC/JWT + `exp`, secret trong `.env`) và chỉ suy danh tính từ token đã xác thực. |
+| 15 | **Bốn hạng mục nâng cấp đã phân tích nhưng HOÃN** (ghi 2026-10-08) | Người dùng chốt ưu tiên sửa bug MVP trước. Toàn bộ phân tích, bằng chứng, ước lượng công và câu hỏi còn treo nằm ở **`docs/upgrade.md`**: `U-01` hội thoại giọng nói trực tiếp Sale ↔ Copilot (đã có chân ASR ở `ebfe613`, thiếu VAD/auto-send/`modality=voice`/đọc kết luận/barge-in) · `U-02` ba lỗi làm TTS đọc tiếng Việt bằng giọng Windows-Anh (sửa 0 đồng trong `lib/speech.ts`) · `U-03` bốn phần còn thiếu của đợt STT (card quản trị, `input_modality`, `eval/asr/`, chuẩn hoá số đọc bằng chữ) · `U-04` CI cài theo lock + chờ output `check_env_drift.py` trên VM. **Không tự ý triển khai khi chưa chốt lịch.** |
 | 14 | **Bốn endpoint `/leads` không có lớp quyền nào** (hoãn cùng mục 13) | `GET /leads`, `GET /leads/{id}`, `PUT/PATCH /leads/{id}`, `POST /leads/{id}/convert-to-quote` không hề `Depends(get_current_principal)`. Đã đo: **không cần đăng nhập** vẫn liệt kê toàn bộ khách (tên + SĐT đã che + người phụ trách), đổi tên khách, chuyển hồ sơ thành báo giá — đều 200. Bản mock thì lọc theo chủ sở hữu (`listDossiers`) ⇒ lệch parity. Fix: bắt đăng nhập + Sale chỉ thấy/sửa khách của mình và khách chưa gán, ADMIN thấy hết. |
 
 ---
