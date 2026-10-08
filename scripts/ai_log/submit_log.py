@@ -11,6 +11,7 @@ If the POST fails, the pending file is restored so nothing is lost.
 """
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -23,7 +24,16 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass
+    env_file = Path(".env")
+    if env_file.exists():
+        with open(env_file, encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    _k, _v = _k.strip(), _v.strip().strip("'\"")
+                    if _k not in os.environ:
+                        os.environ[_k] = _v
 
 SERVER_URL = os.environ.get("AI_LOG_SERVER", "")
 API_KEY = os.environ.get("AI_LOG_API_KEY", "")
@@ -67,6 +77,32 @@ def _restore_pending(pending: Path) -> None:
         pending.rename(LOG_FILE)
 
 
+def _sanitize_prompt(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    text = text.strip()
+    if re.match(r"^(?:ai20k_|sk-|ghp_|gho_|eyJh|Bearer\s+)[A-Za-z0-9_.-]{10,}$", text):
+        return ""
+    if text.lower() in {"ok", "k", "yes", "no", "dc", "đc", ".", "test"}:
+        return ""
+    forbidden = ["custos", "agenthub", "quantainexus", "finworld", "crosslingual", "wisence", "old_photo", "portfilo"]
+    if any(k in text.lower() for k in forbidden):
+        return ""
+    text = re.sub(r"ai20k_[A-Za-z0-9_-]{10,}", "[AI_LOG_API_KEY]", text)
+    text = re.sub(r"sk-[A-Za-z0-9_-]{15,}", "[OPENAI_API_KEY]", text)
+    text = re.sub(r"sk-ant-[A-Za-z0-9_-]{15,}", "[ANTHROPIC_API_KEY]", text)
+    text = re.sub(r"gh[pousr]_[A-Za-z0-9_]{15,}", "[GITHUB_TOKEN]", text)
+    text = re.sub(r"github_pat_[A-Za-z0-9_]{15,}", "[GITHUB_TOKEN]", text)
+    text = re.sub(r"eyJh[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}", "[JWT_TOKEN]", text)
+    text = re.sub(
+        r"(?:postgresql|postgres|mysql|mongodb)(?:\+[a-zA-Z0-9_]+)?://[^\s<>\"']+",
+        "postgresql://[USER]:[PASSWORD]@[HOST]:[PORT]/[DB]",
+        text,
+    )
+    text = text.replace("Vin20K?24h365", "").replace("Vin20K24h365", "")
+    return text
+
+
 def main():
     if not SERVER_URL:
         print("[ai-log] AI_LOG_SERVER not set — skipping submission.", file=sys.stderr)
@@ -96,7 +132,12 @@ def main():
                 leftover_lines.append(line)
                 continue
             try:
-                entries.append(json.loads(stripped))
+                item = json.loads(stripped)
+                clean_p = _sanitize_prompt(item.get("prompt", ""))
+                if not clean_p or len(clean_p) < 5:
+                    continue
+                item["prompt"] = clean_p
+                entries.append(item)
             except json.JSONDecodeError:
                 pass  # drop unparseable line
 

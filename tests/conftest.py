@@ -46,7 +46,7 @@ def isolate_copilot_grounding_from_local_db(monkeypatch):
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def setup_test_db():
+async def setup_test_db(monkeypatch):
     """Create all tables in in-memory SQLite before test."""
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -59,6 +59,8 @@ async def setup_test_db():
                 await session.close()
 
     app.dependency_overrides[get_db_session] = _override_get_db_session
+    monkeypatch.setattr("src.db.session.async_session_factory", async_test_session_factory)
+    monkeypatch.setattr("src.db.async_session_factory", async_test_session_factory, raising=False)
     yield
     app.dependency_overrides.clear()
 

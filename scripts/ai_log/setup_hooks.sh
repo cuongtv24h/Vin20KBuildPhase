@@ -11,8 +11,10 @@ cat > "$HOOK_FILE" <<'EOF'
 # Uses the cross-platform Python launcher so it works whether the user
 # has python3, python, or only the `py` launcher (Windows).
 bash scripts/ai_log/_pyrun.sh scripts/ai_log/log_antigravity.py --auto || true
-bash scripts/ai_log/_pyrun.sh scripts/ai_log/submit_log.py || true
-exit 0  # Never block push, even if either step fails
+if [ -s ".ai-log/pending_review.jsonl" ]; then
+    echo "[ai-log] Thong bao: Co prompt moi luu cuc bo dang cho duyet tai: python scripts/ai_log/review_logs.py"
+fi
+exit 0  # Tuyet doi khong tu dong day log len server khi push
 EOF
 
 chmod +x "$HOOK_FILE"

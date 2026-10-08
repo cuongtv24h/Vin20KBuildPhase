@@ -103,6 +103,12 @@ async def lifespan(app: FastAPI):
 
     if manager is not None:
         await manager.close()
+    try:
+        from src.db.session import engine
+
+        await engine.dispose()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Engine dispose error: %s", exc)
     print("Shutting down...")
 
 

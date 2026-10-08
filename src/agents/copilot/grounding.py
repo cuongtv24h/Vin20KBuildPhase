@@ -135,6 +135,7 @@ logger = logging.getLogger(__name__)
 _cached_db_units: list[dict[str, Any]] | None = None
 _cached_db_project_names: dict[str, str] = {}
 
+
 def _fetch_db_units() -> list[dict[str, Any]]:
     """Đọc giỏ hàng THẬT từ DB (bảng `units` nối `projects`) — chỉ lấy trường có thật.
 

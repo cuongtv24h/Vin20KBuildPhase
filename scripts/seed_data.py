@@ -40,10 +40,10 @@ def find_default_policies_dir() -> Path:
     return Path("data/policies_md")
 
 
-def seed_policies(policies_dir: Path) -> int:
+def seed_policies(policies_dir: Path, dry_run: bool = False) -> int:
     """Parses and seeds all markdown policies into pgvector."""
     settings = get_settings()
-    logger.info("Initializing BiEncoder and Ingestion Pipeline...")
+    logger.info("Initializing BiEncoder and Ingestion Pipeline (dry_run=%s)...", dry_run)
     encoder = LocalBiEncoder()
     pipeline = PolicyIngestionPipeline()
     vector_manager = PGVectorStoreManager(settings=settings)
@@ -67,16 +67,18 @@ def seed_policies(policies_dir: Path) -> int:
                 node.embedding = encoder.embed_query(node.text)
 
             if nodes:
-                try:
-                    vector_manager.insert_nodes(nodes)
-                except Exception as db_err:
-                    logger.warning(f"Database insertion skipped or failed ({db_err}). Seeded in memory.")
+                if not dry_run:
+                    try:
+                        vector_manager.insert_nodes(nodes)
+                    except Exception as db_err:
+                        logger.warning(f"Database insertion skipped or failed ({db_err}). Seeded in memory.")
                 total_nodes += len(nodes)
         except Exception as e:
             logger.error(f"Failed to process {file_path.name}: {e}", exc_info=True)
 
     elapsed = time.time() - start_time
-    logger.info(f"Successfully processed {total_nodes} nodes from {len(md_files)} files in {elapsed:.2f}s")
+    status_str = "dry-run parsed" if dry_run else "seeded"
+    logger.info(f"Successfully {status_str} {total_nodes} nodes from {len(md_files)} files in {elapsed:.2f}s")
     return total_nodes
 
 
@@ -88,11 +90,16 @@ def main():
         default=None,
         help="Path to directory containing policy .md files",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Chạy thử: parse và tính embedding/nodes nhưng không ghi vào pgvector",
+    )
     args = parser.parse_args()
 
     policies_dir = Path(args.dir) if args.dir else find_default_policies_dir()
     logger.info(f"Using policies directory: {policies_dir.resolve()}")
-    seed_policies(policies_dir)
+    seed_policies(policies_dir, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

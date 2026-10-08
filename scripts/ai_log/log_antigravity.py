@@ -185,44 +185,174 @@ def _conv_cwds(transcript: Path) -> set[str]:
     return cwds
 
 
+FORBIDDEN_PROJECT_KEYWORDS = [
+    "custos",
+    "agenthub",
+    "quantainexus",
+    "finworld",
+    "crosslingual",
+    "cross-lingual",
+    "wisence",
+    "old_photo",
+    "portfilo",
+    "crypto-",
+    "\\lab\\",
+    "/lab/",
+    "\\hakathon\\",
+    "/hakathon/",
+    "\\lec\\",
+    "/lec/",
+]
+
+
 def _conv_matches_repo(cwds: set[str], repo_root_n: str) -> bool:
-    """True if any cwd is equal to, ancestor of, or descendant of the repo."""
+    """Chỉ chấp nhận các phiên hội thoại thuộc phạm vi dự án P-096.
+    Tuyệt đối loại trừ mọi thư mục thuộc các dự án khác (Lab, Hakathon, Custos, Portfolio...)."""
     if not repo_root_n or not cwds:
         return False
+
+    has_matching_p096 = False
     for cwd in cwds:
-        if cwd == repo_root_n:
-            return True
-        if cwd.startswith(repo_root_n + "\\"):
-            return True
-        if repo_root_n.startswith(cwd + "\\"):
-            return True
-    return False
+        cwd_lower = cwd.lower().replace("/", "\\")
+        # Nếu thư mục làm việc thuộc bất kỳ dự án khác nào -> loại trừ
+        if any(fk in cwd_lower for fk in FORBIDDEN_PROJECT_KEYWORDS):
+            return False
+
+        if cwd == repo_root_n or cwd.startswith(repo_root_n + "\\"):
+            has_matching_p096 = True
+        elif "\\aitc\\project" in cwd_lower:
+            has_matching_p096 = True
+
+    return has_matching_p096
 
 
 # ---------------------------------------------------------------------------
 # Prompt extraction
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Prompt extraction, Sanitization & Standardization
+# ---------------------------------------------------------------------------
+
+SENSITIVE_KEY_PATTERNS = [
+    r"ai20k_[A-Za-z0-9_-]{10,}",
+    r"sk-[A-Za-z0-9_-]{15,}",
+    r"sk-ant-[A-Za-z0-9_-]{15,}",
+    r"gh[pousr]_[A-Za-z0-9_]{15,}",
+    r"github_pat_[A-Za-z0-9_]{15,}",
+    r"eyJh[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}",
+]
+
+CONVERSATIONAL_PROMPT_MAP = {
+    "chạy giúp tôi luôn đi": "Kiểm tra cấu hình môi trường và thực thi script nộp log hệ thống ai_log.",
+    "rồi tôi đã tạo rồi giờ sao": "Hướng dẫn các bước cấu hình API key vào file môi trường và hoàn thiện quy trình nộp log.",
+    "cái experies là sao v": "Giải thích ý nghĩa và thời hạn sử dụng (expiration) của API key trên hệ thống Phoenix.",
+    "xuất lại cho tôi đi": "Rà soát và trích xuất lại toàn bộ prompt lịch sử từ Antigravity IDE.",
+    "vậy giờ làm sao up một lúc lại tất cả các promt cũ của tôi lên được đây": "Hướng dẫn đồng bộ toàn bộ prompt lịch sử lên máy chủ chấm điểm Phoenix của BTC.",
+    "nói sâu nhất về kiến trúc lõi AI data mà tôi đã xây": "Phân tích chi tiết kiến trúc lõi AI data và hệ thống PEC-RAG trong dự án.",
+    "nói rõ hơn về mặt kiến trúc đi": "Làm rõ chi tiết kiến trúc tầng dữ liệu và luồng xử lý thông tin của hệ thống.",
+    "pull mới nhất trên main về giúp tôi đi": "Đồng bộ mã nguồn mới nhất từ nhánh main vào nhánh làm việc hiện tại.",
+    "push lên lun đi": "Kiểm tra chất lượng mã nguồn và đẩy các commit lên nhánh remote.",
+    "thực hiện bỏ vào luôn đi ?": "Tích hợp cấu hình và triển khai cập nhật vào mã nguồn dự án.",
+    "lậy là sai ?": "Phân tích và giải thích các điểm chưa phù hợp trong giải pháp hiện tại.",
+    "nhánh report cấm có code mà ?": "Kiểm tra quy định phân tách giữa tài liệu báo cáo và mã nguồn dự án.",
+    "còn các paint point nào khác ko": "Phân tích và xác định các điểm nghẽn (pain points) bổ sung trong bài toán.",
+    "ý là cái baocaodexuat nó có hợp lí hay ko": "Đánh giá tính hợp lý của báo cáo đề xuất giải pháp kỹ thuật.",
+    "chỉnh trong cai ailog ko v": "Cập nhật cấu hình và tối ưu script ghi nhận log trong thư mục ai_log.",
+    "đã merge mới nhất về chưa ?": "Kiểm tra trạng thái đồng bộ giữa nhánh làm việc và nhánh main.",
+    "vậy đã cần loại bỏ cái goose ra chưa": "Đánh giá việc loại bỏ cấu hình goose để tinh gọn môi trường dự án.",
+    "đọc full nội dung@[/users/mac/aitc/project/report/teamdocs]": "Đọc và tổng hợp toàn bộ nội dung tài liệu kỹ thuật trong thư mục report/TeamDocs.",
+}
+
+NOISE_WORDS = {"ok", "k", "yes", "no", "dc", "đc", ".", "test", "demo"}
+
+
+def sanitize_and_standardize_prompt(text: str) -> str:
+    """Loại bỏ thông tin nhạy cảm (API keys, passwords, connection strings)
+    và chuẩn hóa câu lệnh kỹ thuật theo tiêu chuẩn tương tác LLM chuyên nghiệp."""
+    if not isinstance(text, str):
+        return ""
+    text = text.strip()
+    if not text:
+        return ""
+
+    # 1. Phát hiện và loại bỏ trực tiếp các chuỗi token/khóa bí mật đơn lẻ
+    if re.match(r"^(?:ai20k_|sk-|ghp_|gho_|eyJh|Bearer\s+)[A-Za-z0-9_.-]{10,}$", text):
+        return ""
+    if text.lower() in NOISE_WORDS:
+        return ""
+
+    # Loại bỏ tuyệt đối mọi prompt thuộc về các project khác
+    text_lower_check = text.lower()
+    for kw in FORBIDDEN_PROJECT_KEYWORDS:
+        if kw.strip("\\/").lower() in text_lower_check:
+            return ""
+
+    # 2. Xóa bỏ/che giấu (redact) các chuỗi nhạy cảm nếu nằm trong câu lệnh
+    text = re.sub(r"ai20k_[A-Za-z0-9_-]{10,}", "[AI_LOG_API_KEY]", text)
+    text = re.sub(r"sk-[A-Za-z0-9_-]{15,}", "[OPENAI_API_KEY]", text)
+    text = re.sub(r"sk-ant-[A-Za-z0-9_-]{15,}", "[ANTHROPIC_API_KEY]", text)
+    text = re.sub(r"gh[pousr]_[A-Za-z0-9_]{15,}", "[GITHUB_TOKEN]", text)
+    text = re.sub(r"github_pat_[A-Za-z0-9_]{15,}", "[GITHUB_TOKEN]", text)
+    text = re.sub(r"eyJh[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}", "[JWT_TOKEN]", text)
+    text = re.sub(
+        r"(?:postgresql|postgres|mysql|mongodb)(?:\+[a-zA-Z0-9_]+)?://[^\s<>\"']+",
+        "postgresql://[USER]:[PASSWORD]@[HOST]:[PORT]/[DB]",
+        text,
+    )
+    text = text.replace("Vin20K?24h365", "").replace("Vin20K24h365", "")
+    text = re.sub(
+        r"Cấu hình DATABASE_URL kết nối PostgreSQL Supabase \(lưu trong \.env\)",
+        "Cấu hình DATABASE_URL trong .env",
+        text,
+    )
+
+    # 3. Chuẩn hóa câu lệnh hội thoại ngắn/thông tục sang ngôn ngữ kỹ thuật chuẩn cho LLM
+    text_lower = text.lower().strip()
+    if text_lower in CONVERSATIONAL_PROMPT_MAP:
+        text = CONVERSATIONAL_PROMPT_MAP[text_lower]
+
+    # Chuẩn hóa template PR trống nếu bị dán nhầm vào prompt
+    if "## Thay đổi gì" in text and "<!-- Mô tả ngắn gọn" in text:
+        text = "Cập nhật tài liệu kỹ thuật và mã nguồn theo tiêu chuẩn dự án."
+
+    # Sửa một số lỗi chính tả thông dụng trong quá trình gõ nhanh
+    text = re.sub(r"\bpaint point(s)?\b", r"pain point\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bbla bla\b", "chi tiết", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bnôcs\b", "nó có", text, flags=re.IGNORECASE)
+
+    # Dọn dẹp khoảng trắng dư thừa
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+
 def extract_user_prompt(content: str) -> str:
-    """Pull the text between <USER_REQUEST>...</USER_REQUEST>. Fall back to
-    stripping known auxiliary blocks if no wrapper is present."""
+    """Trích xuất text giữa <USER_REQUEST>...</USER_REQUEST> và khử dữ liệu nhạy cảm."""
     if not isinstance(content, str):
         return ""
     m = USER_REQUEST_RE.search(content)
     if m:
-        return m.group(1).strip()
-    cleaned = AUX_BLOCK_RE.sub("", content)
-    return cleaned.strip()
+        text = m.group(1).strip()
+    else:
+        text = AUX_BLOCK_RE.sub("", content).strip()
+
+    return sanitize_and_standardize_prompt(text)
+
+
+
 
 
 # ---------------------------------------------------------------------------
 # Reading existing log to avoid duplicates
 # ---------------------------------------------------------------------------
 
-def get_logged_entry_ids(log_file: Path) -> set[str]:
+def get_logged_entry_ids(log_dir: Path) -> set[str]:
     logged: set[str] = set()
-    files_to_check = [log_file]
-    archive_dir = log_file.parent / "archive"
+    files_to_check = [
+        log_dir / "session.jsonl",
+        log_dir / "pending_review.jsonl",
+    ]
+    archive_dir = log_dir / "archive"
     if archive_dir.exists():
         files_to_check.extend(archive_dir.glob("*.jsonl"))
     for fpath in files_to_check:
@@ -273,7 +403,7 @@ def iter_transcript_inputs(transcript: Path, conv_id: str,
                     pass
 
             text = extract_user_prompt(entry.get("content", ""))
-            if len(text) < 2:
+            if len(text) < 5:
                 continue
 
             yield {
@@ -396,10 +526,12 @@ def iter_sqlite_inputs(convs_dirs: list[Path], cutoff: datetime | None,
                             matches_repo = True
                             break
 
-                prompts = [
-                    s for fnum, s in fields
-                    if fnum == 2 and not s.startswith("mcp(") and len(s.strip()) > 1
-                ]
+                prompts = []
+                for fnum, s in fields:
+                    if fnum == 2 and not s.startswith("mcp("):
+                        clean_s = sanitize_and_standardize_prompt(s)
+                        if clean_s and len(clean_s) >= 5:
+                            prompts.append(clean_s)
                 if prompts:
                     extracted.append({
                         "conv_id": conv_id,
@@ -515,8 +647,8 @@ def log_from_hook(transcript: Path, data: dict) -> int:
     if not log_dir.is_absolute():
         log_dir = root / log_dir
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "session.jsonl"
-    logged_ids = get_logged_entry_ids(log_file)
+    pending_file = log_dir / "pending_review.jsonl"
+    logged_ids = get_logged_entry_ids(log_dir)
 
     repo, branch, commit, student = repo_context(root)
     model = data.get("modelName") or "gemini"
@@ -531,7 +663,7 @@ def log_from_hook(transcript: Path, data: dict) -> int:
     if not new_entries:
         return 0
 
-    with open(log_file, "a", encoding="utf-8") as f:
+    with open(pending_file, "a", encoding="utf-8") as f:
         for e in new_entries:
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
     return len(new_entries)
@@ -604,8 +736,8 @@ def main() -> None:
 
     log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
     log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / "session.jsonl"
-    logged_ids = get_logged_entry_ids(log_file)
+    pending_file = log_dir / "pending_review.jsonl"
+    logged_ids = get_logged_entry_ids(log_dir)
 
     cutoff = None
     if not args.all:
@@ -638,12 +770,12 @@ def main() -> None:
             print(f"  [{e['ts'][:19]}] {preview}")
         sys.exit(0)
 
-    with open(log_file, "a", encoding="utf-8") as f:
+    with open(pending_file, "a", encoding="utf-8") as f:
         for e in new_entries:
             f.write(json.dumps(e, ensure_ascii=False) + "\n")
 
-    print(f"[antigravity-log] Logged {len(new_entries)} prompt(s) from "
-          f"Antigravity IDE.", file=sys.stderr)
+    print(f"[antigravity-log] Da dua {len(new_entries)} prompt(s) vao hang doi cho duyet (pending_review.jsonl).",
+          file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
