@@ -15,6 +15,8 @@ import {
   useCreateLead,
   useUpdateLead,
   useDeleteLead,
+  useAssignLeadSale,
+  useAdminUsers,
   useProjectOverviews,
 } from '@pricepolicy/api-client/hooks'
 import { MoneyText } from '@pricepolicy/ui/components/common/MoneyText'
@@ -617,16 +619,57 @@ function CustomerCrmEditor({
   const updateMutation = useUpdateLead()
   const deleteMutation = useDeleteLead()
   // Quy tắc: Sale chỉ xoá khách hàng DO MÌNH TẠO; ADMIN xoá hộ được. Máy chủ cũng chặn (403) — đây chỉ
-  // là lớp giao diện để không bày ra nút bấm chắc chắn bị từ chối. Hồ sơ cũ (`created_by` trống) coi
-  // như không có chủ: vẫn cho xoá, khớp với luật ở `PreSalesDossierService.delete_dossier`.
+  // là lớp giao diện để không bày ra nút bấm chắc chắn bị từ chối.
+  // Hồ sơ CHƯA ghi người tạo (dữ liệu cũ, hoặc hồ sơ Pre-Sales do khách tự bàn giao) cũng chỉ ADMIN xoá
+  // được: trên DB vận hành hiện không hồ sơ nào có `created_by`, nên nếu coi "vô chủ = ai cũng xoá" thì
+  // toàn bộ khách hàng bị bỏ ngỏ. ADMIN gán Sale phụ trách để cấp chủ sở hữu (nút "Gán Sale" bên dưới).
   const sessionUser = useSessionStore((state) => state.session?.user)
   const isAdmin = sessionUser?.role === 'ADMIN'
   const createdBy = dossier.created_by || ''
-  const isOwner = !createdBy || createdBy === sessionUser?.user_id
+  const assignedSaleId = dossier.assigned_sale?.user_id || dossier.assigned_sales_id || ''
+  const isOwner = Boolean(createdBy) && createdBy === sessionUser?.user_id
   const canDelete = Boolean(sessionUser) && (isAdmin || isOwner)
-  const deleteBlockedReason = createdBy
-    ? `Khách hàng do ${createdBy} tạo — chỉ người tạo hoặc quản trị viên mới xoá được.`
-    : 'Cần đăng nhập để xoá hồ sơ khách hàng.'
+  const deleteBlockedReason = !sessionUser
+    ? 'Cần đăng nhập để xoá hồ sơ khách hàng.'
+    : createdBy
+      ? `Khách hàng do ${createdBy} tạo — chỉ người tạo hoặc quản trị viên mới xoá được.`
+      : 'Hồ sơ chưa ghi nhận người tạo — chỉ quản trị viên xoá được. Quản trị viên bấm "Gán Sale" để trao quyền cho anh/chị.'
+
+  // Gán Sale phụ trách (chỉ ADMIN): máy chủ đóng dấu `created_by` khi hồ sơ còn vô chủ.
+  const assignSale = useAssignLeadSale()
+  const saleUsers = useAdminUsers({ role: 'SALE' }, { enabled: isAdmin })
+  const saleOptions = (saleUsers.data ?? []).map((u) => ({
+    id: u.user_id || u.user,
+    label: u.full_name && u.full_name !== u.user ? `${u.full_name} (${u.user_id || u.user})` : u.user_id || u.user,
+    email: u.email,
+  }))
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [assignee, setAssignee] = useState('')
+
+  const openAssignDialog = () => {
+    setAssignee(assignedSaleId || createdBy || sessionUser?.user_id || '')
+    setAssignOpen(true)
+  }
+
+  const handleAssignSale = async () => {
+    const salesId = assignee.trim()
+    if (!salesId) {
+      toast.error('Chưa chọn Sale phụ trách', 'Chọn nhân viên trong danh sách hoặc nhập mã nhân viên.')
+      return
+    }
+    try {
+      const updated = await assignSale.mutateAsync({ dossierId: dossier.dossier_id, salesId })
+      setAssignOpen(false)
+      toast.success(
+        'Đã gán Sale phụ trách',
+        updated.created_by
+          ? `Chủ sở hữu hồ sơ: ${updated.created_by}`
+          : `Người phụ trách: ${salesId}`,
+      )
+    } catch (err: any) {
+      toast.error('Không gán được Sale phụ trách', err?.message || 'Máy chủ từ chối — kiểm tra quyền hoặc mã nhân viên.')
+    }
+  }
 
   const c = dossier.constraints || {}
 
@@ -719,6 +762,22 @@ function CustomerCrmEditor({
               <Badge variant="outline" className="text-xs">
                 {DOSSIER_STATUS_LABEL[status] || status}
               </Badge>
+              <Badge
+                variant="outline"
+                className={cn('text-xs', createdBy ? 'border-primary/40 text-primary' : 'border-destructive/40 text-destructive')}
+                title={
+                  createdBy
+                    ? `Người tạo hồ sơ — chỉ ${createdBy} hoặc quản trị viên mới xoá được.`
+                    : 'Hồ sơ chưa có người tạo (dữ liệu cũ / Pre-Sales bàn giao) — chỉ quản trị viên xoá được.'
+                }
+              >
+                {createdBy ? `Người tạo: ${createdBy}` : 'Chưa có người tạo'}
+              </Badge>
+              {assignedSaleId ? (
+                <Badge variant="outline" className="text-xs" title="Sale phụ trách hồ sơ này">
+                  Phụ trách: {assignedSaleId}
+                </Badge>
+              ) : null}
             </div>
             <h2 className="font-display text-lg font-bold text-foreground mt-1">{customerName}</h2>
           </div>
@@ -734,6 +793,19 @@ function CustomerCrmEditor({
               <Sparkles className="h-3.5 w-3.5 text-warning" />
               Hỏi Copilot cho khách này
             </Button>
+            {isAdmin ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={openAssignDialog}
+                className="h-8 text-xs gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+                title="Gán Sale phụ trách — hồ sơ chưa có người tạo sẽ được đóng dấu chủ sở hữu"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Gán Sale
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -935,6 +1007,67 @@ function CustomerCrmEditor({
           </div>
         </form>
       </CardContent>
+
+      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Gán Sale phụ trách</DialogTitle>
+            <DialogDescription>
+              {createdBy
+                ? `Hồ sơ đã có người tạo là ${createdBy}: gán lại chỉ đổi người phụ trách, quyền xoá vẫn thuộc người tạo.`
+                : 'Hồ sơ chưa ghi nhận người tạo nên chỉ quản trị viên xoá được. Gán Sale phụ trách sẽ đóng dấu người tạo bằng chính Sale đó.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Sale phụ trách</Label>
+            {saleOptions.length > 0 ? (
+              <Select value={assignee} onValueChange={setAssignee}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Chọn nhân viên Sale" />
+                </SelectTrigger>
+                <SelectContent>
+                  {saleOptions.map((u) => (
+                    <SelectItem key={u.id} value={u.id} className="text-xs">
+                      {u.label}{u.email ? ` — ${u.email}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={assignee}
+                onChange={(e) => setAssignee(e.target.value)}
+                placeholder="Mã nhân viên, ví dụ SALES-001"
+                className="h-9 text-xs"
+              />
+            )}
+            <p className="text-xs text-muted-foreground">
+              {saleUsers.isLoading
+                ? 'Đang tải danh sách nhân viên…'
+                : saleUsers.isError
+                  ? 'Không tải được danh sách nhân viên — nhập mã nhân viên (user_id) thủ công.'
+                  : `${saleOptions.length} nhân viên Sale trong hệ thống.`}
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setAssignOpen(false)}>
+              Huỷ
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              disabled={!assignee.trim() || assignSale.isPending}
+              onClick={handleAssignSale}
+            >
+              <UserCheck className="h-3.5 w-3.5" />
+              {assignSale.isPending ? 'Đang gán…' : 'Gán phụ trách'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

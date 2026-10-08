@@ -1,12 +1,16 @@
 """Quy tắc "Sale chỉ được xoá khách hàng do chính mình tạo ra" (C-10 · CRM).
 
 Trước đây `DELETE /api/v1/leads/{dossier_id}` xoá vô điều kiện: ai biết mã hồ sơ cũng xoá được khách
-của người khác. Bộ test này chốt lại 4 lớp bảo vệ, đúng theo yêu cầu người dùng:
+của người khác. Bộ test này chốt lại 5 lớp bảo vệ, đúng theo yêu cầu người dùng:
 
 1. Không có phiên đăng nhập → 401 (không dùng principal mặc định cho thao tác phá huỷ dữ liệu).
 2. Sale xoá khách **do mình tạo** → 200.
 3. Sale xoá khách **của Sale khác** → 403 (kèm mã lỗi + ai là người tạo) và hồ sơ vẫn còn nguyên.
-4. ADMIN được xoá hộ; hồ sơ di sản (`created_by` NULL) vẫn xoá được để không khoá dữ liệu cũ.
+4. Hồ sơ **chưa ghi người tạo** (`created_by` NULL — dữ liệu cũ, hoặc hồ sơ Pre-Sales khách tự bàn giao)
+   → chỉ ADMIN xoá được. Từng cho phép "ai đăng nhập cũng xoá", nhưng trên DB vận hành không hồ sơ nào
+   có `created_by` nên coi như toàn bộ khách hàng đều bị bỏ ngỏ.
+5. ADMIN cấp chủ sở hữu bằng `POST /api/v1/leads/{id}/assign-sale`: gán Sale phụ trách và đóng dấu người
+   tạo khi hồ sơ còn vô chủ; KHÔNG ghi đè người tạo đã có (không ai cướp được hồ sơ của người khác).
 """
 
 from __future__ import annotations
@@ -110,11 +114,10 @@ async def test_admin_can_delete_any_dossier(client) -> None:
     assert response.status_code == 200, response.text
 
 
-@pytest.mark.asyncio
-async def test_legacy_dossier_without_owner_is_still_deletable(client) -> None:
-    """Hồ sơ tạo trước khi có cột `created_by` (NULL) không bị khoá cứng."""
+async def _seed_ownerless_dossier(name: str = "Khách cũ") -> str:
+    """Hồ sơ kiểu dữ liệu vận hành hiện tại: tạo trước khi có cột `created_by`, chưa gán Sale nào."""
     suffix = uuid.uuid4().hex[:8]
-    legacy_id = f"LD-LEGACY-{suffix}"
+    dossier_id = f"LD-LEGACY-{suffix}"
     async with async_test_session_factory() as session:
         now = datetime.now(UTC)
         session_row = PreSalesSessionModel(
@@ -126,11 +129,11 @@ async def test_legacy_dossier_without_owner_is_still_deletable(client) -> None:
         session.add(session_row)
         session.add(
             LeadDossierModel(
-                dossier_id=legacy_id,
+                dossier_id=dossier_id,
                 session_id=session_row.session_id,
                 status="NEW",
                 lead_temperature="WARM",
-                customer_name="Khách cũ",
+                customer_name=name,
                 customer_phone_masked="090***4567",
                 assigned_sales_id=None,
                 created_by=None,
@@ -138,9 +141,115 @@ async def test_legacy_dossier_without_owner_is_still_deletable(client) -> None:
             )
         )
         await session.commit()
+    return dossier_id
 
-    response = await client.delete(f"/api/v1/leads/{legacy_id}", headers=_headers(SALE_A))
-    assert response.status_code == 200, response.text
+
+@pytest.mark.asyncio
+async def test_dossier_without_owner_is_admin_only(client) -> None:
+    """Hồ sơ vô chủ: Sale bị chặn (403), ADMIN vẫn xoá được để không khoá dữ liệu."""
+    dossier_id = await _seed_ownerless_dossier()
+
+    sale_response = await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(SALE_A))
+    assert sale_response.status_code == 403, sale_response.text
+    detail = sale_response.json()["detail"]
+    assert detail["error_code"] == ErrorCode.UNAUTHORIZED_ACCESS.value
+    assert detail["details"]["created_by"] is None
+    assert detail["details"]["requested_by"] == SALE_A[0]
+    # Hồ sơ vẫn còn nguyên cho tới khi ADMIN xử lý.
+    assert (await client.get(f"/api/v1/leads/{dossier_id}")).status_code == 200
+
+    admin_response = await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(ADMIN))
+    assert admin_response.status_code == 200, admin_response.text
+
+
+@pytest.mark.asyncio
+async def test_admin_assigns_owner_then_that_sale_can_delete(client) -> None:
+    """Đường cấp chủ sở hữu cho dữ liệu cũ: ADMIN gán Sale phụ trách = đóng dấu người tạo."""
+    dossier_id = await _seed_ownerless_dossier("Khách chưa ai phụ trách")
+
+    assign = await client.post(
+        f"/api/v1/leads/{dossier_id}/assign-sale",
+        json={"sales_id": SALE_B[0]},
+        headers=_headers(ADMIN),
+    )
+    assert assign.status_code == 200, assign.text
+    body = assign.json()
+    assert body["assigned_sales_id"] == SALE_B[0]
+    assert body["created_by"] == SALE_B[0], "Hồ sơ vô chủ phải được đóng dấu người tạo khi gán"
+
+    # Sale khác vẫn không xoá được; Sale vừa được gán thì được.
+    other = await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(SALE_A))
+    assert other.status_code == 403, other.text
+    owner = await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(SALE_B))
+    assert owner.status_code == 200, owner.text
+
+
+@pytest.mark.asyncio
+async def test_assign_sale_requires_admin_session(client) -> None:
+    dossier_id = await _seed_ownerless_dossier()
+
+    anonymous = await client.post(
+        f"/api/v1/leads/{dossier_id}/assign-sale", json={"sales_id": SALE_A[0]}
+    )
+    assert anonymous.status_code == 401, anonymous.text
+
+    as_sale = await client.post(
+        f"/api/v1/leads/{dossier_id}/assign-sale",
+        json={"sales_id": SALE_A[0]},
+        headers=_headers(SALE_A),
+    )
+    assert as_sale.status_code == 403, as_sale.text
+    # Không ai tự gán mình làm chủ được ⇒ hồ sơ vẫn vô chủ và Sale vẫn không xoá được.
+    assert (await client.get(f"/api/v1/leads/{dossier_id}")).json()["created_by"] is None
+    assert (await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(SALE_A))).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_assign_does_not_steal_existing_owner(client) -> None:
+    """Gán Sale phụ trách cho hồ sơ ĐÃ có chủ: đổi người chăm khách, không đổi quyền xoá."""
+    dossier_id = await _create_dossier(client, SALE_A, "Khách của Sale A")
+
+    assign = await client.post(
+        f"/api/v1/leads/{dossier_id}/assign-sale",
+        json={"sales_id": SALE_B[0]},
+        headers=_headers(ADMIN),
+    )
+    assert assign.status_code == 200, assign.text
+    body = assign.json()
+    assert body["assigned_sales_id"] == SALE_B[0]
+    assert body["created_by"] == SALE_A[0], "Không được ghi đè người tạo đã có"
+
+    assert (await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(SALE_B))).status_code == 403
+    assert (await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(SALE_A))).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_assign_rejects_blank_sales_id(client) -> None:
+    dossier_id = await _seed_ownerless_dossier()
+    response = await client.post(
+        f"/api/v1/leads/{dossier_id}/assign-sale",
+        json={"sales_id": "   "},
+        headers=_headers(ADMIN),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["error_code"] == ErrorCode.INPUT_VALIDATION_ERROR.value
+
+
+@pytest.mark.asyncio
+async def test_assign_missing_dossier_is_rejected(client) -> None:
+    """Gán cho hồ sơ không tồn tại → NOT_FOUND, không sinh bản ghi ma.
+
+    Lưu ý: `PreSalesDossierService.get_dossier` raise `DomainError(NOT_FOUND)` không kèm `http_status`
+    nên cả router /leads trả HTTP 400 cho mã lỗi này (hành vi sẵn có, giữ nguyên để không đổi hợp đồng
+    của các endpoint khác). Test vì vậy chốt **mã lỗi**, không chốt con số HTTP.
+    """
+    response = await client.post(
+        "/api/v1/leads/LD-KHONG-TON-TAI/assign-sale",
+        json={"sales_id": SALE_A[0]},
+        headers=_headers(ADMIN),
+    )
+    assert response.status_code in (400, 404), response.text
+    assert response.json()["detail"]["error_code"] == ErrorCode.NOT_FOUND.value
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,28 @@ export function useUpdateLead() {
   })
 }
 
+/**
+ * ADMIN gán Sale phụ trách cho hồ sơ khách.
+ *
+ * Hồ sơ sinh từ luồng Pre-Sales và hồ sơ tạo trước khi có cột `created_by` đều vô chủ ⇒ theo luật xoá
+ * thì chỉ ADMIN xoá được. Gán Sale phụ trách là đường cấp chủ sở hữu: máy chủ đóng dấu `created_by`
+ * bằng Sale được gán (chỉ khi hồ sơ chưa có người tạo), nhờ đó Sale ấy tự xoá/sửa khách mình phụ trách.
+ */
+export function useAssignLeadSale() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ dossierId, salesId }: { dossierId: string; salesId: string }) =>
+      api.leads.assignSale(dossierId, salesId),
+    onSuccess: (updated) => {
+      qc.setQueryData<LeadDossier[]>(queryKeys.leads, (old) => {
+        if (!old) return [updated]
+        return old.map((d) => (d.dossier_id === updated.dossier_id ? updated : d))
+      })
+      qc.invalidateQueries({ queryKey: queryKeys.leads })
+    },
+  })
+}
+
 /** Xóa hồ sơ khách hàng */
 export function useDeleteLead() {
   const qc = useQueryClient()

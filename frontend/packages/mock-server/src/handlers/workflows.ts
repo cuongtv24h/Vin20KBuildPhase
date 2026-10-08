@@ -43,6 +43,9 @@ export const leadHandlers = [
         created_at: new Date(now).toISOString(),
         sla_due_at: new Date(now + 2 * 3600 * 1000).toISOString(),
         assigned_sale: user ? { user_id: user.user_id, full_name: user.full_name, role: user.role } : null,
+        // Khớp máy chủ thật: hồ sơ Sale tạo thì ghi nhận người tạo (cơ sở của quyền xoá).
+        created_by: user?.user_id ?? null,
+        assigned_sales_id: user?.user_id ?? null,
         source_session_id: `SES-${Date.now()}`,
         customer: {
           full_name: payload.customer_name || 'Khách hàng mới',
@@ -102,14 +105,45 @@ export const leadHandlers = [
     return { body: updated }
   }),
 
+  /**
+   * POST /leads/{id}/assign-sale — ADMIN gán Sale phụ trách.
+   * Hồ sơ chưa có người tạo thì đóng dấu `created_by` = Sale được gán (cấp quyền xoá/sửa); hồ sơ đã có
+   * chủ thì chỉ đổi người phụ trách, KHÔNG ghi đè người tạo.
+   */
+  route('leadAssignSale', async ({ db, staff, params, json }) => {
+    const actor = staff()
+    if (actor?.role !== 'ADMIN') throw forbidden('chỉ quản trị viên mới được gán Sale phụ trách')
+    const index = db.dossiers.findIndex((d) => d.dossier_id === params.dossier_id)
+    if (index < 0) throw notFound(`hồ sơ ${params.dossier_id}`)
+    const body = (await json<{ sales_id?: string }>()) ?? {}
+    const salesId = String(body.sales_id ?? '').trim()
+    if (!salesId) throw invalid('cần chỉ định Sale phụ trách (sales_id không được để trống)')
+    const target = STAFF_FIXTURE.find((u) => u.user_id === salesId)
+    const current = db.dossiers[index]
+    const updated = {
+      ...current,
+      assigned_sale: target ? actorOf(target) : { user_id: salesId, full_name: salesId, role: 'SALE' as const },
+      assigned_sales_id: salesId,
+      created_by: current.created_by || salesId,
+    }
+    db.dossiers[index] = updated
+    return { body: updated }
+  }),
+
   route('leadDelete', ({ db, staff, params }) => {
     const index = db.dossiers.findIndex((d) => d.dossier_id === params.dossier_id)
     if (index < 0) throw notFound(`hồ sơ ${params.dossier_id}`)
-    // Khớp luật của máy chủ thật: Sale chỉ xoá khách DO MÌNH TẠO; hồ sơ chưa gán người phụ trách
-    // (dữ liệu di sản) vẫn xoá được.
-    const owner = db.dossiers[index].assigned_sale?.user_id
-    const actor = staff()?.user_id
-    if (owner && actor && owner !== actor) {
+    // Khớp luật của máy chủ thật: Sale chỉ xoá khách DO MÌNH TẠO. Hồ sơ CHƯA có người tạo (dữ liệu cũ /
+    // Pre-Sales bàn giao) thì chỉ ADMIN xoá được — ADMIN gán Sale phụ trách để cấp chủ sở hữu.
+    const dossier = db.dossiers[index]
+    const owner = dossier.created_by || dossier.assigned_sale?.user_id || ''
+    const actor = staff()
+    const isAdmin = actor?.role === 'ADMIN'
+    if (!owner) {
+      if (!isAdmin) {
+        throw forbidden(`hồ sơ ${params.dossier_id} chưa ghi nhận người tạo — chỉ quản trị viên xoá được`)
+      }
+    } else if (actor && !isAdmin && owner !== actor.user_id) {
       throw forbidden(`chỉ ${owner} (người tạo) mới xoá được hồ sơ ${params.dossier_id}`)
     }
     if (db.dossiers[index].status === 'CONVERTED_TO_QUOTE') {

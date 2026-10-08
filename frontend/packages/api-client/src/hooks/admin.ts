@@ -41,10 +41,16 @@ export const useAdminSetup = () => {
   })
 }
 
-export const useAdminUsers = (params: { role?: string; search?: string } = {}) =>
+export const useAdminUsers = (
+  params: { role?: string; search?: string } = {},
+  options: { enabled?: boolean } = {},
+) =>
   useQuery({
     queryKey: ['admin', 'users', params],
     queryFn: () => api.admin.users(params),
+    // Máy chủ chặn 403 với người không phải ADMIN: màn nào dùng hook này cho riêng ADMIN thì tắt
+    // query đi thay vì để nó gọi rồi báo lỗi đỏ.
+    enabled: options.enabled ?? true,
   })
 
 export const useCreateUser = () => {

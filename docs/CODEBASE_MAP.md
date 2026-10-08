@@ -39,7 +39,7 @@
 | Python | 276 file · ~49.439 dòng |
 | TypeScript/TSX | 167 file · ~31.134 dòng |
 | API routers (sub-router) | 14 (+ base router) |
-| Route operation (`@router.*`) | 92 (+2 base `/chat`,`/status` +2 `/health` + `/copilot/health`) |
+| Route operation (`@router.*`) | 97 operation / 77 path — đo bằng `app.openapi()['paths']`. FastAPI ≥ 0.142 giữ router con dạng lazy (`_IncludedRouter`) nên `len(app.routes)` KHÔNG đếm được endpoint nữa |
 | Bảng ORM (`__tablename__`) | 24 |
 | ErrorCode trong `src/contracts/errors.py` | 23 |
 | Tool của Copilot | 8 |
@@ -197,7 +197,7 @@ Vin20KBuildPhase/
 | `compliance.py` | `/api/v1` | 2 | kiểm tra compliance, gate F8 |
 | `copilot.py` | `/copilot` | 11 | chat, stream SSE, history, feedback, commands, quality |
 | `evaluation.py` | — | 6 | eval endpoints |
-| `leads.py` | `/api/v1/leads` | 11 | CRUD lead + dossier + `convert-to-quote`; `DELETE` **chỉ người tạo** (`created_by`) hoặc ADMIN — xem `PreSalesDossierService.delete_dossier` |
+| `leads.py` | `/api/v1/leads` | 12 | CRUD lead + dossier + `convert-to-quote`; `DELETE` **chỉ người tạo** (`created_by`) hoặc ADMIN, hồ sơ CHƯA có người tạo thì chỉ ADMIN xoá được; `POST /{dossier_id}/assign-sale` (ADMIN) gán Sale phụ trách và đóng dấu `created_by` cho hồ sơ vô chủ — xem `PreSalesDossierService.delete_dossier` / `.assign_owner` |
 | `llm_admin.py` | `/admin/llm` | 7 | provider CRUD, test/probe, usage |
 | `policies.py` | `/policies` | 3 | policy list/detail + F9 rule extraction |
 | `pre_sales.py` | `/api/v1/pre-sales` | 6 | session CRUD, resume HITL, handoff |
@@ -231,7 +231,7 @@ in-memory (`_IDEMPOTENCY_STORE`) trả **409** khi payload mismatch + header `Id
 |---|---|
 | Policy / RAG | `policies`, `policy_atoms`, `policy_edges`, `policy_documents`, `policy_chunks`, `policy_rules`, `evidence_bundles`, `abstention_certificates` |
 | Catalog | `projects`, `units` (có `area_m2`, `view`) |
-| Pre-sales | `pre_sales_sessions`, `customer_consents`, `pre_sales_plans`, `lead_dossiers` (`created_by` = người tạo hồ sơ, cơ sở cho quyền xoá) |
+| Pre-sales | `pre_sales_sessions`, `customer_consents`, `pre_sales_plans`, `lead_dossiers` (`created_by` = người tạo hồ sơ, cơ sở cho quyền xoá; NULL = hồ sơ vô chủ → chỉ ADMIN xoá, ADMIN cấp chủ sở hữu qua `assign-sale`. Backfill dữ liệu cũ: `scripts/migrate_lead_dossiers_created_by.py` lấy theo `assigned_sales_id` rồi tới `quotes.created_by`) |
 | Quote | `quotes`, `quote_snapshots`, `quote_audit_events`, `transactional_outbox` |
 | Compliance | `compliance_checks` |
 | Admin | `users` (role), `tts_settings`, `tts_feedback`, `tts_providers`, `llm_providers` |

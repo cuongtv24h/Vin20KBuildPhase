@@ -63,12 +63,16 @@ export const ENDPOINTS = {
   quoteNewVersion: def({ method: 'POST', path: '/quotes/{quote_id}/versions', source: 'PROPOSED', auth: ['SALE'] }),
 
   // Lead Dossier — C-10
-  leadList: def({ method: 'GET', path: '/leads', source: 'TD-4.4', auth: ['SALE'] }),
-  leadGet: def({ method: 'GET', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
+  // Máy chủ thật không giới hạn vai trò cho đọc/sửa hồ sơ; ADMIN cần vào CRM để gán chủ sở hữu và xoá hộ
+  // hồ sơ vô chủ, nên danh bạ mock cũng phải cho ADMIN qua cửa (khớp `PreSalesDossierService`).
+  leadList: def({ method: 'GET', path: '/leads', source: 'TD-4.4', auth: ['SALE', 'ADMIN'] }),
+  leadGet: def({ method: 'GET', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE', 'ADMIN'] }),
   leadCreate: def({ method: 'POST', path: '/leads', source: 'PROPOSED', auth: ['SALE'] }),
-  leadUpdate: def({ method: 'PUT', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
-  leadDelete: def({ method: 'DELETE', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE'] }),
+  leadUpdate: def({ method: 'PUT', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE', 'ADMIN'] }),
+  leadDelete: def({ method: 'DELETE', path: '/leads/{dossier_id}', source: 'PROPOSED', auth: ['SALE', 'ADMIN'] }),
   leadConvert: def({ method: 'POST', path: '/leads/{dossier_id}/convert-to-quote', source: 'TD-4.4', auth: ['SALE'] }),
+  // ADMIN gán Sale phụ trách; hồ sơ chưa có người tạo thì được đóng dấu `created_by` = Sale đó.
+  leadAssignSale: def({ method: 'POST', path: '/leads/{dossier_id}/assign-sale', source: 'PROPOSED', auth: ['ADMIN'] }),
 
   // Pre-Sales — C-09 (public)
   preSalesCreate: def({ method: 'POST', path: '/pre-sales/sessions', source: 'TD-4.4', auth: 'public' }),

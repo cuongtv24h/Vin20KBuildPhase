@@ -279,6 +279,48 @@ async def update_dossier(dossier_id: str, payload: LeadDossierUpdateRequest) -> 
         _raise_http(exc)
 
 
+@router.post("/{dossier_id}/assign-sale")
+async def assign_sale(
+    dossier_id: str,
+    payload: AssignSalesRequest,
+    authorization: str | None = Header(None, alias="Authorization"),
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, Any]:
+    """POST /api/v1/leads/{dossier_id}/assign-sale — ADMIN gán Sale phụ trách cho hồ sơ khách hàng.
+
+    Hồ sơ sinh từ luồng Pre-Sales (khách tự đồng ý bàn giao) và hồ sơ tạo trước khi có cột `created_by`
+    không có chủ sở hữu ⇒ theo luật xoá thì chỉ ADMIN xoá được. Endpoint này là đường hợp lệ để cấp chủ
+    sở hữu: gán Sale phụ trách **đồng thời đóng dấu người tạo** khi hồ sơ chưa có ai, nhờ đó Sale được
+    gán tự xoá/sửa khách mình phụ trách ("Sale chỉ xoá khách do mình tạo").
+
+    Bắt buộc vai trò ADMIN và có phiên đăng nhập: đóng dấu `created_by` là cấp quyền sở hữu nên không
+    thể để nhân viên tự gán mình vào hồ sơ vô chủ. `PUT/PATCH` thường chỉ đổi thông tin và **không**
+    đóng dấu người tạo — nếu không thì bất kỳ ai cũng tự cấp quyền xoá cho mình được.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Cần đăng nhập để gán Sale phụ trách.",
+        )
+    if not principal.has_role("ADMIN"):
+        raise HTTPException(
+            status_code=403,
+            detail="Chỉ quản trị viên mới được gán Sale phụ trách cho hồ sơ khách hàng.",
+        )
+    try:
+        async for db in get_db_session():
+            service = PreSalesDossierService()
+            dossier = await service.assign_owner(
+                db,
+                dossier_id=dossier_id,
+                sales_id=payload.sales_id,
+            )
+            await db.commit()
+            return _dossier_to_response(dossier)
+    except Exception as exc:
+        _raise_http(exc)
+
+
 @router.delete("/{dossier_id}")
 async def delete_dossier(
     dossier_id: str,
@@ -287,8 +329,9 @@ async def delete_dossier(
 ) -> dict[str, Any]:
     """DELETE /api/v1/leads/{dossier_id} — Xoá hồ sơ khách hàng **do chính mình tạo**.
 
-    Quyền: người tạo hồ sơ (`created_by`) hoặc ADMIN. Xoá hồ sơ của Sale khác → 403. Không có phiên
-    đăng nhập → 401 (không dùng principal mặc định cho thao tác phá huỷ dữ liệu).
+    Quyền: người tạo hồ sơ (`created_by`) hoặc ADMIN. Xoá hồ sơ của Sale khác → 403. Hồ sơ chưa ghi
+    người tạo → 403 với Sale (chỉ ADMIN xoá được; ADMIN gán chủ sở hữu qua `POST /{id}/assign-sale`).
+    Không có phiên đăng nhập → 401 (không dùng principal mặc định cho thao tác phá huỷ dữ liệu).
     """
     if not authorization:
         raise HTTPException(

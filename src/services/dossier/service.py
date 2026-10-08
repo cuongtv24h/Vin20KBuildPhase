@@ -338,8 +338,12 @@ class PreSalesDossierService:
         đi qua cùng một cửa. Trước đây hàm này xoá vô điều kiện nên bất kỳ ai cũng xoá được khách của
         người khác, chỉ cần biết `dossier_id`.
 
-        Hồ sơ cũ (tạo trước khi có cột `created_by`, giá trị NULL) vẫn xoá được: dữ liệu di sản không
-        có chủ sở hữu để đối chiếu, chặn hết sẽ khoá luôn các hồ sơ Pre-Sales bàn giao.
+        Hồ sơ CHƯA ghi người tạo (`created_by` NULL — dữ liệu cũ, hoặc hồ sơ Pre-Sales do khách tự đồng
+        ý bàn giao) thì **chỉ quản trị viên** xoá được (`allow_any=True`). Trước đây nhóm này được coi là
+        "vô chủ nên ai đăng nhập cũng xoá được", nhưng trên DB vận hành KHÔNG hồ sơ nào có `created_by`
+        (cột mới thêm, và `assigned_sales_id` cũng trống vì chưa có đường nào ghi) ⇒ coi như toàn bộ
+        khách hàng đều bị bỏ ngỏ. ADMIN cấp chủ sở hữu bằng `assign_owner` (gán Sale phụ trách), sau đó
+        Sale được gán tự xử lý hồ sơ của mình.
         """
         dossier = await self.get_dossier(db, dossier_id)
         if not allow_any:
@@ -350,7 +354,23 @@ class PreSalesDossierService:
                     http_status=401,
                 )
             owner = (dossier.created_by or "").strip()
-            if owner and owner != actor_id:
+            if not owner:
+                raise DomainError(
+                    ErrorCode.UNAUTHORIZED_ACCESS,
+                    (
+                        f"Hồ sơ {dossier_id} chưa ghi nhận người tạo nên chỉ quản trị viên xoá được. "
+                        f"Quản trị viên gán Sale phụ trách cho hồ sơ này (assign-sale) "
+                        "thì anh/chị được giao quyền tự xử lý."
+                    ),
+                    http_status=403,
+                    details={
+                        "dossier_id": dossier_id,
+                        "created_by": None,
+                        "requested_by": actor_id,
+                        "assignable": True,
+                    },
+                )
+            if owner != actor_id:
                 raise DomainError(
                     ErrorCode.UNAUTHORIZED_ACCESS,
                     (
@@ -367,3 +387,38 @@ class PreSalesDossierService:
         await db.delete(dossier)
         await db.flush()
         return True
+
+    async def assign_owner(
+        self,
+        db: AsyncSession,
+        dossier_id: str,
+        *,
+        sales_id: str,
+        stamp_creator: bool = True,
+    ) -> LeadDossierModel:
+        """Gán Sale phụ trách cho hồ sơ — và đóng dấu `created_by` khi hồ sơ chưa có người tạo.
+
+        Vì sao cần: hồ sơ sinh từ luồng Pre-Sales (khách tự đồng ý bàn giao) và hồ sơ tạo trước khi có
+        cột `created_by` đều không có chủ sở hữu, mà luật xoá mới chỉ cho phép người tạo hoặc ADMIN xoá.
+        Không có đường cấp chủ sở hữu thì dữ liệu cũ bị khoá cứng với Sale. Gán Sale phụ trách chính là
+        đường đó: ADMIN chỉ định ai chăm khách, và người đó được quyền xoá/sửa hồ sơ mình phụ trách.
+
+        `stamp_creator` KHÔNG BAO GIỜ ghi đè người tạo đã có — hồ sơ của Sale khác thì chỉ đổi người phụ
+        trách, quyền xoá vẫn thuộc người tạo (hoặc ADMIN). Endpoint gọi hàm này bắt buộc vai trò ADMIN:
+        đóng dấu `created_by` là cấp quyền sở hữu, không thể để nhân viên tự gán mình vào hồ sơ vô chủ.
+        """
+        target = (sales_id or "").strip()
+        if not target:
+            raise DomainError(
+                ErrorCode.INPUT_VALIDATION_ERROR,
+                "Cần chỉ định Sale phụ trách (sales_id không được để trống).",
+                http_status=422,
+                details={"dossier_id": dossier_id},
+            )
+        dossier = await self.get_dossier(db, dossier_id)
+        previous_owner = (dossier.created_by or "").strip()
+        dossier.assigned_sales_id = target
+        if stamp_creator and not previous_owner:
+            dossier.created_by = target
+        await db.flush()
+        return dossier

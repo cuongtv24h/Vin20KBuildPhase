@@ -187,6 +187,9 @@ export const api = {
     delete: (dossierId: string, o: CommandOptions = {}) => call<{ deleted: boolean }>('leadDelete', { dossier_id: dossierId }, o),
     convertToQuote: (dossierId: string, body: QuoteCreateRequest, o: CommandOptions = {}) =>
       call<QuoteAccepted>('leadConvert', { dossier_id: dossierId }, { json: body, ...o }),
+    /** ADMIN gán Sale phụ trách (hồ sơ vô chủ sẽ được đóng dấu người tạo = Sale đó). */
+    assignSale: (dossierId: string, salesId: string, o: CommandOptions = {}) =>
+      call<LeadDossier>('leadAssignSale', { dossier_id: dossierId }, { json: { sales_id: salesId }, ...o }),
   },
 
   preSales: {
