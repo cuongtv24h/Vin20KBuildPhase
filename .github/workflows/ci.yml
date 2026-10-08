@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    # `dev` là nhánh PR theo quy ước repo (.agents/rules/dev1-data-standards.md); `arena/**` là nhánh
+    # làm việc của agent. Trước đây CI bỏ qua cả hai nên code merge vào không hề được kiểm tra.
+    branches: [main, develop, dev, master, "arena/**"]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   lint-and-test:
@@ -23,7 +25,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Lint with ruff
-        run: ruff check src/ tests/
+        # Quét cả repo (thêm `eval/`, `scripts/`) — đúng gate trong .agents/rules/dev1-data-standards.md
+        run: ruff check .
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
