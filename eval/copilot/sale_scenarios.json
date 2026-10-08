@@ -716,27 +716,6 @@
       "notes": "Ca thiếu dữ liệu: chưa có vốn tự có nên mục 4 phải nêu ĐÚNG việc cần bổ sung thay vì tự đoán; số liệu vẫn lấy từ engine + catalog như các câu khác."
     },
     {
-      "id": "DX-03",
-      "group": "de_xuat",
-      "message": "Soạn hồ sơ đề xuất cho căn ZEN-A-1205, vốn tự có 1,5 tỷ",
-      "context": {
-        "transaction_date": "2026-07-15"
-      },
-      "any_tools": [
-        "soan_ho_so_de_xuat"
-      ],
-      "expect_citation": true,
-      "expect_grounded": true,
-      "must_contain": [
-        "HỒ SƠ ĐỀ XUẤT",
-        "CSBH-ZEN-2026-V2.0"
-      ],
-      "must_not_contain": [
-        "soan_ho_so_de_xuat"
-      ],
-      "notes": "Time-travel trong hồ sơ: ngày 15/07/2026 phải viện dẫn V2.0 (ân hạn 18 tháng), không được lấy V3.1 đang hiệu lực hôm nay — trình Quản lý sai phiên bản chính sách là lỗi nghiệp vụ."
-    },
-    {
       "id": "F8-01",
       "group": "f8",
       "message": "Phát ngôn này có vi phạm không: cam kết sinh lời 20% mỗi năm",

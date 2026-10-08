@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,7 +25,11 @@ from src.db.models import (
     LeadDossierModel,
     PreSalesPlanModel,
     PreSalesSessionModel,
+    UserModel,
 )
+
+#: Vai trò được nhận hồ sơ khách (bảng `users.role`; "SALES" là cách viết cũ vẫn gặp trong dữ liệu).
+SALE_ROLES = ("SALE", "SALES")
 
 SLA_MINUTES = 15  # SLA chuyên viên tiếp nhận lead
 SESSION_TTL_SECONDS = 1800  # TTL phiên chat Pre-Sales (30 phút)
@@ -179,6 +183,67 @@ class PreSalesDossierService:
         db.add(consent)
         await db.flush()
         return consent
+
+    async def pick_least_loaded_sale(self, db: AsyncSession) -> str | None:
+        """Chọn Sale đang ít hồ sơ chờ nhất — dùng khi khách TỰ bàn giao, không ai chỉ định người nhận.
+
+        Vì sao cần: hồ sơ sinh từ luồng Pre-Sales không có người tạo. Không phân công thì hồ sơ vô chủ,
+        theo luật xoá chỉ ADMIN xử lý được và cũng không Sale nào thấy "khách của mình" trong CRM. Bản mock
+        đã chia hồ sơ theo tải (`pickSale` trong `frontend/packages/mock-server/src/services/presales.ts`),
+        backend thật thì chưa — lệch parity này làm hành vi demo khác hành vi chạy thật.
+
+        Tải = số hồ sơ đang giao cho Sale đó và CHƯA chuyển thành báo giá. Hoà nhau thì lấy theo mã nhân
+        viên để kết quả ổn định, không phụ thuộc thứ tự DB trả về. Không có tài khoản SALE nào (DB mới,
+        môi trường test) thì trả về `None`: hồ sơ giữ nguyên vô chủ để ADMIN gán — không được đoán bừa.
+        """
+        users = (await db.scalars(select(UserModel).order_by(UserModel.user.asc()))).all()
+        sales = [u.user for u in users if (u.role or "").strip().upper() in SALE_ROLES]
+        if not sales:
+            return None
+
+        load_rows = (
+            await db.execute(
+                select(LeadDossierModel.assigned_sales_id, func.count())
+                .where(LeadDossierModel.assigned_sales_id.is_not(None))
+                .where(LeadDossierModel.status != LeadDossierStatus.CONVERTED_TO_QUOTE.value)
+                .group_by(LeadDossierModel.assigned_sales_id)
+            )
+        ).all()
+        load = {sales_id: count for sales_id, count in load_rows}
+        return min(sales, key=lambda sales_id: (load.get(sales_id, 0), sales_id))
+
+    async def create_handoff_dossier(
+        self,
+        db: AsyncSession,
+        *,
+        session_id: str,
+        customer_name: str,
+        customer_phone: str,
+        constraints: dict[str, Any] | None = None,
+        plan_id: str | None = None,
+        lead_temperature: LeadTemperature = LeadTemperature.WARM,
+    ) -> LeadDossierModel:
+        """Tạo hồ sơ từ luồng khách ĐỒNG Ý BÀN GIAO, kèm phân công Sale phụ trách.
+
+        Người nhận ít hồ sơ nhất được ghi vào cả `assigned_sales_id` lẫn `created_by`: hồ sơ khách tự bàn
+        giao không có nhân viên nào "tạo" ra nó, nên chủ sở hữu phải là người được giao — nhờ đó Sale ấy
+        xoá/sửa được khách mình phụ trách thay vì mọi thao tác đều phải qua ADMIN.
+
+        Status giữ `NEW` (không nhảy sang `ASSIGNED` như `assign_sales`): Sale chưa thực sự bấm nhận lead,
+        nên SLA 15 phút vẫn phải chạy để cả đội thấy hồ sơ đang chờ.
+        """
+        owner = await self.pick_least_loaded_sale(db)
+        return await self.create_dossier(
+            db,
+            session_id=session_id,
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            constraints=constraints,
+            plan_id=plan_id,
+            lead_temperature=lead_temperature,
+            assigned_sales_id=owner,
+            created_by=owner,
+        )
 
     async def create_dossier(
         self,

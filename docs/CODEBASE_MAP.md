@@ -199,10 +199,10 @@ Vin20KBuildPhase/
 | `compliance.py` | `/api/v1` | 2 | kiểm tra compliance, gate F8 |
 | `copilot.py` | `/copilot` | 11 | chat, stream SSE, history, feedback, commands, quality |
 | `evaluation.py` | — | 6 | eval endpoints |
-| `leads.py` | `/api/v1/leads` | 12 | CRUD lead + dossier + `convert-to-quote`; `DELETE` **chỉ người tạo** (`created_by`) hoặc ADMIN, hồ sơ CHƯA có người tạo thì chỉ ADMIN xoá được; `POST /{dossier_id}/assign-sale` (ADMIN) gán Sale phụ trách và đóng dấu `created_by` cho hồ sơ vô chủ — xem `PreSalesDossierService.delete_dossier` / `.assign_owner` |
+| `leads.py` | `/api/v1/leads` | 12 | CRUD lead + dossier (Sale tự thêm khách ⇒ `created_by` = `assigned_sales_id` = người tạo) + `convert-to-quote`; `DELETE` **chỉ người tạo** (`created_by`) hoặc ADMIN, hồ sơ CHƯA có người tạo thì chỉ ADMIN xoá được; `POST /{dossier_id}/assign-sale` (ADMIN) gán Sale phụ trách và đóng dấu `created_by` cho hồ sơ vô chủ — xem `PreSalesDossierService.delete_dossier` / `.assign_owner` |
 | `llm_admin.py` | `/admin/llm` | 7 | provider CRUD, test/probe, usage |
 | `policies.py` | `/policies` | 3 | policy list/detail + F9 rule extraction |
-| `pre_sales.py` | `/api/v1/pre-sales` | 6 | session CRUD, resume HITL, handoff |
+| `pre_sales.py` | `/api/v1/pre-sales` | 6 | session CRUD, resume HITL, handoff — khi khách đồng ý bàn giao thì `create_handoff_dossier` **tự phân công Sale ít hồ sơ chờ nhất** và ghi `created_by` = Sale đó (status vẫn `NEW` để SLA 15 phút chạy); không có tài khoản SALE nào thì để vô chủ cho ADMIN gán |
 | `quote_events.py` | `/api/v1/quotes` | 1 | SSE stream sự kiện quote |
 | `quotes.py` | `/api/v1/quotes` | 14 | create/list/get/calculate/submit-review/approve/reject/revision/exception/audit-trail/pdf/… |
 | `settings.py` | `/settings` | 3 | runtime settings |
@@ -463,9 +463,11 @@ pytest tests/ -v                        # hoặc: make test
 | 7 | **Eval không chạy được ngoài máy tác giả** | `scripts/run_eval.py` hardcode `/Users/mac/AITC/PROJECT/report/...`; cần `EVAL_DATASET_PATH`/`EVAL_POLICIES_DIR`/`EVAL_CANONICAL_DIR`. |
 | 8 | **`init_db.py` không chạy được trên SQLite** | DDL pgvector/HNSW/FTS chỉ dành Postgres; nếu gọi trên dev SQLite sẽ lỗi. |
 | 9 | **Hardcode nghiệp vụ trong graph** | `official_quote/nodes/context.py` cố định 68.5 m² / 2BR / VAT 10% / KPBT 2%. |
-| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **745** hàm `def test_` (pytest gom **778** test, gồm cả tham số hoá). |
+| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **789** hàm `def test_` (pytest gom **823** test, gồm cả tham số hoá — 2026-10-08). |
 | 11 | **CI không phủ branch làm việc** | Workflow chỉ chạy `main`/`develop`; branch `arena/*` không có check. |
 | 12 | **Endpoint frontend đặt tên khác backend** | Nhiều mục `PROPOSED` trong `endpoints.ts` (auth login, admin users, `/messages/*`) — cần đối chiếu với router thật khi tích hợp. |
+| 13 | **Danh tính suy ra từ header client — MẠO DANH ĐƯỢC** (hoãn tới sau demo, quyết ngày 2026-10-08) | `get_current_principal` (`src/api/deps.py:149`) tin `X-User-Id`/`X-User-Role` **trước** token, còn `create_access_token` chỉ là base64 JSON **không chữ ký, không `exp`**. Đã đo trên test: gửi `X-User-Role: ADMIN` → `POST /leads/{id}/assign-sale` trả **200**; token `tk_` tự nặn `{"u":"X","r":"ADMIN"}` cũng 200; mạo danh `X-User-Id` của chủ hồ sơ → **xoá được**. Mọi cổng ADMIN (`admin_cp`, `policies`, `llm_admin`, `tts_admin`) hở cùng kiểu. Fix: ký token (HMAC/JWT + `exp`, secret trong `.env`) và chỉ suy danh tính từ token đã xác thực. |
+| 14 | **Bốn endpoint `/leads` không có lớp quyền nào** (hoãn cùng mục 13) | `GET /leads`, `GET /leads/{id}`, `PUT/PATCH /leads/{id}`, `POST /leads/{id}/convert-to-quote` không hề `Depends(get_current_principal)`. Đã đo: **không cần đăng nhập** vẫn liệt kê toàn bộ khách (tên + SĐT đã che + người phụ trách), đổi tên khách, chuyển hồ sơ thành báo giá — đều 200. Bản mock thì lọc theo chủ sở hữu (`listDossiers`) ⇒ lệch parity. Fix: bắt đăng nhập + Sale chỉ thấy/sửa khách của mình và khách chưa gán, ADMIN thấy hết. |
 
 ---
 

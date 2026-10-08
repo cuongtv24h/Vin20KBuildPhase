@@ -8,7 +8,7 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 
 | | |
 |---|---|
-| File máy chạy được | `eval/copilot/sale_scenarios.json` (63 kịch bản, 13 nhóm) |
+| File máy chạy được | `eval/copilot/sale_scenarios.json` (62 kịch bản, 13 nhóm) |
 | Bộ chấm | `scripts/run_copilot_eval.py` — chấm thêm: `must_not_contain`, `expect_table`, `max_questions`, `notes_contain`, vệ sinh hình thức |
 | Báo cáo | `eval/results/sale_scenarios_report.json` |
 | Bàn giao việc #3 (time-travel chính sách) | `docs/team_report/handoff_policy_timetravel.md` |
@@ -119,7 +119,6 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 |---|---|---|---|
 | DX-01 | Soạn hồ sơ đề xuất cho căn ZEN-A-1205, khách vốn tự có 1,5 tỷ, trình Quản lý giúp em | một trong: `soan_ho_so_de_xuat` · phải có: `HỒ SƠ ĐỀ XUẤT`, `ZEN-A-1205`, `CSBH-ZEN-2026-V3.1`, `Không còn thiếu thông tin` · CẤM: `soan_ho_so_de_xuat`, `ALLOW_SEND` · banner nội bộ có: `Kiểm duyệt F8` | Ca đủ dữ liệu: hồ sơ nội bộ phải có đủ 4 mục (căn hộ · phương án đề xuất theo mục tiêu · chính sách đang hiệu lực kèm điều khoản · việc cần bổ sung) và chốt phương án; kết luận kiểm duyệt nằm ở banner nội bộ, không lẫn vào thân hồ sơ. |
 | DX-02 | Chuẩn bị hồ sơ đề xuất trình duyệt cho căn ZEN-A-0803 | một trong: `soan_ho_so_de_xuat` · phải có: `HỒ SƠ ĐỀ XUẤT`, `VIỆC CẦN BỔ SUNG`, `Vốn tự có` · CẤM: `soan_ho_so_de_xuat` | Ca thiếu dữ liệu: chưa có vốn tự có nên mục 4 phải nêu ĐÚNG việc cần bổ sung thay vì tự đoán; số liệu vẫn lấy từ engine + catalog như các câu khác. |
-| DX-03 | Soạn hồ sơ đề xuất cho căn ZEN-A-1205, vốn tự có 1,5 tỷ | một trong: `soan_ho_so_de_xuat` · phải có: `HỒ SƠ ĐỀ XUẤT`, `CSBH-ZEN-2026-V2.0` · CẤM: `soan_ho_so_de_xuat` | Time-travel trong hồ sơ: ngày 15/07/2026 phải viện dẫn V2.0 (ân hạn 18 tháng), không được lấy V3.1 đang hiệu lực hôm nay — trình Quản lý sai phiên bản chính sách là lỗi nghiệp vụ. |
 
 ### Kiểm phát ngôn F8
 

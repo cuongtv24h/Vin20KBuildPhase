@@ -186,7 +186,9 @@ async def submit_consent(
                     customer_phone=payload.customer_phone,
                     customer_email=payload.customer_email,
                 )
-                dossier = await dossier_service.create_dossier(
+                # Phân công luôn Sale phụ trách (người ít hồ sơ chờ nhất) và ghi người tạo = người đó:
+                # hồ sơ khách tự bàn giao mà vô chủ thì chỉ ADMIN xoá/sửa được, Sale không thấy khách của mình.
+                dossier = await dossier_service.create_handoff_dossier(
                     db,
                     session_id=session_id,
                     customer_name=payload.customer_name,
@@ -196,6 +198,7 @@ async def submit_consent(
                 )
                 await db.commit()
                 response["dossier_id"] = dossier.dossier_id
+                response["assigned_sales_id"] = dossier.assigned_sales_id
         return response
     except Exception as exc:
         _raise_http(exc)

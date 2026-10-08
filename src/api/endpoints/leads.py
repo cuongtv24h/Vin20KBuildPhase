@@ -180,6 +180,9 @@ async def create_dossier(
                 constraints=constraints_dict,
                 plan_id=payload.plan_id,
                 lead_temperature=payload.lead_temperature,
+                # Sale tự thêm khách thì mặc định phụ trách luôn khách đó (khớp bản mock và cột
+                # "Phụ trách" trên CRM); ADMIN vẫn đổi được qua POST /{dossier_id}/assign-sale.
+                assigned_sales_id=principal.user_id,
                 created_by=principal.user_id,
             )
             await db.commit()
