@@ -104,6 +104,35 @@ describe('phiên chat Copilot — giữ qua đổi trang/F5 và mở lại lịc
     expect(store.cachedItems('CNV-MOI')?.map((i) => i.id)).toEqual(['new-1'])
   })
 
+  it('server cấp id cho phiên mới: khung chat GIỮ NGUYÊN nội dung và cất vào cache theo id mới', () => {
+    // Đây là hợp đồng của trang Trợ lý sau khi ghi lượt đầu tiên: server trả về id cho CHÍNH phiên đang
+    // mở ⇒ phải gọi `assignConversationId`. Bản trước gọi `setConversationId(id)` nên store hiểu là
+    // "đổi sang cuộc khác" và xoá trắng khung chat ngay sau câu trả lời đầu tiên — Sale thấy đoạn hội
+    // thoại mới "biến mất", bấm nút phiên mới cũng không thấy gì đổi.
+    const { storage, store } = makeStore()
+    store.setConversationId(null)
+    store.setItems([item('u-1', 'câu hỏi đầu'), item('a-1', 'câu trả lời đầu')])
+
+    store.assignConversationId('CNV-MOI')
+
+    expect(store.getSnapshot().conversationId).toBe('CNV-MOI')
+    expect(store.getSnapshot().items.map((i) => i.id)).toEqual(['u-1', 'a-1'])
+    expect(store.cachedItems('CNV-MOI')?.map((i) => i.id)).toEqual(['u-1', 'a-1'])
+    expect(storage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY)).toBe('CNV-MOI')
+  })
+
+  it('đổi sang cuộc KHÁC thì khung chat đổi theo (adopt ≠ chuyển cuộc)', () => {
+    const { store } = makeStore()
+    store.setConversationId(null)
+    store.setItems([item('u-1', 'phiên chưa lưu')])
+    store.hydrate('CNV-CU', [item('old-1', 'nội dung cũ')])
+
+    store.setConversationId('CNV-CU')
+
+    expect(store.getSnapshot().items.map((i) => i.id)).toEqual(['old-1'])
+    expect(store.cachedItems('CNV-CU')?.map((i) => i.id)).toEqual(['old-1'])
+  })
+
   it('ghi nhớ cuộc đang mở qua localStorage để F5 mở đúng cuộc', () => {
     const { storage, store } = makeStore()
     store.setConversationId('CNV-000042')

@@ -649,6 +649,8 @@ export interface LeadDossier {
   segment?: CustomerSegment
   customer_segment?: CustomerSegment
   assigned_sales_id?: string | null
+  /** Nhân viên tạo hồ sơ — quyết định ai được xoá (Sale chỉ xoá khách do mình tạo, ADMIN xoá hộ). */
+  created_by?: string | null
   customer_constraints?: CustomerConstraints
   updated_at?: string
 }

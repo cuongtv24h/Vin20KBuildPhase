@@ -66,7 +66,8 @@ COPILOT_SYSTEM_PROMPT = """Bạn là Sales Copilot AI — trợ lý đồng hàn
   nghiệp vụ: "theo dữ liệu giỏ hàng", "giá tối đa", "phương án thanh toán chi tiết".
 
 # KHI LỌC GIỎ HÀNG RA RỖNG (bắt buộc theo trình tự)
-1. Nêu kết luận bằng **đúng câu** "**chưa có căn nào phù hợp**" (kèm lý do ngắn: ngân sách/số phòng ngủ),
+1. Nêu kết luận bằng **đúng câu** "**chưa có căn nào phù hợp**" (kèm lý do ngắn: ngân sách/số phòng ngủ/
+   diện tích),
    rồi mới tới **số liệu phân khúc** lấy từ Observation (số căn, khoảng giá, căn mềm nhất và chênh lệch
    so với ngân sách). Không mô tả vòng vo kiểu "chưa xác định được căn phù hợp nào một cách chắc chắn".
 2. Đưa **mốc tổng quan vốn tự có** (nếu Sale có nêu số tiền và Observation có kết quả đánh giá vốn tự có):
@@ -79,8 +80,21 @@ COPILOT_SYSTEM_PROMPT = """Bạn là Sales Copilot AI — trợ lý đồng hàn
 
 # CÁCH HIỂU CON SỐ NGÂN SÁCH CỦA SALE
 - Mặc định hiểu là **tổng giá niêm yết** khách dự kiến bỏ ra (cách hiểu phổ thông khi tìm mua).
-- Nhưng **luôn chủ động hỏi lại** xem đó là tổng giá hay **vốn tự có ban đầu**, vì đây là điểm mở đường
+- Câu tìm căn kèm số tiền ("căn 70m² tầm 3 tỷ") vẫn phải **GỌI TOOL LỌC GIỎ HÀNG NGAY** — không được
+  dừng lại hỏi "3 tỷ là tổng giá hay vốn tự có" rồi không tra gì. Cứ lọc theo cách hiểu mặc định (tổng
+  giá), hiển thị kết quả, rồi mới hỏi lại 1 câu để chốt cách hiểu con số.
+- **Tuyệt đối không nói "hệ thống lỗi", "chưa trả về dữ liệu", "hệ thống đang hỏng"** khi tool trả về
+  rỗng: lọc rỗng là **kết luận nghiệp vụ** (hết căn khớp tiêu chí), phải trình bày số liệu phễu ở mục
+  "KHI LỌC GIỎ HÀNG RA RỖNG" bên dưới. Nếu tool báo lỗi thật (`error_code`) thì nói "em chưa tra được
+  dữ liệu này, anh/chị thử lại giúp em" — không quy kết hệ thống hỏng.
+- Khi Sale nêu **diện tích** ("khoảng 70m²", "60-70m²"): lọc bằng cặp tham số diện tích của tool giỏ
+  hàng, và **nới khoảng ±10%** cho một con số đơn (70m² ⇒ 63–77m²) vì Sale nói theo khoảng; trong câu
+  trả lời phải ghi rõ khoảng đã lọc.
+- **Luôn chủ động hỏi lại** xem số tiền là tổng giá hay **vốn tự có ban đầu**, vì đây là điểm mở đường
   tư vấn đòn bẩy tài chính. Nếu Sale xác nhận là vốn tự có → gọi `danh_gia_von_tu_co` trước.
+- Câu hỏi chỉ có số tiền (chưa có mã căn): **vẫn gọi `danh_gia_von_tu_co`** với số tiền (kèm `so_phong_ngu`
+  hoặc `dien_tich_m2` nếu Sale có nêu) — tool tự chọn căn mốc và nói rõ đã lấy căn nào. Không được trả lời
+  kiểu "cần mã căn mới đánh giá được".
 - Câu hỏi nhiều ý (ví dụ "tính phương án rồi soạn tin cho khách"): gọi ĐỦ các tool cần thiết
   (nhiều vòng) trước khi trả lời; không bỏ sót ý nào.
 - Mọi số tiền/tỷ lệ trong câu trả lời PHẢI lấy nguyên từ Observation, không tự làm tròn hay
@@ -162,7 +176,7 @@ def canonical_facts(context: dict[str, Any] | None = None) -> list[str]:
     if units:
         prices = [int(u.get("listed_price_before_tax_vnd") or 0) for u in units]
         lines.append(
-            f"- Giỏ hàng canonical (**metadata của TOÀN GIỎ, mọi số phòng ngủ** — chỉ để biết ngữ cảnh): "
+            f"- Giỏ hàng hiện tại (**metadata của TOÀN GIỎ, mọi số phòng ngủ** — chỉ để biết ngữ cảnh): "
             f"{len(units)} căn đang mở bán, giá niêm yết trước thuế từ "
             f"{grounding.format_vnd(min(prices))} đến {grounding.format_vnd(max(prices))}. "
             "MỌI con số chi tiết đưa cho Sale (từng căn, từng phân khúc, số căn mỗi phân khúc) BẮT BUỘC "
@@ -170,18 +184,91 @@ def canonical_facts(context: dict[str, Any] | None = None) -> list[str]:
             "metadata này."
         )
     else:
-        lines.append("- Giỏ hàng canonical: hiện không có căn nào đang mở bán trong dữ liệu vận hành.")
+        lines.append("- Giỏ hàng hiện tại: chưa có căn nào đang mở bán trong dữ liệu vận hành.")
+    return lines
+
+
+def question_criteria(entities: dict[str, Any] | None = None) -> list[str]:
+    """Các tiêu chí bóc tách từ câu hỏi của Sale — **dữ liệu vào cho LLM phân tích**.
+
+    Đây không phải kết luận: model phải đọc lại câu hỏi nguyên văn, tự sửa nếu bộ bóc tách sai, và
+    quyết định gọi tool nào với tham số gì. Nhờ có dòng này, model không phải "đoán" con số từ câu chữ
+    (lỗi cũ: câu "căn 70m² tầm 3 tỷ" bị bỏ qua tiêu chí diện tích), mà vẫn giữ toàn quyền phân tích.
+    """
+    entities = entities or {}
+    lines: list[str] = []
+
+    unit_code = str(entities.get("unit_code") or "").strip()
+    if unit_code:
+        lines.append(f"- Mã căn nhắc tới: {unit_code}")
+
+    area_range = entities.get("area_range_m2")
+    area_spec = entities.get("area_spec_m2")
+    if isinstance(area_range, (tuple, list)) and len(area_range) == 2:
+        low, high = area_range
+        if low and high:
+            note = f"Sale nêu {float(area_spec):g}m², đã nới ±10%" if area_spec else "đã nới ±10%"
+            lines.append(f"- Diện tích: {low:g}–{high:g}m² ({note})")
+    elif area_spec:
+        lines.append(f"- Diện tích Sale nêu: {float(area_spec):g}m²")
+
+    amount_range = entities.get("amount_range_vnd")
+    if isinstance(amount_range, (tuple, list)) and len(amount_range) == 2:
+        low, high = amount_range
+        if low or high:
+            lines.append(
+                f"- Khoảng ngân sách khách nêu: {grounding.format_vnd(low) if low else '?'} – "
+                f"{grounding.format_vnd(high) if high else '?'}"
+            )
+    amount = entities.get("amount_vnd")
+    if amount:
+        lines.append(f"- Số tiền khách nêu (mặc định hiểu là tổng giá niêm yết): {grounding.format_vnd(amount)}")
+    if entities.get("bedrooms"):
+        lines.append(f"- Số phòng ngủ: {int(entities['bedrooms'])}PN")
+    if entities.get("transaction_date"):
+        lines.append(f"- Ngày giao dịch Sale nêu: {entities['transaction_date']}")
+    if entities.get("customer_name"):
+        lines.append(f"- Tên khách trong câu: {entities['customer_name']}")
+    if entities.get("customer_phone"):
+        lines.append(f"- SĐT khách trong câu: {entities['customer_phone']}")
     return lines
 
 
 def build_system_prompt(context: dict[str, Any] | None = None) -> str:
-    """Ghép prompt luật chơi + bối cảnh động (ngày, dự án, giỏ hàng, chính sách hiệu lực)."""
+    """Ghép prompt luật chơi + bối cảnh động (ngày, dự án, giỏ hàng, chính sách hiệu lực).
+
+    Gồm cả **câu hỏi nguyên văn + tiêu chí bóc tách** để LLM tự phân tích câu hỏi của Sale (xem
+    `question_criteria`); kế hoạch của planner tất định chỉ được nêu như *gợi ý*, không phải lệnh.
+    """
     context = context or {}
     current_unit = context.get("current_unit")
     lead_dossier_id = context.get("lead_dossier_id")
 
     lines: list[str] = [COPILOT_SYSTEM_PROMPT, "", "# BỐI CẢNH PHIÊN LÀM VIỆC (dữ liệu hệ thống)"]
     lines.extend(canonical_facts(context))
+
+    question = str(context.get("question") or "").strip()
+    criteria = question_criteria(context.get("entities"))
+    if question or criteria:
+        lines.append("")
+        lines.append("# CÂU HỎI CỦA SALE + TIÊU CHÍ BÓC TÁCH (bạn chịu trách nhiệm phân tích)")
+        if question:
+            lines.append(f'- Câu hỏi nguyên văn: "{question}"')
+        lines.extend(criteria)
+        lines.append(
+            "Hãy tự đọc câu hỏi trên rồi quyết định: gọi tool nào, truyền tham số gì (mã căn, dự án, số "
+            "phòng ngủ, diện tích m², ngân sách, ngày giao dịch, khách hàng). Các dòng tiêu chí bên trên "
+            "chỉ là **gợi ý** của bộ bóc tách tất định: nếu chúng sai hoặc thiếu so với câu hỏi nguyên "
+            "văn thì sửa lại theo câu hỏi."
+        )
+        lines.append(
+            "**Không phải câu nào cũng phải gọi tool.** Câu cần SỐ LIỆU của hệ thống (giá, căn, giỏ hàng, "
+            "chính sách/chiết khấu, vốn tự có, hồ sơ khách, tính phương án, soạn tin/hồ sơ, kiểm F8) thì "
+            "BẮT BUỘC gọi tool trước khi kết luận — không được đoán số. Câu KHÔNG cần số liệu (chào hỏi, "
+            "cảm ơn, hỏi em làm được gì / dùng thế nào, hỏi định nghĩa hay quy trình chung, góp ý cách "
+            "trả lời) thì trả lời trực tiếp bằng kiến thức nghiệp vụ, **không gọi tool** cho hình thức."
+        )
+
     if current_unit:
         lines.append(f"- Sale đang chọn căn: {current_unit}.")
     if lead_dossier_id:
@@ -202,7 +289,10 @@ def build_system_prompt(context: dict[str, Any] | None = None) -> str:
     plan = context.get("plan") or []
     if plan:
         lines.append("")
-        lines.append("# KẾ HOẠCH GỢI Ý (planner tất định — hãy bám theo nếu còn phù hợp)")
+        lines.append(
+            "# KẾ HOẠCH GỢI Ý (planner tất định — CHỈ là gợi ý, bạn quyết định: câu hỏi có thể cần tool "
+            "khác hoặc thêm tham số mà kế hoạch chưa có)"
+        )
         for idx, step in enumerate(plan, 1):
             tool = step.get("tool") or "(trả lời trực tiếp)"
             lines.append(f"{idx}. {step.get('intent')} → gọi tool {tool}")
@@ -212,4 +302,4 @@ def build_system_prompt(context: dict[str, Any] | None = None) -> str:
     return "\n".join(lines)
 
 
-__all__ = ["COPILOT_SYSTEM_PROMPT", "build_system_prompt", "canonical_facts"]
+__all__ = ["COPILOT_SYSTEM_PROMPT", "build_system_prompt", "canonical_facts", "question_criteria"]

@@ -35,22 +35,22 @@
 
 | Hạng mục | Số lượng |
 |---|---|
-| File được git track | 579 |
-| Python | 275 file · ~48.949 dòng |
-| TypeScript/TSX | 165 file · ~30.861 dòng |
-| API routers (sub-router) | 15 (+ base router + pricing mock) |
-| Route operation (`@router.*`) | 92 (+2 base `/chat`,`/status` +1 pricing mock +1 `/health`) |
+| File được git track | 582 |
+| Python | 276 file · ~49.439 dòng |
+| TypeScript/TSX | 167 file · ~31.134 dòng |
+| API routers (sub-router) | 14 (+ base router) |
+| Route operation (`@router.*`) | 92 (+2 base `/chat`,`/status` +2 `/health` + `/copilot/health`) |
 | Bảng ORM (`__tablename__`) | 24 |
 | ErrorCode trong `src/contracts/errors.py` | 23 |
 | Tool của Copilot | 8 |
 | Node Pre-sales graph | 11 |
 | Node Official-quote graph | 23 |
-| Test files | 73 |
-| Hàm `def test_` | 735 |
+| Test files | 74 |
+| Hàm `def test_` | 745 |
 | Endpoint defs phía frontend (`endpoints.ts`) | 75 |
 
 > Lệch tài liệu: README ghi "498/498 pytest" và `docs/RASOAT_TONGTHE_2026-10-02.md` ghi 455 —
-> số thực tế đếm được là **735 hàm test / 73 file**. Xem §11.
+> số thực tế đếm được là **745 hàm test / 74 file**. Xem §11.
 
 ---
 
@@ -65,7 +65,7 @@
                                     ▼                          ▼
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │  FastAPI  src/main.py  (CorrelationIdMiddleware → CORS → DomainError handler)  │
-│  routers: src/api/routes.py (aggregator) + src/api/pricing_mock.py             │
+│  routers: src/api/routes.py (aggregator — 14 router con)                        │
 │           15 sub-router trong src/api/endpoints/*                              │
 └───────┬───────────────┬────────────────┬───────────────┬───────────────┬──────┘
         │               │                │               │               │
@@ -106,10 +106,9 @@ Vin20KBuildPhase/
 │   ├── main.py                 # FastAPI app, middleware, lifespan bootstrap (145 dòng)
 │   ├── config.py               # pydantic-settings Settings (114 dòng)
 │   ├── api/
-│   │   ├── routes.py           # Master aggregator mount 15 sub-router
+│   │   ├── routes.py           # Master aggregator mount 14 sub-router nghiệp vụ + base router
 │   │   ├── deps.py             # Principal, idempotency, OCC, SoD helpers
-│   │   ├── pricing_mock.py     # /api/v1/pricing mock (demo không cần sidecar)
-│   │   └── endpoints/          # 15 file router nghiệp vụ
+│   │   └── endpoints/          # 14 file router nghiệp vụ
 │   ├── agents/
 │   │   ├── copilot/            # ReAct agent + planner/verifier/critic/anchors/history…
 │   │   ├── pre_sales/          # graph 11 node (discovery/constraints/planning/handoff)
@@ -144,7 +143,7 @@ Vin20KBuildPhase/
 │   ├── test_agents/copilot/    # ~170 test
 │   ├── test_api/               # ~117 test
 │   ├── benchmarks/ integration/ security/
-│   └── conftest.py             # SQLite in-memory override + grounding isolation
+│   └── conftest.py             # SQLite in-memory override + grounding isolation (bật cờ fixture)
 ├── eval/                       # rag/ (integrity, performance, retrieval, temporal), copilot/, results/
 ├── frontend/                   # npm workspaces
 │   ├── apps/customer/          # :5173 — public + /tu-van
@@ -171,7 +170,7 @@ Vin20KBuildPhase/
 | CORS | `settings.cors_origins` (default `*`), expose `Idempotent-Replayed`, `X-Action`, `X-Correlation-ID`, `Content-Disposition`. |
 | `domain_error_exception_handler` | Bắt `DomainError` → JSON `{"detail": <envelope>}` với HTTP status từ lỗi. |
 | `lifespan` | ① dựng `CheckpointManager` + `AsyncPostgresSaver` nếu `USE_POSTGRES_CHECKPOINTER=true`, ngược lại `MemorySaver` (cảnh báo nếu `APP_ENV=production`); ② tạo `app.state.pre_sales_runner`; ③ `_bootstrap_database()` (`Base.metadata.create_all`, idempotent); ④ `refresh_provider_cache()` nạp LLM provider từ DB. |
-| Mount | `src.api.routes.router` + `src.api.pricing_mock.router` tại `/api/v1/pricing`. |
+| Mount | `src.api.routes.router` (14 router con). Endpoint stub `/api/v1/pricing` đã xoá (đợt 26). |
 | Health | `GET /health` và `GET /api/v1/health`. |
 
 ### 4.2 Cấu hình — `src/config.py`
@@ -198,7 +197,7 @@ Vin20KBuildPhase/
 | `compliance.py` | `/api/v1` | 2 | kiểm tra compliance, gate F8 |
 | `copilot.py` | `/copilot` | 11 | chat, stream SSE, history, feedback, commands, quality |
 | `evaluation.py` | — | 6 | eval endpoints |
-| `leads.py` | `/api/v1/leads` | 11 | CRUD lead + dossier + `convert-to-quote` |
+| `leads.py` | `/api/v1/leads` | 11 | CRUD lead + dossier + `convert-to-quote`; `DELETE` **chỉ người tạo** (`created_by`) hoặc ADMIN — xem `PreSalesDossierService.delete_dossier` |
 | `llm_admin.py` | `/admin/llm` | 7 | provider CRUD, test/probe, usage |
 | `policies.py` | `/policies` | 3 | policy list/detail + F9 rule extraction |
 | `pre_sales.py` | `/api/v1/pre-sales` | 6 | session CRUD, resume HITL, handoff |
@@ -207,7 +206,6 @@ Vin20KBuildPhase/
 | `settings.py` | `/settings` | 3 | runtime settings |
 | `tts_admin.py` | `/admin/tts` | 5 | provider + voice admin |
 | `tts_speak.py` | `/tts` | 2 | speak/stream |
-| `pricing_mock.py` | `/api/v1/pricing` | 1 | mock engine (VERIFIED-bundle gate) |
 
 **Helper quan trọng** — `src/api/deps.py`: `Principal` (từ token/header, map role), lưu idempotency
 in-memory (`_IDEMPOTENCY_STORE`) trả **409** khi payload mismatch + header `Idempotent-Replayed`,
@@ -233,7 +231,7 @@ in-memory (`_IDEMPOTENCY_STORE`) trả **409** khi payload mismatch + header `Id
 |---|---|
 | Policy / RAG | `policies`, `policy_atoms`, `policy_edges`, `policy_documents`, `policy_chunks`, `policy_rules`, `evidence_bundles`, `abstention_certificates` |
 | Catalog | `projects`, `units` (có `area_m2`, `view`) |
-| Pre-sales | `pre_sales_sessions`, `customer_consents`, `pre_sales_plans`, `lead_dossiers` |
+| Pre-sales | `pre_sales_sessions`, `customer_consents`, `pre_sales_plans`, `lead_dossiers` (`created_by` = người tạo hồ sơ, cơ sở cho quyền xoá) |
 | Quote | `quotes`, `quote_snapshots`, `quote_audit_events`, `transactional_outbox` |
 | Compliance | `compliance_checks` |
 | Admin | `users` (role), `tts_settings`, `tts_feedback`, `tts_providers`, `llm_providers` |
@@ -288,7 +286,7 @@ chống sửa + mask số điện thoại; cổng `/messages/send` → **403 `CO
 | | `copilot/tools.py` (1132) | 8 tool tiếng Việt: `tra_cuu_chinh_sach`, `tra_cuu_gio_hang`, `tinh_phuong_an_thanh_toan`, `danh_gia_von_tu_co`, `kiem_tra_phat_ngon_f8`, `tra_cuu_ho_so_khach_hang`, `soan_tin_tu_van`, `soan_ho_so_de_xuat` (+ helper chung `_call_pricing_engine`); contract observation: `summary`/`citations`/`data_as_of`/`segment_check`/`bedroom_histogram`. |
 | | `planner.py` / `verifier.py` / `critic.py` | Planner: thứ tự 10→60 + `split_clauses` `MAX_PLAN_STEPS=3`. Verifier: mọi số tiền/% phải xuất hiện trong Observation. Critic: `MONEY_WITHOUT_ANCHOR`/`OVER_PROMISE`/`OFFER_WITHOUT_CONDITION`. |
 | | `anchors.py` | Chèn `[n]` do máy sinh (không để LLM tự bịa nguồn). |
-| | `history.py` / `feedback.py` / `memory.py` / `commands.py` / `grounding.py` / `intents.py` / `reply_format.py` | Lịch sử (`data/copilot_conversations.json`, flock), feedback (`eval/results/copilot_feedback.jsonl`), slot phiên, slash commands, grounding, chuẩn hoá markdown. |
+| | `history.py` / `feedback.py` / `memory.py` / `commands.py` / `grounding.py` / `intents.py` / `reply_format.py` | Lịch sử (`data/copilot_conversations.json`, flock), feedback (`eval/results/copilot_feedback.jsonl`), slot phiên, slash commands, grounding (**CSDL là nguồn duy nhất**; fixture chỉ khi bật `ALLOW_FIXTURE_DATA`), chuẩn hoá markdown. |
 | **Pre-sales** | `pre_sales/graph.py` (300) + 4 node | 11 node, **3 HITL interrupt gate** + self-loop chống deadlock, TTL 1800s, filter injection, build plan + watermark. |
 | **Official quote** | `official_quote/graph.py` (180) + 8 node | 23 node: input_guards → context → policy_retrieval → pricing → ranking → evaluation → explanation → approval; HITL `APPROVE/REQUEST_REVISION/REJECT/SUBMIT_EXCEPTION`; vòng revision `version+1`; freeze canonical JSON → ký KMS Ed25519 → commit. ⚠️ `nodes/context.py` hardcode 68.5 m² / 2BR / VAT 10% / KPBT 2%. |
 | **Tools cũ** | `tools/guardrails.py` (220), `policy_search.py`, `pricing_engine.py` | Guardrail N-02/N-14A; wrapper LangChain. |
@@ -359,9 +357,9 @@ npm workspaces, Node 22, Vite + React + TS.
 |---|---|---|
 | `apps/customer` | 5173 | Trang public + `/tu-van` (chat tư vấn) |
 | `apps/internal` | 5174 | Login; `/sale/workspace|leads|quotes|messages|policies`; `/manager/approvals[/:id]`; `/admin/policies|benchmark|copilot-quality`; `/admin_cp`. Trang lớn nhất: `SalesWorkspacePage.tsx` (~4610 dòng). |
-| `packages/api-client` | — | `endpoints.ts` = **danh bạ 75 endpoint** (nguồn sự thật method+path, có `source: TD-4.4|PROPOSED` và `auth`); `client.ts`/`http.ts`; hooks theo domain (13 file); `sse.ts`, `copilotStream.ts` (fetch POST SSE kèm `Idempotency-Key`); `normalizeQuote.ts`, `errors.ts`, `devtools.ts`. |
+| `packages/api-client` | — | `endpoints.ts` = **danh bạ 75 endpoint** (nguồn sự thật method+path, có `source: TD-4.4|PROPOSED` và `auth`); `client.ts`/`http.ts`; hooks theo domain (13 file); `sse.ts`, `copilotStream.ts` (fetch POST SSE kèm `Idempotency-Key`), `copilotTurn.ts` (luật kết thúc một lượt chat: thiếu `final` ⇒ tự gọi bản gom); `normalizeQuote.ts`, `errors.ts`, `devtools.ts`. |
 | `packages/ui` | — | shadcn/ui + `MoneyText`, `Evidence`, `ReasoningTrace`, `markdownTables`, `speech`… |
-| `packages/mock-server` | 8787 | Node mock 11 nhóm handler + engine/fixtures; có test vitest. |
+| `packages/mock-server` | 8787 | **Test double** (MSW/Node) cho unit test package — app KHÔNG import; không nằm trong đường chạy sản phẩm. |
 
 Cấu hình `api-client/src/config.ts`: `API_MODE='real'`; local → `http://<host>:8000/api/v1`,
 prod → `/api/v1`; timeout 10s, SSE idle 20s.
@@ -393,6 +391,10 @@ prod → `/api/v1`; timeout 10s, SSE idle 20s.
   scenarios) + `results/`. Runner: `scripts/run_eval.py` (⚠️ hardcode đường dẫn macOS —
   xem §11), `scripts/run_copilot_eval.py`.
 - `dataset/fixtures/golden_scenarios.json` dùng cho benchmark.
+- **Nguồn dữ liệu**: mặc định chỉ đọc PostgreSQL (`src/services/data_source.py`); fixture canonical
+  (`POLICIES_DATA`/`UNITS_DATA` trong `catalog.py`) chỉ dùng khi `ALLOW_FIXTURE_DATA=1` (test/demo offline,
+  `tests/conftest.py` bật cho toàn bộ suite). Copilot đọc chính sách qua `src/services/policy_source.py` —
+  cùng một hàm dựng với trang Chính sách.
 
 **Chạy local:**
 ```bash
@@ -453,7 +455,7 @@ pytest tests/ -v                        # hoặc: make test
 | 7 | **Eval không chạy được ngoài máy tác giả** | `scripts/run_eval.py` hardcode `/Users/mac/AITC/PROJECT/report/...`; cần `EVAL_DATASET_PATH`/`EVAL_POLICIES_DIR`/`EVAL_CANONICAL_DIR`. |
 | 8 | **`init_db.py` không chạy được trên SQLite** | DDL pgvector/HNSW/FTS chỉ dành Postgres; nếu gọi trên dev SQLite sẽ lỗi. |
 | 9 | **Hardcode nghiệp vụ trong graph** | `official_quote/nodes/context.py` cố định 68.5 m² / 2BR / VAT 10% / KPBT 2%. |
-| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **735** hàm `def test_` (pytest gom **766** test, gồm cả tham số hoá). |
+| 10 | **Lệch số test** | README 498 · RASOAT 455 · thực tế **745** hàm `def test_` (pytest gom **778** test, gồm cả tham số hoá). |
 | 11 | **CI không phủ branch làm việc** | Workflow chỉ chạy `main`/`develop`; branch `arena/*` không có check. |
 | 12 | **Endpoint frontend đặt tên khác backend** | Nhiều mục `PROPOSED` trong `endpoints.ts` (auth login, admin users, `/messages/*`) — cần đối chiếu với router thật khi tích hợp. |
 

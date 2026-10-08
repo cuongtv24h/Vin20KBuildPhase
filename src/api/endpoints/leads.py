@@ -8,9 +8,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from src.api.deps import Principal, get_current_principal
 from src.contracts.dossier import LeadTemperature
 from src.contracts.enums import LeadDossierStatus
 from src.contracts.errors import DomainError
@@ -98,6 +99,7 @@ def _dossier_to_response(
             "phone": d.customer_phone_masked or "0912345678",
         },
         "assigned_sales_id": d.assigned_sales_id,
+        "created_by": d.created_by,
         "assigned_sale": {
             "user_id": d.assigned_sales_id or "USR-SALE-001",
             "full_name": d.assigned_sales_id or "Chuyên viên Sale",
@@ -134,8 +136,15 @@ def _dossier_to_response(
 @router.post("", status_code=201)
 @router.post("/", status_code=201)
 @router.post("/dossiers", status_code=201)
-async def create_dossier(payload: LeadDossierCreateRequest) -> dict[str, Any]:
-    """[1/2] POST /leads hoặc /leads/dossiers — tạo LeadDossier thủ công bởi Sales (SLA 15 phút)."""
+async def create_dossier(
+    payload: LeadDossierCreateRequest,
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, Any]:
+    """[1/2] POST /leads hoặc /leads/dossiers — tạo LeadDossier thủ công bởi Sales (SLA 15 phút).
+
+    Hồ sơ được ghi nhận `created_by` = nhân viên đang đăng nhập: cơ sở cho quy tắc "Sale chỉ xoá khách
+    hàng do mình tạo ra" (xem `PreSalesDossierService.delete_dossier`).
+    """
     try:
         async for db in get_db_session():
             service = PreSalesDossierService()
@@ -171,6 +180,7 @@ async def create_dossier(payload: LeadDossierCreateRequest) -> dict[str, Any]:
                 constraints=constraints_dict,
                 plan_id=payload.plan_id,
                 lead_temperature=payload.lead_temperature,
+                created_by=principal.user_id,
             )
             await db.commit()
             return _dossier_to_response(dossier, session_constraints=constraints_dict)
@@ -270,12 +280,30 @@ async def update_dossier(dossier_id: str, payload: LeadDossierUpdateRequest) -> 
 
 
 @router.delete("/{dossier_id}")
-async def delete_dossier(dossier_id: str) -> dict[str, Any]:
-    """DELETE /api/v1/leads/{dossier_id} — Xóa hồ sơ khách hàng."""
+async def delete_dossier(
+    dossier_id: str,
+    authorization: str | None = Header(None, alias="Authorization"),
+    principal: Principal = Depends(get_current_principal),
+) -> dict[str, Any]:
+    """DELETE /api/v1/leads/{dossier_id} — Xoá hồ sơ khách hàng **do chính mình tạo**.
+
+    Quyền: người tạo hồ sơ (`created_by`) hoặc ADMIN. Xoá hồ sơ của Sale khác → 403. Không có phiên
+    đăng nhập → 401 (không dùng principal mặc định cho thao tác phá huỷ dữ liệu).
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Cần đăng nhập để xoá hồ sơ khách hàng.",
+        )
     try:
         async for db in get_db_session():
             service = PreSalesDossierService()
-            await service.delete_dossier(db, dossier_id=dossier_id)
+            await service.delete_dossier(
+                db,
+                dossier_id=dossier_id,
+                actor_id=principal.user_id,
+                allow_any=principal.has_role("ADMIN"),
+            )
             await db.commit()
             return {"deleted": True, "dossier_id": dossier_id}
     except Exception as exc:

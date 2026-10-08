@@ -155,20 +155,28 @@ def _args_for(intent: str, clause: str, entity: dict) -> dict:
     if intent == intents.INTENT_LOOKUP_POLICY:
         return {"cau_hoi": clause, "ngay_hieu_luc": tx_date, "du_an": project_id}
     if intent == intents.INTENT_BROWSE_UNITS:
+        # Diện tích Sale nêu ("căn 70m²") đi thẳng xuống tool dưới dạng KHOẢNG đã nới ±10% do
+        # `intents.extract_area_range` tính — lọc cứng đúng 70.0m² gần như luôn ra rỗng.
+        area = entity.get("area_range_m2") or (None, None)
         return {
             "so_phong_ngu": entity.get("bedrooms") or 0,
             "gia_toi_da_vnd": _budget_ceiling(entity),
             "ma_can": entity.get("unit_code") or "",
             "du_an": project_id,
+            "dien_tich_min_m2": area[0] or 0,
+            "dien_tich_max_m2": area[1] or 0,
         }
     if intent == intents.INTENT_CREATE_CUSTOMER:
         # Hồ sơ khách mới: gợi ý luôn các căn TRONG NGÂN SÁCH khách vừa nêu (nếu có) — bảng phải liên
         # quan tới nguyện vọng, không phải toàn bộ giỏ hàng.
+        customer_area = entity.get("area_range_m2") or (None, None)
         return {
             "so_phong_ngu": entity.get("bedrooms") or 0,
             "gia_toi_da_vnd": _budget_ceiling(entity),
             "ma_can": entity.get("unit_code") or "",
             "du_an": project_id,
+            "dien_tich_min_m2": customer_area[0] or 0,
+            "dien_tich_max_m2": customer_area[1] or 0,
         }
     if intent == intents.INTENT_ASSESS_FUNDS:
         return {

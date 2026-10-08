@@ -111,17 +111,3 @@ class AbstentionCertificate(BaseModel):
 class ResolvedPolicySnapshot(BaseModel):
     snapshot_hash: str
     active_policies: list[str] = Field(default_factory=list)
-
-
-class EvidenceBundleRef(BaseModel):
-    bundle_id: str
-    bundle_hash: str
-    decision_status: str
-    resolved_policy_snapshot_hash: str
-
-
-class PricingRequest(BaseModel):
-    """Payload representing a call to the Pricing Engine."""
-
-    evidence_bundle_ref: EvidenceBundleRef
-    # Trong thực tế sẽ có thêm các trường về account, balance... ở đây

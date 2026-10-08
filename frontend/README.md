@@ -8,16 +8,17 @@ qua API** (mục 0 của brief cấu trúc):
 | **Khách hàng** (`apps/customer`) | Pre-Sales công khai: tư vấn tài chính, phương án tham khảo (F1–F3, F5) | `http://localhost:5173` | Không |
 | **Nội bộ** (`apps/internal`) | Sale, Quản lý, Quản trị chính sách | `http://localhost:5174` | Có |
 
-Monorepo npm workspaces, kiến trúc **mock-first, backend-ready**: chạy đầy đủ trên
-`packages/mock-server` ngay bây giờ, chuyển sang FastAPI thật chỉ bằng biến môi trường — không sửa
-màn hình.
+Monorepo npm workspaces. **Hai app luôn gọi FastAPI thật** (`API_MODE = 'real'` trong
+`packages/api-client/src/config.ts`): local trỏ `http://localhost:8000/api/v1`, production trỏ `/api/v1`
+qua Nginx. `packages/mock-server` chỉ còn là **test double** cho unit test của package (MSW) — app không
+import nó, và không có dữ liệu mẫu nào trong đường chạy sản phẩm.
 
 ```
 apps/customer, apps/internal   Vite + React 18 + TypeScript + Tailwind + TanStack Query
 packages/api-client            API client dùng chung (contracts, http, SSE, hooks) — cả hai app phụ thuộc
 packages/ui                    Component dùng chung (shadcn primitives, MoneyText, Evidence, ReferencePlanView…)
-packages/mock-server           Backend giả lập: chạy như tiến trình Node THẬT trên cổng TCP thật (không phải
-                                MSW-trong-trình-duyệt) — để state liên thông giữa 2 app và CORS có ý nghĩa thật
+packages/mock-server           Test double (MSW + Node) cho unit test của package — KHÔNG nằm trong
+                                đường chạy sản phẩm; giữ để test được không cần backend
 ```
 
 ## Chạy
@@ -26,12 +27,12 @@ packages/mock-server           Backend giả lập: chạy như tiến trình No
 npm install
 cp apps/customer/.env.example apps/customer/.env.local
 cp apps/internal/.env.example apps/internal/.env.local
-npm run dev     # mock-server :8787 + Khách hàng :5173 + Nội bộ :5174 (concurrently)
-npm test        # 21 test trên mock-server (18 kịch bản đầu-cuối + unit)
+npm run dev     # Khách hàng :5173 + Nội bộ :5174 (gọi FastAPI thật ở :8000)
+npm test        # unit test các package (mock-server là test double, không phải backend)
 npm run lint && npm run build
 ```
 
-Chạy riêng từng phần: `npm run dev:mock` · `npm run dev:customer` · `npm run dev:internal`.
+Chạy riêng từng phần: `npm run dev:customer` · `npm run dev:internal` (cần backend FastAPI đang chạy ở `:8000`).
 
 Tài khoản nội bộ (mock), mật khẩu `Vland@2026`: `nam.hoang@` (Sale), `trang.le@` (Sale),
 `ha.nguyen@` (Quản lý), `minh.tuan@` (Quản trị chính sách) — đuôi `vlandfuture.vn`. Ở app Nội bộ khi

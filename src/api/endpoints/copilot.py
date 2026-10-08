@@ -79,6 +79,18 @@ class CopilotChatResponse(BaseModel):
     reasoning: list[dict[str, Any]] = Field(default_factory=list, description="Trace đầy đủ các bước ReAct")
 
 
+class CopilotHealthResponse(BaseModel):
+    """Trạng thái thật của Copilot trên máy đang chạy — để xác minh bản deploy, không phải đoán."""
+
+    mode: str = Field(..., description="llm = có nhà cung cấp LLM đang bật; offline = chỉ suy luận tất định")
+    llm_source: str = Field(..., description="db | env | none — nơi lấy cấu hình nhà cung cấp")
+    llm_total: int = Field(0, description="Số nhà cung cấp LLM đang bật (primary + fallback)")
+    llm_primary: str | None = Field(None, description="provider/model của nhà cung cấp chính")
+    data_source: str = Field(..., description="DB = chỉ đọc CSDL; CANONICAL_FIXTURE = đang bật cờ dữ liệu mẫu")
+    fixture_allowed: bool = Field(False, description="ALLOW_FIXTURE_DATA có đang bật không (phải là false khi chạy thật)")
+    tools: list[str] = Field(default_factory=list, description="Tool Copilot đang có")
+
+
 def _to_request(req: CopilotChatRequest) -> CopilotRequest:
     return CopilotRequest(
         message=req.message,
@@ -115,8 +127,12 @@ async def copilot_chat_stream(req: CopilotChatRequest) -> EventSourceResponse:
 
     async def event_generator() -> AsyncIterator[dict[str, str]]:
         service = CopilotService()
+        request = _to_request(req)
+        sent_final = False
         try:
-            async for event in service.stream(_to_request(req)):
+            async for event in service.stream(request):
+                if event.type == "final":
+                    sent_final = True
                 yield {"event": "copilot", "data": json.dumps({"type": event.type, **event.data}, ensure_ascii=False, default=str)}
         except Exception as exc:  # noqa: BLE001 — stream không được vỡ giữa chừng
             logger.error("Copilot stream lỗi: %s", exc, exc_info=True)
@@ -130,6 +146,14 @@ async def copilot_chat_stream(req: CopilotChatRequest) -> EventSourceResponse:
                     ensure_ascii=False,
                 ),
             }
+            return
+        # Lưới an toàn cho UI: stream PHẢI kết thúc bằng một `final`. Nếu vòng lặp kết thúc mà chưa phát
+        # final (lỗi bất ngờ ở nhánh nào đó), chạy lại bản gom để Sale luôn nhận được câu trả lời thay vì
+        # khung chat treo ở "Trợ lý đang suy luận…" rồi "chưa phản hồi" (lỗi đã gặp ở đợt 25).
+        if not sent_final:
+            logger.warning("Copilot stream kết thúc mà không có final — chạy bù bản gom.")
+            final = await service.run(request)
+            yield {"event": "copilot", "data": json.dumps({"type": "final", **final}, ensure_ascii=False, default=str)}
 
     return EventSourceResponse(event_generator(), ping=15)
 
@@ -185,6 +209,32 @@ class CopilotFeedbackResponse(BaseModel):
     ok: bool
     recorded_at: str
     summary: CopilotFeedbackSummary
+
+@router.get("/health", response_model=CopilotHealthResponse)
+async def copilot_health() -> CopilotHealthResponse:
+    """Copilot đang chạy bằng LLM nào và đọc dữ liệu từ đâu (dùng để xác minh bản deploy).
+
+    Vì sao cần: nếu máy chủ chưa nối được nhà cung cấp LLM, Copilot **rơi êm** xuống suy luận tất định
+    (đường từ khóa) và UI chỉ hiện badge "chế độ tất định" — rất dễ tưởng là LLM đang trả lời. Endpoint
+    này trả lời dứt khoát: đang có LLM hay không, và dữ liệu đang lấy từ CSDL hay từ fixture.
+    """
+    from src.agents.copilot.tools import TOOLS_BY_NAME
+    from src.services import data_source
+    from src.services.llm import describe_active_llm
+
+    info = describe_active_llm()
+    total = int(info.get("total") or 0)
+    fixture_allowed = data_source.fixtures_allowed()
+    return CopilotHealthResponse(
+        mode="llm" if total else "offline",
+        llm_source=str(info.get("source") or "none"),
+        llm_total=total,
+        llm_primary=str(info["primary"]) if info.get("primary") else None,
+        data_source="CANONICAL_FIXTURE" if fixture_allowed else "DB",
+        fixture_allowed=fixture_allowed,
+        tools=sorted(TOOLS_BY_NAME),
+    )
+
 
 @router.post("/feedback", response_model=CopilotFeedbackResponse)
 async def copilot_feedback(req: CopilotFeedbackRequest) -> CopilotFeedbackResponse:

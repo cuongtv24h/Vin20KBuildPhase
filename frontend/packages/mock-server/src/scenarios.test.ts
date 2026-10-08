@@ -413,6 +413,29 @@ describe('Sales Copilot (ReAct)', () => {
     expect(final?.type === 'final' && final.reply).toBeTruthy()
   })
 
+  it('Hỏi "tìm giúp em căn 70m² tầm 3 tỷ" → phải TRA giỏ hàng và trả phễu, không hỏi vòng', async () => {
+    await loginAs(SALE)
+
+    const chat = await api.copilot.chat({ message: 'Chị ơi tìm giúp em căn 70m² tầm 3 tỷ', transaction_date: TX_DATE })
+    // Trước đây câu này rơi vào nhánh xã giao (không gọi tool nào) nên Copilot trả lời "chưa tra được
+    // dữ liệu" rồi hỏi lại — trong khi giỏ hàng có căn khớp. Nay PHẢI gọi tool và trả kết quả.
+    expect(chat.tools_used).toContain('tra_cuu_gio_hang')
+    expect(chat.reply).toContain('căn phù hợp')
+    expect(chat.reply).toContain('khớp diện tích 63–77m²')
+    expect(chat.reply).not.toContain('0PN')
+    expect(chat.grounded).toBe(true)
+  })
+
+  it('Lọc theo diện tích 70m² → tìm được căn đúng khoảng (72.5m²)', async () => {
+    await loginAs(SALE)
+
+    const chat = await api.copilot.chat({ message: 'Giỏ hàng còn căn 70m² nào không em?', transaction_date: TX_DATE })
+    expect(chat.tools_used).toContain('tra_cuu_gio_hang')
+    expect(chat.reply).toContain('ZEN-A-1205')
+    expect(chat.reply).toContain('72.5m²')
+    expect(chat.reply).not.toContain('Không có căn nào khớp')
+  })
+
   it('Soạn hồ sơ đề xuất → hồ sơ nội bộ kèm việc cần bổ sung (không phải tin gửi khách)', async () => {
     await loginAs(SALE)
 

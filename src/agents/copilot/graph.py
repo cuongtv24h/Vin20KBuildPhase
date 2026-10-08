@@ -31,6 +31,7 @@ from src.agents.copilot import (
     feedback,
     grounding,
     intents,
+    inventory_funnel,
     memory,
     planner,
     reply_format,
@@ -404,7 +405,13 @@ def _finalize(
             + ")"
         )
     if not grounded and intent.intent not in (intents.INTENT_SMALL_TALK,):
-        notes.append("nội dung này chưa đối chiếu với dữ liệu chính sách/giỏ hàng")
+        # Câu hỏi KHÔNG cần số liệu (hỏi định nghĩa, quy trình, cách dùng trợ lý...) thì LLM được trả lời
+        # trực tiếp mà không gọi tool nào — đó là câu trả lời hợp lệ, không phải lượt thiếu dữ liệu, nên
+        # không gắn cảnh báo "chưa đối chiếu" (giữ đúng chốt của người dùng: không phải câu nào cũng phải
+        # gọi tool). Vẫn cảnh báo khi ĐÃ gọi tool mà không có nguồn, hoặc khi câu trả lời có số liệu không
+        # kiểm chứng được (verifier bắt) — đó mới là lúc Sale cần biết.
+        if observations or verifier.has_data_claims(text):
+            notes.append("nội dung này chưa đối chiếu với dữ liệu chính sách/giỏ hàng")
 
     # Mỏ neo `[n]` do MÁY chèn (chốt P2.3) — sau khi đã có nội dung, trước khi soi critic, để critic
     # chỉ còn nhắc khi con số thật sự không có nguồn nào để trỏ tới.
@@ -530,6 +537,7 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
     if intent.intent == intents.INTENT_LOOKUP_POLICY:
         return [("tra_cuu_chinh_sach", {"cau_hoi": request.message, "ngay_hieu_luc": tx_date}, "Tra cứu chính sách hiệu lực")]
     if intent.intent == intents.INTENT_BROWSE_UNITS:
+        area = intent.entities.get("area_range_m2") or (None, None)
         return [
             (
                 "tra_cuu_gio_hang",
@@ -537,6 +545,8 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
                     "so_phong_ngu": intent.entities.get("bedrooms") or 0,
                     "gia_toi_da_vnd": intent.entities.get("amount_vnd") or 0,
                     "ma_can": intent.entities.get("unit_code") or "",
+                    "dien_tich_min_m2": area[0] or 0,
+                    "dien_tich_max_m2": area[1] or 0,
                 },
                 "Lọc giỏ hàng theo tiêu chí",
             )
@@ -591,7 +601,19 @@ def _legacy_tool_plan(request: CopilotRequest, intent: intents.IntentResult) -> 
     if intent.intent == intents.INTENT_CHECK_F8:
         return [("kiem_tra_phat_ngon_f8", {"noi_dung": request.message}, "Kiểm tra phát ngôn F8")]
     if intent.intent == intents.INTENT_CREATE_CUSTOMER:
-        return [("tra_cuu_gio_hang", {"so_phong_ngu": intent.entities.get("bedrooms") or 0, "ma_can": ctx_unit}, "Xác minh căn phù hợp")]
+        customer_area = intent.entities.get("area_range_m2") or (None, None)
+        return [
+            (
+                "tra_cuu_gio_hang",
+                {
+                    "so_phong_ngu": intent.entities.get("bedrooms") or 0,
+                    "ma_can": ctx_unit,
+                    "dien_tich_min_m2": customer_area[0] or 0,
+                    "dien_tich_max_m2": customer_area[1] or 0,
+                },
+                "Xác minh căn phù hợp",
+            )
+        ]
     return []
 
 
@@ -672,14 +694,28 @@ def _own_funds_follow_up(
     if browse is None or int(browse.get("match_count") or 0) != 0:
         return None
     budget = int(intent.entities.get("amount_vnd") or 0)
-    bedrooms = int(intent.entities.get("bedrooms") or 0)
-    if not budget or not bedrooms:
+    # Số phòng ngủ KHÔNG bắt buộc: câu "tìm căn 70m² tầm 3 tỷ" chỉ có ngân sách + diện tích, trước đây
+    # thiếu số phòng ngủ nên hệ thống dừng ở một câu "không có" rồi hỏi lại (lỗi người dùng báo).
+    if not budget:
         return None
+    bedrooms = int(intent.entities.get("bedrooms") or 0)
+    ma_can = ""
+    if not bedrooms:
+        # Không có số phòng ngủ ⇒ mốc so sánh là căn GẦN khoảng diện tích khách nêu nhất (nếu có nêu
+        # diện tích). Không có cả hai thì thôi, tránh gọi tool rồi nhận lỗi thiếu điều kiện.
+        area = intent.entities.get("area_range_m2") or (None, None)
+        if not area[0] or not area[1]:
+            return None
+        nearest = inventory_funnel.nearest_area_unit(0, (float(area[0]) + float(area[1])) / 2)
+        ma_can = str((nearest or {}).get("unit_code") or "")
+        if not ma_can:
+            return None
     return (
         "danh_gia_von_tu_co",
         {
             "von_tu_co_vnd": budget,
             "so_phong_ngu": bedrooms,
+            "ma_can": ma_can,
             "ngay_giao_dich": str(intent.entities.get("transaction_date") or ""),
         },
         "Lọc rỗng → ước lượng tổng quan vốn tự có để có hướng đi tiếp",
@@ -777,6 +813,10 @@ async def stream_copilot(
         logger.warning("Không khởi tạo được LLM cho Copilot (%s) — dùng offline ReAct.", exc)
 
     prompt_context = {
+        # Câu hỏi nguyên văn + tiêu chí bóc tách: LLM là lớp PHÂN TÍCH (tự quyết định tool/tham số),
+        # không phải lớp diễn đạt lại kết quả của bộ luật từ khóa.
+        "question": message,
+        "entities": enriched_entity,
         "current_unit": slots.current_unit or request.current_unit,
         "lead_dossier_id": slots.lead_dossier_id or request.lead_dossier_id,
         "transaction_date": slots.transaction_date or request.transaction_date,

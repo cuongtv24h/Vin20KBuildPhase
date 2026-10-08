@@ -96,6 +96,43 @@ async def test_copilot_stream_emits_sse_frames(client, monkeypatch):
     assert '"type": "final"' in raw
 
 
+class _SilentService:
+    """Service "câm": stream phát tiến trình rồi ĐÓNG mà không có `final` (lỗi đã gặp ở đợt 25)."""
+
+    def __init__(self, *_: Any, **__: Any) -> None:
+        pass
+
+    async def run(self, request: CopilotRequest) -> dict[str, Any]:
+        return dict(FakeService.payload)
+
+    async def stream(self, request: CopilotRequest):
+        for step in FakeService.payload["reasoning"][:3]:  # thought → action → observation, KHÔNG final
+            yield _Event(step["type"], step)
+
+
+@pytest.mark.asyncio
+async def test_copilot_stream_always_ends_with_final_frame(client, monkeypatch):
+    """Stream đóng mà thiếu `final` ⇒ endpoint phải chạy bù bản gom và vẫn phát một frame `final`.
+
+    Nếu không có lưới an toàn này, UI đứng ở "Trợ lý đang suy luận…" rồi thành lượt trả lời rỗng
+    ("Trợ lý chưa phản hồi") dù backend vẫn dựng được câu trả lời.
+    """
+    monkeypatch.setattr("src.api.endpoints.copilot.CopilotService", _SilentService)
+
+    async with client.stream(
+        "POST", "/api/v1/copilot/chat/stream", json={"message": "chính sách thanh toán sớm?"}
+    ) as resp:
+        assert resp.status_code == 200
+        raw = ""
+        async for chunk in resp.aiter_text():
+            raw += chunk
+
+    assert '"type": "observation"' in raw, "phần tiến trình trước đó vẫn phải được phát"
+    assert '"type": "final"' in raw, "lượt nào cũng phải kết thúc bằng final"
+    assert "Dạ, chiết khấu thanh toán sớm" in raw, "final phải mang nội dung trả lời của bản gom"
+    assert raw.rstrip().endswith("}"), "frame final là frame cuối cùng"
+
+
 @pytest.mark.asyncio
 async def test_react_loop_wires_into_endpoint_payload_shape():
     """Chạy thẳng service thật với LLM giả để chắc chắn shape khớp response model."""
@@ -239,3 +276,23 @@ async def test_feedback_summary_carries_trend_and_mode(client, tmp_path, monkeyp
     assert body["top_failing_tools"] == [["tra_cuu_gio_hang", 1]]
     assert len(body["recent_negative"]) == 1
     assert body["recent_negative"][0]["rating"] == -1
+
+
+@pytest.mark.asyncio
+async def test_copilot_health_reports_llm_and_data_source(client, monkeypatch) -> None:
+    """GET /copilot/health phải nói rõ: có LLM hay không, và dữ liệu đang lấy từ CSDL hay fixture."""
+    from src.services import data_source
+
+    monkeypatch.delenv(data_source.FIXTURE_ENV, raising=False)
+    resp = await client.get("/api/v1/copilot/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] in ("llm", "offline")
+    assert body["data_source"] == "DB"
+    assert body["fixture_allowed"] is False
+    assert "tra_cuu_gio_hang" in body["tools"]
+
+    monkeypatch.setenv(data_source.FIXTURE_ENV, "1")
+    body = (await client.get("/api/v1/copilot/health")).json()
+    assert body["data_source"] == "CANONICAL_FIXTURE"
+    assert body["fixture_allowed"] is True

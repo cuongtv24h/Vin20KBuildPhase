@@ -21,7 +21,7 @@ import { testPolicyRules } from '../engine/rulesTest'
 import { actorOf, MOCK_PASSWORD, STAFF_FIXTURE } from '../fixtures/users'
 import { getFlags, scaled, setFlags } from '../flags'
 import { appendAudit } from '../services/audit'
-import { invalid, MockError, notFound, transition } from '../services/errors'
+import { forbidden, invalid, MockError, notFound, transition } from '../services/errors'
 import { confirmConstraints, convertDossier, createSession, findSession, handoff, listDossiers, presalesEvents, receiveMessage, settlePreSales, startGeneratePlan } from '../services/presales'
 import { assertVisible, findRecord, latest } from '../services/quotes'
 import { route, toMswPath } from './route'
@@ -102,9 +102,16 @@ export const leadHandlers = [
     return { body: updated }
   }),
 
-  route('leadDelete', ({ db, params }) => {
+  route('leadDelete', ({ db, staff, params }) => {
     const index = db.dossiers.findIndex((d) => d.dossier_id === params.dossier_id)
     if (index < 0) throw notFound(`hồ sơ ${params.dossier_id}`)
+    // Khớp luật của máy chủ thật: Sale chỉ xoá khách DO MÌNH TẠO; hồ sơ chưa gán người phụ trách
+    // (dữ liệu di sản) vẫn xoá được.
+    const owner = db.dossiers[index].assigned_sale?.user_id
+    const actor = staff()?.user_id
+    if (owner && actor && owner !== actor) {
+      throw forbidden(`chỉ ${owner} (người tạo) mới xoá được hồ sơ ${params.dossier_id}`)
+    }
     if (db.dossiers[index].status === 'CONVERTED_TO_QUOTE') {
       throw transition('Hồ sơ đã chuyển thành báo giá — không thể xóa.')
     }

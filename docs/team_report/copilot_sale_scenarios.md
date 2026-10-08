@@ -8,7 +8,7 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 
 | | |
 |---|---|
-| File máy chạy được | `eval/copilot/sale_scenarios.json` (61 kịch bản, 13 nhóm) |
+| File máy chạy được | `eval/copilot/sale_scenarios.json` (63 kịch bản, 13 nhóm) |
 | Bộ chấm | `scripts/run_copilot_eval.py` — chấm thêm: `must_not_contain`, `expect_table`, `max_questions`, `notes_contain`, vệ sinh hình thức |
 | Báo cáo | `eval/results/sale_scenarios_report.json` |
 | Bàn giao việc #3 (time-travel chính sách) | `docs/team_report/handoff_policy_timetravel.md` |
@@ -58,6 +58,8 @@ bộ này đo thêm **nội dung trả ra có dùng được để tư vấn kh�
 | GIO-08 | Gửi danh sách căn 3 ngủ đang mở bán | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `3PN` · sạch ghi chú nội bộ | Đúng câu của chip hành động K4 — bấm chip phải ra kết quả này, không hỏi lại. |
 | GIO-09 · chỉ LLM | Căn ZEN-B-1502 diện tích bao nhiêu, giá bao nhiêu? | một trong: `tra_cuu_gio_hang` · phải có: `98.2m²`, `6.100.000.000 ₫` · sạch ghi chú nội bộ | **(chỉ chạy ở chế độ LLM)** Câu hỏi lấy thông tin theo mã căn bằng văn phong tự nhiên không trùng mẫu khoá nào của bộ phân loại ý định — cần LLM. Câu hỏi 2 ý trong 1 câu: phải trả đủ cả diện tích lẫn giá. |
 | GIO-10 | Toàn giỏ hiện có mấy căn 3 ngủ? | một trong: `tra_cuu_gio_hang` · phải có: `1 căn` · sạch ghi chú nội bộ | Lỗi cấm từng gặp (P0/P3.1): KHÔNG được ghép '4 căn' của toàn giỏ thành '4 căn 3 ngủ'. Đúng phải là 1 căn 3 ngủ / 4 căn toàn giỏ. |
+| GIO-11 | Chị ơi tìm giúp em căn 70m² tầm 3 tỷ | một trong: `tra_cuu_gio_hang` · phải có: `63–77m²`, `ZEN-A-1205`, `TOÀN GIỎ` · CẤM: `0PN`, `hệ thống lỗi`, `hệ thống đang lỗi`, `trả về dữ liệu` | Câu người dùng báo lỗi (đợt 25): từ đệm 'giúp em' từng làm cả câu rơi vào nhánh xã giao ⇒ Copilot không tra gì rồi tự nói 'hệ thống lỗi, chưa trả về dữ liệu'. Nay PHẢI gọi tool giỏ hàng, nêu rõ khoảng diện tích đã lọc ±10% và căn gần nhất; cấm mọi câu đổ lỗi hệ thống. |
+| GIO-12 | Giỏ hàng còn căn 70m² nào không em? | một trong: `tra_cuu_gio_hang` · **bảng** · phải có: `ZEN-A-1205`, `72.5m²` · CẤM: `0PN` | Lọc theo diện tích KHÔNG kèm ngân sách: phải trả đúng căn trong khoảng 63–77m² (72,5m²) dạng bảng; nhãn phân khúc '0PN' là lỗi (Sale không nêu số phòng ngủ). |
 
 ### Lọc rỗng & điều hướng
 

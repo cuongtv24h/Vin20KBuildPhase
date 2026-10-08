@@ -144,6 +144,19 @@ def _claim_matches(value: float, known: set[float]) -> bool:
     return False
 
 
+def has_data_claims(text: str) -> bool:
+    """Câu trả lời có khẳng định SỐ LIỆU không (tiền, %, mã chính sách)?
+
+    Dùng cho trường hợp LLM trả lời trực tiếp mà KHÔNG gọi tool nào (câu hỏi kiểu định nghĩa/quy trình
+    — xem `prompts.build_system_prompt`). Khi đó không có observation để `verify_reply` đối chiếu, nên
+    cần cách nhẹ hơn để biết câu trả lời có đang nói về số liệu chính sách/giá hay không: nếu có thì
+    vẫn phải nhắc Sale là chưa đối chiếu, còn văn xuôi thuần thì để yên.
+    """
+    if _MONEY_RE.search(text or "") or _POLICY_ID_RE.search(text or ""):
+        return True
+    return any(raw not in _IGNORED_PERCENT for raw in _PERCENT_RE.findall(text or ""))
+
+
 def verify_reply(
     reply: str,
     observations: list[dict[str, Any]],

@@ -13,6 +13,7 @@ from src.agents.copilot import grounding
 from src.db.models import Base
 from src.db.session import get_db_session
 from src.main import app
+from src.services import data_source
 
 # Shared in-memory SQLite engine for tests
 test_engine = create_async_engine(
@@ -30,13 +31,18 @@ async_test_session_factory = async_sessionmaker(
 
 @pytest.fixture(autouse=True)
 def isolate_copilot_grounding_from_local_db(monkeypatch):
-    """Chặn Copilot grounding đọc DB units thật của máy dev trong test.
+    """Chặn Copilot grounding đọc DB thật của máy dev trong test + bật fixture canonical.
 
-    `grounding._fetch_db_units` dùng psycopg trỏ thẳng DB cấu hình (machine-dependent);
-    đặt cache = [] để mọi test chỉ chạy với fixture canonical, kết quả không phụ thuộc
-    máy. (DB endpoint FastAPI vẫn chạy qua in-memory SQLite ở fixture bên dưới.)
+    `grounding._fetch_db_units` / `policy_source.fetch_policies_sync` dùng psycopg trỏ thẳng DB cấu
+    hình (machine-dependent); đặt cache = [] để mọi test chỉ chạy với fixture canonical, kết quả không
+    phụ thuộc máy. (DB endpoint FastAPI vẫn chạy qua in-memory SQLite ở fixture bên dưới.)
+
+    **Sản phẩm chạy thật thì ngược lại**: mặc định `ALLOW_FIXTURE_DATA` không bật ⇒ chỉ đọc CSDL.
+    Cờ này chỉ dùng cho test/demo offline — xem `src/services/data_source.py`.
     """
     monkeypatch.setattr(grounding, "_cached_db_units", [], raising=False)
+    monkeypatch.setattr(grounding, "_cached_db_policies", [], raising=False)
+    monkeypatch.setenv(data_source.FIXTURE_ENV, "1")
 
 
 @pytest_asyncio.fixture(autouse=True)

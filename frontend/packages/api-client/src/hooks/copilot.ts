@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../client'
+import { decideTurnStep, INITIAL_TURN_PROGRESS, type CopilotTurnSignal } from '../copilotTurn'
 import { newRequestId } from '../http'
 import type {
   CopilotAppendTurnRequest,
@@ -111,30 +112,44 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
         project_id: context.projectId ?? null,
       }
 
-      let sawStreamingFrame = false
-      cancelRef.current = api.copilot.stream(request, {
-        onEvent: (event: CopilotStreamEvent) => {
-          sawStreamingFrame = true
-          if (event.type === 'final') {
+      // Luật chuyển trạng thái nằm ở `copilotTurn.decideTurnStep` (có unit test): stream đóng mà thiếu
+      // `final` ⇒ BẮT BUỘC gọi bản gom, để không bao giờ còn lượt trả lời rỗng "Trợ lý chưa phản hồi".
+      let progress = INITIAL_TURN_PROGRESS
+      const handle = (signal: CopilotTurnSignal) => {
+        const step = decideTurnStep(progress, signal)
+        progress = step.progress
+        const event = signal.kind === 'frame' ? signal.event : null
+        switch (step.action) {
+          case 'append-step':
+            if (event) setState((s) => ({ ...s, steps: [...s.steps, event as CopilotReasoningStep] }))
+            return
+          case 'apply-final': {
+            const payload = (event ?? {}) as CopilotFinalPayload & { mode?: string }
+            setState((s) => ({ ...s, streaming: false, final: payload, degraded: payload.mode === 'offline_react' }))
+            return
+          }
+          case 'apply-error':
             setState((s) => ({
               ...s,
               streaming: false,
-              final: event,
-              degraded: (event as CopilotFinalPayload & { mode?: string }).mode === 'offline_react',
+              error: event
+                ? ((event as { message?: string }).message ?? 'Trợ lý gặp sự cố khi xử lý.')
+                : 'Kết nối bị ngắt giữa chừng.',
             }))
             return
-          }
-          if (event.type === 'error') {
-            setState((s) => ({ ...s, streaming: false, error: event.message }))
+          case 'fallback-json':
+            void fallbackToJson(text, context)
             return
-          }
-          setState((s) => ({ ...s, steps: [...s.steps, event as CopilotReasoningStep] }))
-        },
-        onError: () => {
-          // SSE không chạy được (proxy cắt stream, mạng chập) → dùng bản gom.
-          if (!sawStreamingFrame) void fallbackToJson(text, context)
-          else setState((s) => ({ ...s, streaming: false, error: 'Kết nối bị ngắt giữa chừng.' }))
-        },
+          default:
+            return
+        }
+      }
+
+      cancelRef.current = api.copilot.stream(request, {
+        onEvent: (event: CopilotStreamEvent) => handle({ kind: 'frame', event }),
+        onError: () => handle({ kind: 'stream-error' }),
+        // Đóng êm nhưng THIẾU `final` = lượt trả lời rỗng: gọi bản gom để Sale luôn nhận được câu trả lời.
+        onClose: () => handle({ kind: 'stream-close' }),
       })
     },
     [cancel, fallbackToJson, history],
@@ -201,10 +216,10 @@ export const useAppendCopilotTurn = () =>
     invalidate: () => [queryKeys.copilotConversations],
   })
 
-/** Mở cuộc hội thoại mới (nút "Cuộc trò chuyện mới"). */
+/** Mở cuộc hội thoại mới (nút "Phiên chat mới" / "Mới" trong khung Lịch sử). */
 export const useCreateCopilotConversation = () =>
   useCommand(
-    (_: void, key) => api.copilot.conversationCreate({}, { idempotencyKey: key }),
+    (body: { title?: string } = {}, key) => api.copilot.conversationCreate(body, { idempotencyKey: key }),
     { invalidate: () => [queryKeys.copilotConversations] },
   )
 
@@ -222,20 +237,29 @@ export const useRenameCopilotConversation = () =>
  * mạng lỗi thì Sale vẫn thấy câu trả lời, chỉ mất bản ghi; không được để lỗi này nổi lên UI hay
  * chặn lượt chat kế tiếp. Hàng đợi giữ đúng thứ tự user → assistant khi bấm nhanh liên tiếp.
  */
-export const useAppendCopilotTurnSync = () => {
+export const useAppendCopilotTurnSync = (options: { onError?: (error: unknown) => void } = {}) => {
   const qc = useQueryClient()
   const queue = useRef<Promise<CopilotConversationDetail | null>>(Promise.resolve(null))
+  // Giữ callback trong ref: người gọi thường truyền arrow function inline, đưa vào deps sẽ làm `append`
+  // đổi danh tính mỗi lần render.
+  const onErrorRef = useRef(options.onError)
+  onErrorRef.current = options.onError
 
   const append = useCallback(
     (body: CopilotAppendTurnRequest) => {
+      const attempt = () => api.copilot.appendTurn(body, { idempotencyKey: newRequestId() })
       const next = queue.current
-        .then(() => api.copilot.appendTurn(body, { idempotencyKey: newRequestId() }))
+        .then(attempt)
+        // Một lần thử lại: lỗi mạng thoáng qua không được làm mất lượt khỏi lịch sử (lỗi người dùng
+        // báo "hội thoại mới không được lưu"). Vẫn KHÔNG chặn hội thoại đang mở.
+        .catch(() => attempt())
         .then((detail) => {
           void qc.invalidateQueries({ queryKey: queryKeys.copilotConversations })
           return detail
         })
-        .catch(() => {
-          /* Lịch sử là phụ trợ: lỗi ghi không được làm gián đoạn hội thoại đang mở. */
+        .catch((error: unknown) => {
+          /* Lịch sử là phụ trợ: lỗi ghi không được làm gián đoạn hội thoại — nhưng phải báo cho UI. */
+          onErrorRef.current?.(error)
           return null
         })
       queue.current = next

@@ -25,6 +25,10 @@ interface Intent {
   unitCode: string | null
   bedrooms: number | null
   customerName: string
+  /** Diện tích khách nêu ("70m²") — lọc ±10% vì Sale nói theo khoảng, không phải đúng 70.0m². */
+  areaM2: number | null
+  /** Trần ngân sách khách nêu ("tầm 3 tỷ" ⇒ 3.000.000.000). */
+  maxPriceVnd: number | null
 }
 
 function normalize(text: string): string {
@@ -36,6 +40,34 @@ function normalize(text: string): string {
 }
 
 const UNIT_RE = /\b([A-Z]{2,4}-[A-Z0-9]{1,3}-\d{3,4}|[A-Z]{1,3}-\d{2}\.\d{2})\b/i
+
+/** Diện tích khách nêu: `70m²`, `70 m2`, `70 mét vuông` (chạy trên chuỗi ĐÃ bỏ dấu). */
+// Không dùng `\b` sau đơn vị: `²` không phải ký tự chữ-số nên `70m² ` không có ranh giới từ ở đó
+// (bẫy đã gặp cả ở backend — `70m²` sẽ không khớp nếu để `\b`).
+const AREA_RE = /\b(\d{2,3}(?:[.,]\d+)?)\s*(?:m2|m²|met\s*vuong|mv)(?![a-z0-9])/i
+/** Trần ngân sách: `3 tỷ`, `3.5 tỷ`, `900 triệu` (chạy trên chuỗi ĐÃ bỏ dấu). */
+const PRICE_RE = /\b(\d+(?:[.,]\d+)?)\s*(ty|trieu|tr)\b/i
+/**
+ * Câu nhờ tìm căn có từ đệm giữa động từ và "căn" — "tìm **giúp em** căn 70m² tầm 3 tỷ" từng rơi vào
+ * nhánh xã giao nên không trả về căn nào (lỗi người dùng báo). Đồng bộ mẫu với backend
+ * (`intents.wants_browse_units`), chỉ khác là TỪ CHỐI câu có "khách" chen giữa (đó là tra hồ sơ khách).
+ */
+const BROWSE_VERB_RE = /\b(tim|tra|kiem|xem|liet ke|loc|mo)\b[^.!?]{0,24}\b(can|ro hang|gio hang)\b/
+
+function parseArea(normalized: string): number | null {
+  const match = AREA_RE.exec(normalized)
+  if (!match) return null
+  const value = Number(match[1].replace(',', '.'))
+  return value >= 10 && value <= 500 ? value : null
+}
+
+function parseMaxPrice(normalized: string): number | null {
+  const match = PRICE_RE.exec(normalized)
+  if (!match) return null
+  const value = Number(match[1].replace(',', '.'))
+  const unit = match[2].toLowerCase()
+  return Math.round(value * (unit === 'ty' ? 1_000_000_000 : 1_000_000))
+}
 
 /** Bảng lệnh gạch chéo → câu lệnh tự nhiên (đồng bộ với `SLASH_COMMAND_MAP` phía backend). */
 const SLASH_HINTS: Array<[RegExp, (rest: string) => string]> = [
@@ -69,6 +101,9 @@ function parseIntent(rawMessage: string): Intent {
   const t = normalize(message)
   const unitMatch = UNIT_RE.exec(message)
   const bedrooms = /(\d)\s*(?:pn|phong ngu|ngu|br)\b/.exec(t)
+  const areaM2 = parseArea(t)
+  const maxPriceVnd = parseMaxPrice(t)
+  const base = { unitCode: unitMatch?.[1]?.toUpperCase() ?? null, areaM2, maxPriceVnd }
   const phone = /0\d{9,10}/.exec(message)
   let name = message
     .replace(/^(tạo|thêm|mở|nhập|lưu|đăng\s*ký)\s*(khách(\s*hàng)?(\s*mới)?|lead|hồ\s*sơ)\s*/i, '')
@@ -79,7 +114,7 @@ function parseIntent(rawMessage: string): Intent {
 
   // So khớp trên chuỗi đã bỏ dấu (t) — từ khoá ở dạng không dấu để tránh bẫy như backend `_has()`.
   if (t.includes('tao khach') || t.includes('them khach') || t.includes('khach moi') || t.includes('tao lead')) {
-    return { kind: 'customer', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: null, customerName: name }
+    return { kind: 'customer', ...base, bedrooms: null, customerName: name }
   }
   // Nhánh "hồ sơ đề xuất" đứng TRƯỚC nhánh "báo giá" — đồng bộ với thứ tự nhánh trong
   // `src/agents/copilot/intents.py::detect_intent` phía backend.
@@ -91,26 +126,27 @@ function parseIntent(rawMessage: string): Intent {
     t.includes('ho so trinh duyet') ||
     t.includes('chuan bi ho so')
   ) {
-    return {
-      kind: 'proposal',
-      unitCode: unitMatch?.[1]?.toUpperCase() ?? null,
-      bedrooms: bedrooms ? Number(bedrooms[1]) : null,
-      customerName: '',
-    }
+    return { kind: 'proposal', ...base, bedrooms: bedrooms ? Number(bedrooms[1]) : null, customerName: '' }
   }
   if (t.includes('bao gia') || t.includes('so sanh') || t.includes('phuong an') || t.includes('dong tien')) {
-    return { kind: 'scenarios', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: null, customerName: '' }
+    return { kind: 'scenarios', ...base, bedrooms: null, customerName: '' }
   }
   if (t.includes('soan tin') || t.includes('tin nhan')) {
-    return { kind: 'compose', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: null, customerName: '' }
+    return { kind: 'compose', ...base, bedrooms: null, customerName: '' }
   }
   if (t.includes('gio hang') || t.includes('ro hang') || bedrooms) {
-    return { kind: 'units', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: bedrooms ? Number(bedrooms[1]) : null, customerName: '' }
+    return { kind: 'units', ...base, bedrooms: bedrooms ? Number(bedrooms[1]) : null, customerName: '' }
+  }
+  // Câu nhờ tìm căn có từ đệm ("tìm giúp em căn 70m² tầm 3 tỷ") — không có từ khoá "giỏ hàng" nên trước
+  // đây rơi vào nhánh xã giao. Từ chối khi có "khách" chen giữa (đó là tra hồ sơ khách hàng).
+  const browse = BROWSE_VERB_RE.exec(t)
+  if (browse && !browse[0].includes('khach')) {
+    return { kind: 'units', ...base, bedrooms: bedrooms ? Number(bedrooms[1]) : null, customerName: '' }
   }
   if (t.includes('chinh sach') || t.includes('chiet khau') || t.includes('hieu luc') || t.includes('dieu')) {
-    return { kind: 'policy', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: null, customerName: '' }
+    return { kind: 'policy', ...base, bedrooms: null, customerName: '' }
   }
-  return { kind: 'smalltalk', unitCode: unitMatch?.[1]?.toUpperCase() ?? null, bedrooms: null, customerName: '' }
+  return { kind: 'smalltalk', ...base, bedrooms: null, customerName: '' }
 }
 
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')} ₫`
@@ -186,15 +222,63 @@ async function answerScenarios(unit: UnitSnapshot | null, policy: PolicyDocument
   return lines.join('\n')
 }
 
+/** Khoảng diện tích đang lọc (nới ±10% cho một con số đơn) — dùng cho cả câu trả lời và bộ lọc. */
+function areaWindow(intent: Intent): { min: number; max: number } | null {
+  if (!intent.areaM2) return null
+  return { min: intent.areaM2 * 0.9, max: intent.areaM2 * 1.1 }
+}
+
+const areaLabel = (value: number) => `${Math.round(value)}m²`
+/** Nhãn khoảng diện tích: `63–77m²` (đơn vị ghi MỘT lần, không lặp `m²` ở cả hai đầu). */
+const areaWindowLabel = (window: { min: number; max: number }) => `${Math.round(window.min)}–${Math.round(window.max)}m²`
+
+/** Phễu dữ liệu khi lọc rỗng — đồng bộ tinh thần với `inventory_funnel.render_empty_funnel` phía backend. */
+function emptyFunnelText(intent: Intent, citations: CopilotCitation[]) {
+  const available = UNITS_FIXTURE.filter((u) => u.status === 'AVAILABLE')
+  const histogram = new Map<number, number>()
+  for (const unit of available) histogram.set(unit.bedrooms, (histogram.get(unit.bedrooms) ?? 0) + 1)
+  const spread = [...histogram.entries()].sort((a, b) => a[0] - b[0]).map(([b, c]) => `${b}PN: ${c} căn`).join(', ')
+  const softest = [...available].sort((a, b) => a.listed_price_before_tax_vnd - b.listed_price_before_tax_vnd)[0]
+  const window = areaWindow(intent)
+  const nearest = window
+    ? [...available].filter((u) => Number(u.area_m2) > 0).sort((a, b) => Math.abs(a.area_m2 - intent.areaM2!) - Math.abs(b.area_m2 - intent.areaM2!))[0]
+    : undefined
+
+  const lines = ['Không có căn nào khớp đúng tiêu chí lọc.']
+  if (intent.maxPriceVnd) lines.push(`Tiêu chí ngân sách: tối đa ${vnd(intent.maxPriceVnd)} (giá niêm yết trước thuế).`)
+  if (window) lines.push(`Tiêu chí diện tích: ${areaWindowLabel(window)} (quanh ${intent.areaM2}m² khách nêu).`)
+  if (softest) {
+    lines.push(`Căn giá mềm nhất toàn giỏ: căn ${softest.unit_code} (${softest.area_m2}m², ${softest.project_name}) với giá ${vnd(softest.listed_price_before_tax_vnd)}.`)
+    citations.push({ policy_id: 'CATALOG-UNITS', section: `Căn ${softest.unit_code}`, quote: `${softest.bedrooms}PN · ${softest.area_m2}m² · ${vnd(softest.listed_price_before_tax_vnd)} · ${softest.status}`, source: 'CANONICAL_CATALOG' })
+  }
+  if (nearest) {
+    lines.push(`Căn gần khoảng diện tích này nhất: căn ${nearest.unit_code} (${nearest.area_m2}m², ${nearest.project_name}) — giá niêm yết ${vnd(nearest.listed_price_before_tax_vnd)}.`)
+    citations.push({ policy_id: 'CATALOG-UNITS', section: `Căn ${nearest.unit_code}`, quote: `${nearest.bedrooms}PN · ${nearest.area_m2}m² · ${vnd(nearest.listed_price_before_tax_vnd)} · ${nearest.status}`, source: 'CANONICAL_CATALOG' })
+  }
+  lines.push(`Toàn giỏ đang mở bán có ${available.length} căn (${spread}) — đây là số liệu của TOÀN GIỎ.`)
+  lines.push('Hướng tiếp theo: giữ nguyên tiêu chí hiện tại (diện tích/ngân sách) và xem phương án vốn tự có/vay cho căn gần nhất.')
+  lines.push('Hướng tiếp theo: nới khoảng diện tích hoặc ngân sách nếu khách linh hoạt.')
+  return lines.join('\n')
+}
+
 function answerUnits(intent: Intent, citations: CopilotCitation[]) {
   let pool = UNITS_FIXTURE.filter((u) => u.status === 'AVAILABLE')
   if (intent.unitCode) {
     const one = findUnit(intent.unitCode)
     pool = one ? [one] : []
-  } else if (intent.bedrooms) {
-    pool = pool.filter((u) => u.bedrooms === intent.bedrooms)
+  } else {
+    if (intent.bedrooms) pool = pool.filter((u) => u.bedrooms === intent.bedrooms)
+    if (intent.maxPriceVnd) pool = pool.filter((u) => u.listed_price_before_tax_vnd <= intent.maxPriceVnd!)
+    const window = areaWindow(intent)
+    if (window) pool = pool.filter((u) => u.area_m2 >= window.min && u.area_m2 <= window.max)
   }
-  if (!pool.length) return 'Dạ, hiện chưa có căn nào phù hợp tiêu chí trong giỏ hàng đang mở bán ạ.'
+  if (!pool.length) return emptyFunnelText(intent, citations)
+  // Khoảng diện tích đang lọc phải hiện trong câu trả lời: Sale cần biết vì sao căn 52m² không có mặt.
+  const criteria: string[] = []
+  if (intent.bedrooms) criteria.push(`phân khúc ${intent.bedrooms}PN`)
+  const window = areaWindow(intent)
+  if (window) criteria.push(`khớp diện tích ${areaWindowLabel(window)}`)
+  if (intent.maxPriceVnd) criteria.push(`trong ngân sách ${vnd(intent.maxPriceVnd)}`)
   const top = [...pool].sort((a, b) => a.listed_price_before_tax_vnd - b.listed_price_before_tax_vnd).slice(0, 3)
   for (const u of top) {
     citations.push({
@@ -205,7 +289,7 @@ function answerUnits(intent: Intent, citations: CopilotCitation[]) {
     })
   }
   return (
-    `Dạ, em tìm được ${top.length} căn phù hợp: ` +
+    `Dạ, em tìm được ${top.length} căn phù hợp${criteria.length ? ` (${criteria.join(', ')})` : ''}: ` +
     top.map((u) => `${u.unit_code} (${u.bedrooms}PN, ${u.area_m2}m², ${vnd(u.listed_price_before_tax_vnd)})`).join('; ') +
     '. Anh/chị muốn em tính phương án cho căn nào ạ?'
   )
