@@ -7,10 +7,16 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-import src.db.dns_patch  # noqa: F401 — Tự động phân giải DNS Supabase khi mạng Wi-Fi/trường học chặn
 from src.config import get_settings
+from src.db.dns_patch import apply_dns_patch
 
 settings = get_settings()
+
+# Fallback DNS cho Supabase pooler (mạng trường học/công ty chặn phân giải CNAME AWS). Bật có điều kiện:
+# `DB_DNS_FALLBACK=false` để tắt hẳn, và patch cũng tự bỏ qua nếu DATABASE_URL không trỏ tới Supabase —
+# vì nó đổi `socket.getaddrinfo` của toàn tiến trình.
+if settings.db_dns_fallback:
+    apply_dns_patch(settings.database_url)
 
 # Hỗ trợ PostgreSQL (asyncpg) hoặc SQLite (aiosqlite)
 db_url = settings.database_url

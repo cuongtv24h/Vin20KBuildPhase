@@ -1,6 +1,5 @@
 import logging
 import time
-from datetime import datetime
 from pathlib import Path
 
 from eval.rag.metrics_integrity import verify_cryptographic_integrity
@@ -9,8 +8,8 @@ from eval.rag.metrics_retrieval import calculate_clause_recall, calculate_confli
 from eval.rag.metrics_temporal import calculate_time_travel_leakage
 from eval.rag.reporter import ReportGenerator
 from eval.rag.scenarios import ScenarioLoader
-from src.services.rag.service import PolicyRAGService
 from src.models.pec_contracts import PolicyQuery
+from src.services.rag.service import PolicyRAGService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,13 +41,13 @@ class RAGEvaluator:
 
             # Run RAG using new PEC-RAG pipeline
             query_date_str = case.query_date
-            
+
             policy_query = PolicyQuery(
                 query_text=case.query_text,
                 transaction_date=query_date_str,
                 project_scope=None
             )
-            
+
             bundle, cert = self.rag_service.compile_and_retrieve_bundle(
                 policy_query=policy_query
             )
@@ -60,7 +59,7 @@ class RAGEvaluator:
             leakage = calculate_time_travel_leakage(bundle, case.expected_policy_ids)
             recall = calculate_clause_recall(bundle, case.expected_policy_ids)
             integrity = verify_cryptographic_integrity(bundle)
-            
+
             if case.is_conflict_test:
                 completeness = calculate_conflict_completeness(bundle, case.expected_policy_ids)
             else:

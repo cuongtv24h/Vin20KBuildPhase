@@ -146,8 +146,9 @@ export const leadHandlers = [
     } else if (actor && !isAdmin && owner !== actor.user_id) {
       throw forbidden(`chỉ ${owner} (người tạo) mới xoá được hồ sơ ${params.dossier_id}`)
     }
-    if (db.dossiers[index].status === 'CONVERTED_TO_QUOTE') {
-      throw transition('Hồ sơ đã chuyển thành báo giá — không thể xóa.')
+    // Khớp máy chủ thật: hồ sơ đã ra báo giá thì Sale không xoá được (báo giá mồ côi), ADMIN dọn được.
+    if (db.dossiers[index].status === 'CONVERTED_TO_QUOTE' && !isAdmin) {
+      throw transition('Hồ sơ đã chuyển thành báo giá — không thể xóa. Quản trị viên có thể xoá để dọn dữ liệu.')
     }
     db.dossiers.splice(index, 1)
     return { body: { deleted: true } }

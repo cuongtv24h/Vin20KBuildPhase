@@ -128,7 +128,7 @@ async def speak(
     cfg = get_tts_provider(provider_code)
     if cfg is None and provider_code:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=f"Nhà cung cấp TTS '{provider_code}' không có trong danh mục. Chọn lại trong thiết lập giọng đọc.",
         )
     if cfg is not None and cfg.mode == "browser":

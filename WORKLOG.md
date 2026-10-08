@@ -64,6 +64,7 @@
 |--------|------|--------|--------|------|
 | Trần Chí Vĩ | Đóng băng Data Contracts PEC-RAG (`PolicyAtom`, `PolicyEdge`, `EvidenceBundle`, `AbstentionCertificate`, `EvidenceItem`) | Done | `src/models/pec_contracts.py` | 3h |
 | Trần Chí Vĩ | Triển khai mock endpoint Pricing Service bắt buộc tiêu thụ verified EvidenceBundle | Done | `src/api/pricing_mock.py`, `src/main.py` | 2h |
+| _(cập nhật 2026-10-07)_ | Endpoint mock `/api/v1/pricing` ở dòng trên ĐÃ GỠ khỏi runtime (commit `1aa356c`) vì sản phẩm online chạy dữ liệu thật; Pricing Sidecar C-06 (`src/pricing_sidecar/`) và cầu nối `src/pricing/` vẫn giữ nguyên | Removed | — | — |
 | Trần Chí Vĩ | Tái cấu trúc thư mục RAG nội bộ tương ứng 5 sub-modules (compiler, retrieval, closure, verification, evaluation) | Done | `src/rag/` | 2h |
 | Trần Chí Vĩ | Xây dựng bộ dữ liệu Golden Queries kiểm thử chuẩn hóa | Done | `eval/golden_queries.json` | 1h |
 | Chung Văn Duy | Task 2.1: Triển khai Bước 1 & Bước 2 mô hình Additive Discount | Done | `src/pricing_sidecar/engine.py`, `tests/test_pricing_sidecar/test_engine.py` | 1.0h |

@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 
 from src.models.pec_contracts import EvidenceBundle
 
@@ -20,8 +19,8 @@ def calculate_time_travel_leakage(bundle: EvidenceBundle | None, expected_policy
             logger.error("Time-Travel Leakage detected: Retrieved rules when none were expected for this date.")
             return 1.0
         return 0.0
-        
+
     # In a full system we would verify the valid_from/valid_to of each atom in the bundle.
-    # But since PEC-RAG temporal filter drops them at step 1, if they made it here, they are assumed valid 
+    # But since PEC-RAG temporal filter drops them at step 1, if they made it here, they are assumed valid
     # unless we cross-check with a DB. For MVP eval, we assume 0 leakage if it passed the strict filter.
     return 0.0

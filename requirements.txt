@@ -2,56 +2,63 @@
 # PricePolicy AI Agent — Dependencies (theo kiến trúc TD-4.1)
 # Cấu trúc nhóm bám theo component: C-01..C-11 (docs/CodeBaseIndex.md)
 # Python 3.11 (phiên bản CI đang dùng)
+#
+# CHÍNH SÁCH PHIÊN BẢN: mỗi gói có chặn trên (<major kế tiếp) để `pip install` không âm thầm nhảy
+# sang bản đổi API — đã trả giá một lần: FastAPI 0.142 giữ router con dạng lazy nên không đếm route
+# bằng `len(app.routes)` được nữa, còn LangGraph 0.2 -> 1.x đổi API.
+# Bản chốt để deploy nằm ở `requirements.lock.txt` (sinh từ môi trường đã chạy 810 test + ruff sạch).
+# Nâng cấp có chủ đích: sửa khoảng ở đây -> cài lại -> chạy pytest + ruff -> sinh lại lock.
 # ============================================================
 
 # ---- Core API (FastAPI gateway — TD-4.4) ----
-fastapi>=0.115.0
-uvicorn[standard]>=0.34.0
-pydantic>=2.10.0
-pydantic-settings>=2.7.0
-python-dotenv>=1.0.0
-httpx>=0.28.0
-sse-starlette>=2.1.0  # C-01/C-09: SSE stream (quotes/pre-sales events, Last-Event-ID)
+fastapi>=0.115.0,<0.143
+uvicorn[standard]>=0.34.0,<0.55
+pydantic>=2.10.0,<3
+pydantic-settings>=2.7.0,<3
+python-dotenv>=1.0.0,<2
+httpx>=0.28.0,<0.29
+sse-starlette>=2.1.0,<4  # C-01/C-09: SSE stream (quotes/pre-sales events, Last-Event-ID)
 
 # ---- AI / LangChain (orchestrator C-01, pre-sales C-09, LLM adapter) ----
-langchain>=0.3.0
-langchain-openai>=0.3.0
-langgraph>=0.2.0
-langgraph-checkpoint-postgres>=2.0.0  # Spike 2: AsyncPostgresSaver persistent checkpointing
+langchain>=0.3.0,<2
+langchain-openai>=0.3.0,<2
+langgraph>=0.2.0,<2
+langgraph-checkpoint-postgres>=2.0.0,<4  # Spike 2: AsyncPostgresSaver persistent checkpointing
 
 # ---- PEC-RAG & Time-Travel Retrieval (C-02, C-03, C-04) ----
-numpy>=1.26.0
-llama-index-core>=0.11.0
-llama-index-vector-stores-postgres>=0.2.0
+numpy>=1.26.0,<3
+llama-index-core>=0.11.0,<0.15
+llama-index-vector-stores-postgres>=0.2.0,<0.10
 
 # ---- Persistence: Supabase PostgreSQL 16 + pgvector (TD-4.2 — C-02/C-03/C-07) ----
-sqlalchemy[asyncio]>=2.0.36  # async engine + AsyncPostgresSaver checkpoint (Spike 2)
-aiosqlite>=0.20.0  # async SQLite driver cho dev/test offline (Spike 2)
-asyncpg>=0.30.0  # driver PostgreSQL async (quản lý connection pool)
-psycopg[binary,pool]>=3.2.0  # driver sync/pool cho LangGraph AsyncPostgresSaver
-psycopg2-binary>=2.9.9
-alembic>=1.14.0  # migration schema (src/db/migrations/)
-pgvector>=0.3.6  # dtype vector cho time-travel semantic search (HNSW, 1536 dims)
+sqlalchemy[asyncio]>=2.0.36,<2.1  # async engine + AsyncPostgresSaver checkpoint (Spike 2)
+aiosqlite>=0.20.0,<0.23  # async SQLite driver cho dev/test offline (Spike 2)
+asyncpg>=0.30.0,<0.33  # driver PostgreSQL async (quản lý connection pool)
+psycopg[binary,pool]>=3.2.0,<3.4  # driver sync/pool cho LangGraph AsyncPostgresSaver
+psycopg2-binary>=2.9.9,<3
+alembic>=1.14.0,<2  # migration schema (src/db/migrations/)
+pgvector>=0.3.6,<0.6  # dtype vector cho time-travel semantic search (HNSW, 1536 dims)
 
 # ---- Outbox Worker (transactional outbox: PDF + SSE dispatch — TD-4.1) ----
-redis>=5.2.0
-arq>=0.26.1  # task queue bất đồng bộ (src/worker/)
+redis>=5.2.0,<6
+arq>=0.26.1,<0.29  # task queue bất đồng bộ (src/worker/)
 
 # ---- Bảo mật & Ký số (C-05: HITL Ed25519 — RFC 8032) ----
-cryptography>=42.0.0  # Spike 3: Ed25519 asymmetric signing & verification
-pynacl>=1.5.0  # Ed25519 verify/dev-sign; production ký qua KMS server (SIGNING_KMS_URL)
+cryptography>=42.0.0,<51  # Spike 3: Ed25519 asymmetric signing & verification
+pynacl>=1.5.0,<2  # Ed25519 verify/dev-sign; production ký qua KMS server (SIGNING_KMS_URL)
 
 # ---- PDF Báo giá (worker: render + mã QR kiểm thực độc lập) ----
-reportlab>=4.2.0
-qrcode>=8.0
+reportlab>=4.2.0,<6
+qrcode>=8.0,<9
 
 # ---- Pricing Sidecar (C-06) ----
 # KHÔNG cần lib ngoài: 100% decimal.Decimal chuẩn (prec=28), giao tiếp qua UDS
 
 # ---- Dev tools ----
-ruff>=0.8.0
-pytest>=8.0.0
-pytest-asyncio>=0.24.0
+ruff>=0.8.0,<0.17
+pytest>=8.0.0,<10
+pytest-asyncio>=0.24.0,<2
+pytest-cov>=6.0.0,<8  # docs/guide/chapter-07,08 hướng dẫn đo coverage bằng --cov=src
 
 # ---- Tuỳ chọn — bật đúng lúc implement (đánh dấu trong CodeBaseIndex.md) ----
-hypothesis>=6.100.0
+hypothesis>=6.100.0,<7

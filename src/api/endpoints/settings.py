@@ -214,7 +214,7 @@ async def update_tts_settings(
     try:
         merged = validate_tts_settings(changes, base=_without_missing_provider(base))
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     merged.pop("warning", None)
     merged.pop("estimated_cost_full_turn", None)
 
@@ -247,7 +247,7 @@ async def submit_tts_feedback(
 ) -> TtsFeedbackResponse:
     """Ghi nhận phản hồi giọng đọc — dữ liệu để chọn giọng theo thực tế sử dụng."""
     if payload.rating not in (1, -1):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="rating chỉ nhận 1 hoặc -1.")
+        raise HTTPException(status_code=422, detail="rating chỉ nhận 1 hoặc -1.")
 
     base = default_tts_settings()
     default_override = await _load_scope(session, DEFAULT_SCOPE)

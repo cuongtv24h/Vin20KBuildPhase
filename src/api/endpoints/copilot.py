@@ -108,7 +108,7 @@ async def copilot_chat(req: CopilotChatRequest) -> CopilotChatResponse:
     user_msg = req.message.strip()
     if not user_msg:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail="Tin nhắn không được để trống.",
         )
 

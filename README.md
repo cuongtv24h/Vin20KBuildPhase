@@ -85,8 +85,9 @@ P-096/
 │   │   ├── graph.py         # StateGraph orchestration
 │   │   └── state.py         # State schema
 │   ├── api/
-│   │   ├── routes.py        # REST API endpoints
-│   │   └── pricing_mock.py  # Consumer xác thực EvidenceBundle
+│   │   ├── routes.py        # REST API endpoints (aggregator: 14 sub-router + base router)
+│   │   ├── deps.py          # Principal/token — RBAC & SoD
+│   │   └── endpoints/       # leads, quotes, copilot, policies, admin_cp, tts, llm_admin, ...
 │   ├── db/
 │   │   ├── session.py       # Async SQLAlchemy session
 │   │   ├── models.py        # Bảng policy_nodes, policy_edges

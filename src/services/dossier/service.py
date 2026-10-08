@@ -338,6 +338,9 @@ class PreSalesDossierService:
         đi qua cùng một cửa. Trước đây hàm này xoá vô điều kiện nên bất kỳ ai cũng xoá được khách của
         người khác, chỉ cần biết `dossier_id`.
 
+        Hồ sơ đã chuyển thành báo giá (`quote_id` khác rỗng) thì Sale KHÔNG xoá được (409): báo giá là chứng
+        từ phải truy được về khách, xoá hồ sơ sẽ để lại báo giá mồ côi. ADMIN vẫn xoá được để dọn dữ liệu.
+
         Hồ sơ CHƯA ghi người tạo (`created_by` NULL — dữ liệu cũ, hoặc hồ sơ Pre-Sales do khách tự đồng
         ý bàn giao) thì **chỉ quản trị viên** xoá được (`allow_any=True`). Trước đây nhóm này được coi là
         "vô chủ nên ai đăng nhập cũng xoá được", nhưng trên DB vận hành KHÔNG hồ sơ nào có `created_by`
@@ -381,6 +384,22 @@ class PreSalesDossierService:
                     details={
                         "dossier_id": dossier_id,
                         "created_by": owner,
+                        "requested_by": actor_id,
+                    },
+                )
+            converted_quote = (dossier.quote_id or "").strip()
+            if converted_quote:
+                raise DomainError(
+                    ErrorCode.INVALID_STATE_TRANSITION,
+                    (
+                        f"Hồ sơ {dossier_id} đã chuyển thành báo giá {converted_quote} nên không xoá được — "
+                        "xoá sẽ để lại báo giá mồ côi không truy được nguồn khách. "
+                        "Anh/chị huỷ báo giá đó trước, hoặc nhờ quản trị viên xử lý."
+                    ),
+                    http_status=409,
+                    details={
+                        "dossier_id": dossier_id,
+                        "quote_id": converted_quote,
                         "requested_by": actor_id,
                     },
                 )

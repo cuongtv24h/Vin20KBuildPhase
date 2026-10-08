@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./data/app.db"
 
+    #: Fallback DNS cho Supabase pooler khi mạng nội bộ chặn phân giải (`src/db/dns_patch.py`).
+    #: Mặc định BẬT để không đổi hành vi deploy hiện tại; đặt `DB_DNS_FALLBACK=false` khi DNS thông suốt.
+    #: Patch chỉ thực sự kích hoạt nếu `DATABASE_URL` trỏ tới Supabase.
+    db_dns_fallback: bool = True
+
     # LangGraph persistent checkpointing (INV-RT-04 — Spike 2)
     checkpoint_db_uri: str | None = None
     use_postgres_checkpointer: bool = False

@@ -66,7 +66,7 @@
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │  FastAPI  src/main.py  (CorrelationIdMiddleware → CORS → DomainError handler)  │
 │  routers: src/api/routes.py (aggregator — 14 router con)                        │
-│           15 sub-router trong src/api/endpoints/*                              │
+│           14 module trong src/api/endpoints/* (+ base router = 15 lần mount)    │
 └───────┬───────────────┬────────────────┬───────────────┬───────────────┬──────┘
         │               │                │               │               │
         ▼               ▼                ▼               ▼               ▼
@@ -120,7 +120,8 @@ Vin20KBuildPhase/
 │   ├── contracts/              # enums, errors (23 ErrorCode), events (SSE), units, common
 │   ├── db/
 │   │   ├── models.py           # 24 bảng SQLAlchemy (623 dòng)
-│   │   ├── session.py          # async engine/session factory
+│   │   ├── session.py          # async engine/session factory (+ bật fallback DNS có điều kiện)
+│   │   ├── dns_patch.py        # fallback DNS Supabase pooler (DB_DNS_FALLBACK, IP tĩnh ghi đè được)
 │   │   ├── init_db.py          # tạo schema + pgvector HNSW + btree + FTS (Postgres-only)
 │   │   └── repositories/       # quote_repository, audit_repository, outbox_repository
 │   ├── models/                 # Pydantic schemas + PEC contracts + rag_schemas
@@ -154,7 +155,8 @@ Vin20KBuildPhase/
 ├── docs/                       # guide 10 chương, team_report, RASOAT, arch diagram, UI mockup
 ├── dataset/fixtures/golden_scenarios.json
 ├── upgrade/                    # PLAN.md, CHANGELOG.md
-├── requirements.txt · Dockerfile · docker-compose.yml · Makefile · run.py · ruff.toml
+├── requirements.txt (khoảng phiên bản + chặn trên) · requirements.lock.txt (bản chốt deploy)
+├── Dockerfile · docker-compose.yml · Makefile · run.py · ruff.toml
 └── .github/workflows/ci.yml    # 3 job: python, deploy-scripts, frontend
 ```
 
@@ -187,7 +189,7 @@ Vin20KBuildPhase/
 
 ### 4.3 API layer
 
-`src/api/routes.py` mount 15 sub-router; 6 router được thêm prefix `/api/v1` tại aggregator
+`src/api/routes.py` mount 14 sub-router nghiệp vụ + base router (15 lần `include_router`); 6 router được thêm prefix `/api/v1` tại aggregator
 (`llm_admin`, `tts_admin`, `tts_speak`, `settings`, `copilot`, `policies`).
 
 | Router | Prefix | #op | Nội dung chính |
@@ -237,6 +239,10 @@ in-memory (`_IDEMPOTENCY_STORE`) trả **409** khi payload mismatch + header `Id
 | Admin | `users` (role), `tts_settings`, `tts_feedback`, `tts_providers`, `llm_providers` |
 
 - `session.py`: async engine + `async_sessionmaker` (`expire_on_commit=False`); dev dùng `aiosqlite`.
+- `dns_patch.py`: vá `socket.getaddrinfo` **toàn tiến trình** nên chỉ kích hoạt khi `DB_DNS_FALLBACK=true`
+  (mặc định true) VÀ `DATABASE_URL` trỏ tới Supabase; khi phải dùng DoH/IP tĩnh thì log WARNING nêu rõ
+  IP đã dùng. IP tĩnh ghi đè bằng `DB_DNS_STATIC_IPS` (AWS đổi dải IP không cần sửa code).
+  Test: `tests/test_db/test_dns_patch.py` (7 ca).
 - `init_db.py`: tạo schema rồi thêm **pgvector HNSW** (`m=16`, `ef_construction=64`), btree temporal,
   GIN full-text — **chỉ chạy trên Postgres** (SQLite sẽ bỏ qua/lỗi nếu gọi trực tiếp).
 - `repositories/`: `quote_repository` (supersede `{quote_id}-V{n}`), `audit_repository` (append-only),
@@ -399,6 +405,8 @@ prod → `/api/v1`; timeout 10s, SSE idle 20s.
 **Chạy local:**
 ```bash
 python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
+# Deploy thì cài đúng bộ đã kiểm chứng (tránh mỗi máy một bản FastAPI/LangGraph):
+#   pip install -r requirements.lock.txt
 cp .env.example .env
 python -m src.db.init_db
 uvicorn src.main:app --port 8000        # hoặc: make run

@@ -1,7 +1,7 @@
 """Quy tắc "Sale chỉ được xoá khách hàng do chính mình tạo ra" (C-10 · CRM).
 
 Trước đây `DELETE /api/v1/leads/{dossier_id}` xoá vô điều kiện: ai biết mã hồ sơ cũng xoá được khách
-của người khác. Bộ test này chốt lại 5 lớp bảo vệ, đúng theo yêu cầu người dùng:
+của người khác. Bộ test này chốt lại 6 lớp bảo vệ, đúng theo yêu cầu người dùng:
 
 1. Không có phiên đăng nhập → 401 (không dùng principal mặc định cho thao tác phá huỷ dữ liệu).
 2. Sale xoá khách **do mình tạo** → 200.
@@ -11,6 +11,7 @@ của người khác. Bộ test này chốt lại 5 lớp bảo vệ, đúng the
    có `created_by` nên coi như toàn bộ khách hàng đều bị bỏ ngỏ.
 5. ADMIN cấp chủ sở hữu bằng `POST /api/v1/leads/{id}/assign-sale`: gán Sale phụ trách và đóng dấu người
    tạo khi hồ sơ còn vô chủ; KHÔNG ghi đè người tạo đã có (không ai cướp được hồ sơ của người khác).
+6. Hồ sơ ĐÃ chuyển thành báo giá (`quote_id` khác rỗng) → 409 với Sale (kể cả người tạo), ADMIN dọn được.
 """
 
 from __future__ import annotations
@@ -250,6 +251,33 @@ async def test_assign_missing_dossier_is_rejected(client) -> None:
     )
     assert response.status_code in (400, 404), response.text
     assert response.json()["detail"]["error_code"] == ErrorCode.NOT_FOUND.value
+
+
+@pytest.mark.asyncio
+async def test_converted_dossier_is_not_deletable_by_sale(client) -> None:
+    """Hồ sơ đã chuyển thành báo giá: chính người tạo cũng không xoá được (409) — ADMIN thì dọn được.
+
+    Lý do: báo giá là chứng từ phải truy ngược được về khách. Xoá hồ sơ sẽ để lại `quote_id` mồ côi,
+    đúng tình trạng bản mock đã chặn từ trước còn backend thật thì không (lệch parity).
+    """
+    dossier_id = await _create_dossier(client, SALE_A, "Khách đã chuyển báo giá")
+    converted = await client.post(
+        f"/api/v1/leads/{dossier_id}/convert-to-quote", json={}, headers=_headers(SALE_A)
+    )
+    assert converted.status_code == 200, converted.text
+
+    owner_delete = await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(SALE_A))
+    assert owner_delete.status_code == 409, owner_delete.text
+    detail = owner_delete.json()["detail"]
+    assert detail["error_code"] == ErrorCode.INVALID_STATE_TRANSITION.value
+    assert detail["details"]["quote_id"], "Thông báo phải nêu báo giá đang gắn với hồ sơ"
+    assert detail["details"]["requested_by"] == SALE_A[0]
+
+    # Hồ sơ vẫn còn nguyên để đối soát với báo giá.
+    assert (await client.get(f"/api/v1/leads/{dossier_id}")).status_code == 200
+
+    admin_delete = await client.delete(f"/api/v1/leads/{dossier_id}", headers=_headers(ADMIN))
+    assert admin_delete.status_code == 200, admin_delete.text
 
 
 @pytest.mark.asyncio

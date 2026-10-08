@@ -338,6 +338,11 @@ Toàn bộ chỉ số được kiểm chứng độc lập thông qua bộ công
 
 ### 6.2 Kết Quả Kiểm Thử Đơn Vị Tự Động (Unit Test Suite): **35/35 PASSED**
 
+> Ghi chú cập nhật 2026-10-08: khối output bên dưới là bản chạy tại thời điểm báo cáo. Hai test
+> `test_pricing_mock_rejects_unverified_bundle` / `test_pricing_mock_accepts_verified_bundle` không còn tồn tại
+> vì endpoint mock `/api/v1/pricing` đã gỡ khỏi runtime (commit `1aa356c`). Bộ test hiện hành lớn hơn nhiều:
+> `.venv/bin/python -m pytest -q` → 810 passed.
+
 ```text
 ============================= test session starts ==============================
 platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0

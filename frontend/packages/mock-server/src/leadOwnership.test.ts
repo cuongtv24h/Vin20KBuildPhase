@@ -133,6 +133,26 @@ describe('Quyền sở hữu hồ sơ khách hàng', () => {
     await expectApiError(api.leads.delete(dossierId), 403, 'UNAUTHORIZED_ACCESS')
   })
 
+  it('Hồ sơ đã chuyển báo giá: Sale không xoá được (409), ADMIN dọn được', async () => {
+    await loginAsAdmin()
+    const dossierId = await seedOwnerlessDossier('Khách đã ra báo giá')
+    await api.leads.assignSale(dossierId, 'USR-SALE-002')
+
+    // Giả lập trạng thái đã chuyển báo giá (luồng convert đầy đủ nằm ở scenarios.test.ts).
+    const db = await getDb()
+    const row = db.dossiers.find((d) => d.dossier_id === dossierId)!
+    row.status = 'CONVERTED_TO_QUOTE'
+    row.converted_quote_id = 'Q-2026-0001'
+    commit()
+
+    await loginAs(SALE_B)
+    await expectApiError(api.leads.delete(dossierId), 409, 'INVALID_STATE_TRANSITION')
+
+    await loginAs(ADMIN_EMAIL)
+    await api.leads.delete(dossierId)
+    expect((await api.leads.list()).some((d) => d.dossier_id === dossierId)).toBe(false)
+  })
+
   it('Hồ sơ Sale tự tạo thì ghi nhận người tạo ngay và Sale đó xoá được', async () => {
     await loginAs(SALE_B)
     const created = await api.leads.create({ customer_name: 'Khách của Trang', customer_phone: '0908 000 111' })

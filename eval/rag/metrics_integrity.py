@@ -14,6 +14,6 @@ def verify_cryptographic_integrity(bundle: EvidenceBundle | None) -> float:
 
     if bundle.decision_status == EvidenceDecisionStatus.VERIFIED and bundle.canonical_bundle_hash:
         return 1.0
-        
+
     logger.error("Integrity Violation: Bundle is not VERIFIED or missing hash.")
     return 0.0

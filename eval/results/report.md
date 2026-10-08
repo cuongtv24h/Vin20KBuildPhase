@@ -23,6 +23,9 @@ Toàn bộ các chỉ số được đo lường tự động thông qua bộ k�
 
 Toàn bộ **35 bài test chuyên sâu** (không trùng lặp) bao phủ toàn diện từ tầng Agent, API, Compliance Gate đến các module RAG, Table Serialization, Footnote Extraction và Evidence Linker:
 
+> Ghi chú cập nhật 2026-10-08: output dưới đây là bản chạy cũ. Hai test `test_pricing_mock_*` không còn
+> tồn tại (endpoint mock `/api/v1/pricing` đã gỡ — commit `1aa356c`). Bộ test hiện hành: 810 passed.
+
 ```text
 ============================= test session starts ==============================
 platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0

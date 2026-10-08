@@ -337,7 +337,7 @@ async def publish_policy(
     gate = _run_publish_gate(request.policy_id, request.version, [])
     if request.enforce_test_gate and not gate.can_publish:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail={
                 "code": "POLICY_TEST_GATE_FAILED",
                 "message": "Văn bản chưa vượt qua cổng kiểm thử trước ban hành.",

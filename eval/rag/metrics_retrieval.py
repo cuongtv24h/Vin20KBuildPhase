@@ -1,4 +1,5 @@
-from src.models.pec_contracts import EvidenceBundle, EvidenceDecisionStatus
+from src.models.pec_contracts import EvidenceBundle
+
 
 def calculate_clause_recall(bundle: EvidenceBundle | None, expected_policy_ids: list[str]) -> float:
     """
@@ -6,12 +7,12 @@ def calculate_clause_recall(bundle: EvidenceBundle | None, expected_policy_ids: 
     """
     if not expected_policy_ids:
         return 1.0 if not bundle or not bundle.applied_rules else 0.0
-        
+
     if not bundle:
         return 0.0
 
     expected_set = set(expected_policy_ids)
-    
+
     # Extract unique base policy IDs from atom_ids (e.g., 'POL-2026-VLF-GEN_chunk_1' -> 'POL-2026-VLF-GEN')
     retrieved_policies = set()
     for rule in bundle.applied_rules:
@@ -27,7 +28,7 @@ def calculate_clause_recall(bundle: EvidenceBundle | None, expected_policy_ids: 
     for expected_id in expected_set:
         if any(expected_id in retrieved_id for retrieved_id in retrieved_policies):
             matched_count += 1
-            
+
     return matched_count / len(expected_set)
 
 
@@ -38,10 +39,10 @@ def calculate_conflict_completeness(bundle: EvidenceBundle | None, expected_poli
     """
     if not bundle:
         return 0.0
-    
+
     # If it's a conflict test, we should have conflict pairs in the report
     if bundle.conflict_report.status == "CONFLICT_DETECTED" and len(bundle.conflict_report.pairs) > 0:
         return 1.0
-        
+
     # Fallback to recall if no explicit conflict was flagged but rules were retrieved
     return calculate_clause_recall(bundle, expected_policy_ids)
