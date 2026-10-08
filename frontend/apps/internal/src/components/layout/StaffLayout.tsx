@@ -1,13 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { ClipboardCheck, FilePlus2, FileStack, FlaskConical, Gauge, Inbox, LogOut, Menu, MessageSquare, ScrollText, ShieldCheck, Sparkles, PanelLeftClose, PanelLeftOpen, Users, type LucideIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '@pricepolicy/api-client/client'
+import { ACTIVE_CONVERSATION_STORAGE_KEY, copilotChatStore } from '@pricepolicy/api-client/copilotChatState'
 import type { UserRole } from '@pricepolicy/api-client/contracts'
 import { useLeads, useQuotes } from '@pricepolicy/api-client/hooks'
 import { useSessionStore } from '@/auth/sessionStore'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { Button } from '@pricepolicy/ui/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@pricepolicy/ui/components/ui/dialog'
 import { ROLE_LABEL } from '@pricepolicy/ui/lib/labels'
 import { MANAGER_QUEUE } from '@pricepolicy/ui/lib/quoteRules'
 import { cn } from '@pricepolicy/ui/lib/utils'
@@ -70,6 +72,7 @@ export function StaffLayout() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   // Thu gọn sidebar (chỉ desktop) — nhớ lựa chọn giữa các lần mở app.
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -99,11 +102,37 @@ export function StaffLayout() {
     } finally {
       clearSession()
       queryClient.clear()
+      // Đăng xuất: xoá cả khung chat Copilot đang giữ trong bộ nhớ/sessionStorage — người đăng nhập kế tiếp
+      // (hoặc chính mình đăng nhập lại) không được thấy cuộc chat của phiên trước.
+      copilotChatStore.reset()
+      try {
+        window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY)
+      } catch {
+        /* chế độ riêng tư: bỏ qua */
+      }
       navigate('/login', { replace: true })
     }
   }
 
   const location = useLocation()
+
+  // Rời trang Trợ lý Copilot sang trang khác: cuộc chat vừa rồi đã được server lưu vào Lịch sử sau mỗi
+  // lượt, nên chỉ cần gỡ nó khỏi khung chat — quay lại sẽ là một cuộc trò chuyện mới, cuộc cũ mở lại
+  // từ nút "Lịch sử". (Đặt ở layout thay vì cleanup của trang để StrictMode/F5 không xoá nhầm.)
+  const prevPathRef = useRef(location.pathname)
+  useEffect(() => {
+    const prev = prevPathRef.current
+    prevPathRef.current = location.pathname
+    const wasInWorkspace = prev.startsWith('/sale/workspace')
+    const stillInWorkspace = location.pathname.startsWith('/sale/workspace')
+    if (!wasInWorkspace || stillInWorkspace) return
+    copilotChatStore.startNewSession()
+    try {
+      window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY)
+    } catch {
+      /* chế độ riêng tư: bỏ qua */
+    }
+  }, [location.pathname])
 
   // Đóng drawer bằng Esc (trợ năng bàn phím).
   useEffect(() => {
@@ -226,7 +255,10 @@ export function StaffLayout() {
         <div className={cn('flex gap-1', compact ? 'flex-col items-start' : 'items-center justify-between')}>
           <button
             type="button"
-            onClick={handleLogout}
+            onClick={() => {
+              setMobileOpen(false)
+              setLogoutConfirmOpen(true)
+            }}
             title="Đăng xuất"
             className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-sidebar-muted transition-colors hover:bg-sidebar-active hover:text-sidebar-foreground"
           >
@@ -299,6 +331,36 @@ export function StaffLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Xác nhận đăng xuất: khung giữa màn hình, tránh bấm nhầm làm mất phiên đang làm dở */}
+      <Dialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
+        <DialogContent className="max-w-sm text-center">
+          <DialogHeader className="items-center text-center">
+            <span aria-hidden="true" className="mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <LogOut className="h-5 w-5" />
+            </span>
+            <DialogTitle className="text-xl">Đăng xuất?</DialogTitle>
+            <DialogDescription>
+              Bạn đang đăng nhập với tài khoản <strong className="text-foreground">{session?.user.full_name}</strong>. Bạn có chắc muốn đăng xuất khỏi hệ thống không?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center">
+            <Button type="button" variant="outline" onClick={() => setLogoutConfirmOpen(false)} autoFocus>
+              Ở lại
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setLogoutConfirmOpen(false)
+                void handleLogout()
+              }}
+            >
+              <LogOut /> Đăng xuất
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

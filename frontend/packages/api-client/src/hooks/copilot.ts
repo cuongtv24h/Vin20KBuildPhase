@@ -22,6 +22,15 @@ export interface CopilotContext {
   projectId?: string | null
 }
 
+/** Tuỳ chọn riêng cho một lượt gửi. */
+export interface CopilotSendOptions {
+  /**
+   * Gọi đúng một lần khi lượt có câu trả lời cuối — **kể cả khi trang đã bị rời đi** (stream vẫn chạy
+   * tiếp ở nền). Dùng để ghi câu trả lời vào lịch sử mà không phụ thuộc component còn sống hay không.
+   */
+  onFinal?: (final: CopilotFinalPayload) => void
+}
+
 export interface CopilotTurnState {
   steps: CopilotReasoningStep[]
   final: CopilotFinalPayload | null
@@ -50,7 +59,8 @@ const initialState: CopilotTurnState = {
  * - `send()` mở SSE POST tới `/copilot/chat/stream`, cập nhật `steps` theo từng frame
  *   (thought → action → observation → final) để UI vẽ timeline thật.
  * - SSE lỗi giữa chừng → tự fallback sang `POST /copilot/chat` (không stream).
- * - `cancel()` huỷ khi Sale gửi câu mới hoặc unmount.
+ * - `cancel()` huỷ khi Sale gửi câu mới. Rời trang KHÔNG huỷ: lượt vẫn chạy tới khi có câu trả lời và
+ *   `onFinal` ghi nó vào lịch sử.
  */
 export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
   const [state, setState] = useState<CopilotTurnState>(initialState)
@@ -63,7 +73,7 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
   }, [])
 
   const fallbackToJson = useCallback(
-    async (message: string, context: CopilotContext) => {
+    async (message: string, context: CopilotContext, options: CopilotSendOptions = {}) => {
       try {
         const response = await api.copilot.chat({
           message,
@@ -80,6 +90,7 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
           steps: response.reasoning?.length ? response.reasoning : s.steps,
           final: response,
         }))
+        options.onFinal?.(response)
       } catch (error) {
         setState((s) => ({
           ...s,
@@ -92,7 +103,7 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
   )
 
   const send = useCallback(
-    (message: string, context: CopilotContext = {}) => {
+    (message: string, context: CopilotContext = {}, options: CopilotSendOptions = {}) => {
       const text = message.trim()
       if (!text) return
       cancelRef.current?.()
@@ -125,6 +136,7 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
             return
           case 'apply-final': {
             const payload = (event ?? {}) as CopilotFinalPayload & { mode?: string }
+            options.onFinal?.(payload)
             setState((s) => ({ ...s, streaming: false, final: payload, degraded: payload.mode === 'offline_react' }))
             return
           }
@@ -138,7 +150,7 @@ export function useCopilotTurn(history: CopilotChatHistoryItem[] = []) {
             }))
             return
           case 'fallback-json':
-            void fallbackToJson(text, context)
+            void fallbackToJson(text, context, options)
             return
           default:
             return
