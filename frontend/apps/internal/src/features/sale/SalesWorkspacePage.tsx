@@ -1140,20 +1140,27 @@ export function SalesWorkspacePage() {
       showToast('Trợ lý đang trả lời — anh/chị đợi một chút rồi mở phiên mới.')
       return
     }
-    copilotChatStore.startNewSession()
-    creatingSessionRef.current = null
-    rememberConversationId(null)
-    loadedConversationRef.current = null
-    setFailedTurn(null)
-    // Đang ở một hội thoại mới TINH (chưa có lượt nào trên máy chủ) ⇒ không tạo thêm hội thoại rỗng,
-    // tránh Lịch sử đầy các cuộc "Cuộc trò chuyện mới" giống nhau khi Sale bấm nút vài lần.
-    if (conversationId && conversation.data && conversation.data.messages.length === 0) {
+    // Kiểm tra "đã ở hội thoại mới" TRƯỚC khi xoá phiên. `startNewSession()` bỏ id + tăng epoch nên mọi
+    // biến của lần render cũ (`conversationId`) đều lỗi thời: phải đọc store/ref mới nhất. Thứ tự sai sẽ
+    // vừa mồ côi cuộc rỗng trên máy chủ vừa không tạo cuộc mới ⇒ Lịch sử đầy "Cuộc trò chuyện mới" trùng.
+    const snapshot = copilotChatStore.getSnapshot()
+    const latestId = snapshot.conversationId ?? conversationIdRef.current
+    const alreadyPristine =
+      (Boolean(latestId) && conversation.data?.messages.length === 0) || (!latestId && snapshot.items.length === 0)
+    if (alreadyPristine) {
+      setFailedTurn(null)
       copilot.reset()
       setInputVal('')
       inputTextAreaRef.current?.focus()
       showToast('Anh/chị đang ở hội thoại mới — cứ đặt câu hỏi đầu tiên nhé.')
       return
     }
+    copilotChatStore.startNewSession()
+    conversationIdRef.current = null
+    creatingSessionRef.current = null
+    rememberConversationId(null)
+    loadedConversationRef.current = null
+    setFailedTurn(null)
     copilot.reset()
     setInputVal('')
     try {
